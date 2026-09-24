@@ -1,0 +1,61 @@
+import { defineRpc } from "@getpaseo/plugin";
+import { z } from "zod";
+import {
+  boardSchema,
+  groupOrderSchema,
+  groupsSchema,
+  settingsSchema,
+  stageSchema,
+  startSchema,
+} from "./model";
+
+export const snapshotRpc = defineRpc({
+  name: "workboard.snapshot",
+  input: z.object({}),
+  output: boardSchema,
+});
+export const mutationSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("create"),
+    title: z.string().trim().min(1).max(1000),
+    description: z.string().max(50000).default(""),
+    projectId: z.string().nullable().default(null),
+    stage: stageSchema.optional(),
+  }),
+  z.object({
+    action: z.literal("edit"),
+    taskId: z.string(),
+    updatedAt: z.string(),
+    title: z.string().trim().min(1).max(1000),
+    description: z.string().max(50000),
+    projectId: z.string().nullable(),
+  }),
+  z.object({ action: z.literal("start"), ...startSchema.shape }),
+  z.object({
+    action: z.literal("stage"),
+    taskId: z.string(),
+    stage: stageSchema,
+    expectedLabels: z.array(z.string()),
+  }),
+  z.object({ action: z.literal("archive-draft"), taskId: z.string() }),
+  z.object({
+    action: z.literal("reorder-groups"),
+    expectedGroupOrder: groupOrderSchema,
+    groupOrder: groupOrderSchema,
+  }),
+  z.object({
+    action: z.literal("settings"),
+    revision: z.number(),
+    expectedSettings: settingsSchema
+      .extend({ groups: groupsSchema })
+      .strict()
+      .optional(),
+    settings: settingsSchema.extend({ groups: groupsSchema }).strict(),
+  }),
+]);
+export type Mutation = z.infer<typeof mutationSchema>;
+export const mutateRpc = defineRpc({
+  name: "workboard.mutate",
+  input: mutationSchema,
+  output: boardSchema,
+});

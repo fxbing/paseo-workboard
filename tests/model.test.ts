@@ -1,0 +1,76 @@
+import { migrateData } from "../shared/migrations";
+import { describe, expect, it } from "vitest";
+import {
+  DEFAULT_LABELS,
+  DEFAULT_GROUPS,
+  resolveStage,
+  archiveDueAt,
+  isArchiveDue,
+  settingsSchema,
+} from "../shared/model";
+
+describe("task stages and conversation-based expiry", () => {
+  it("does not infer business completion from an absent label", () => {
+    expect(resolveStage([], DEFAULT_GROUPS)).toBe("inbox");
+    expect(resolveStage(["task:todo"], DEFAULT_GROUPS)).toBe("todo");
+    expect(resolveStage(["task:inbox"], DEFAULT_GROUPS)).toBe("inbox");
+    expect(resolveStage(["task:inbox", "task:todo"], DEFAULT_GROUPS)).toBe(
+      "conflict",
+    );
+    expect(resolveStage(["task:done", "priority:high"], DEFAULT_GROUPS)).toBe(
+      "done",
+    );
+    expect(resolveStage(["task:done", "task:todo"], DEFAULT_GROUPS)).toBe(
+      "conflict",
+    );
+    expect(resolveStage([" TASK:DONE "], DEFAULT_GROUPS)).toBe("done");
+    expect(resolveStage(["TASK:DONE", "Task:Todo"], DEFAULT_GROUPS)).toBe(
+      "conflict",
+    );
+  });
+  it("uses the last conversation and a strict 30-day boundary", () => {
+    const conversation = "2026-09-01T10:00:00.000Z";
+    const boundary = Date.parse("2026-10-01T10:00:00.000Z");
+    expect(archiveDueAt(conversation)).toBe("2026-10-01T10:00:00.000Z");
+    expect(isArchiveDue("done", conversation, boundary)).toBe(false);
+    expect(isArchiveDue("done", conversation, boundary + 1)).toBe(true);
+    expect(isArchiveDue("canceled", conversation, boundary + 1)).toBe(true);
+    expect(isArchiveDue("todo", conversation, boundary + 1)).toBe(false);
+    expect(isArchiveDue("inbox", conversation, boundary + 1)).toBe(false);
+    expect(isArchiveDue("conflict", conversation, boundary + 1)).toBe(false);
+    expect(isArchiveDue("done", null, boundary + 1)).toBe(false);
+  });
+  it("rejects ambiguous mappings and keeps autoarchive opt-in", () => {
+    expect(settingsSchema.parse({}).autoArchive).toBe(false);
+    expect(
+      settingsSchema.safeParse({
+        groups: DEFAULT_GROUPS.map((group) =>
+          group.id === "done" ? { ...group, label: " task:todo " } : group,
+        ),
+      }).success,
+    ).toBe(false);
+  });
+  it("enables sidebar In progress pinning for older settings without changing other preferences", () => {
+    const data = migrateData(
+      {
+        schemaVersion: 1,
+        settings: {
+          autoArchive: false,
+          language: "en",
+          labels: DEFAULT_LABELS,
+        },
+      },
+      1,
+    );
+    expect(data.settings).toEqual({
+      autoArchive: false,
+      pinInProgressWorkspaces: true,
+      groups: DEFAULT_GROUPS,
+      groupOrder: [],
+    });
+    expect(
+      settingsSchema.parse({ pinInProgressWorkspaces: false })
+        .pinInProgressWorkspaces,
+    ).toBe(false);
+  });
+});

@@ -1,0 +1,5 @@
+{
+  "id": "workboard-fixture",
+  "description": "Deterministic integration-test provider",
+  "requirements": { "paseo": "=0.9.1" }
+}

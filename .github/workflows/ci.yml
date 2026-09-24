@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, "feature/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.22.2"
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run format:check
+      - run: npm run check:package
+      - run: npm pack --ignore-scripts
+      - uses: actions/upload-artifact@v7
+        with:
+          name: paseo-workboard-package
+          path: paseo-workboard-*.tgz
+          if-no-files-found: error
