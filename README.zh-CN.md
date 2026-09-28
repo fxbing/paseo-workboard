@@ -17,9 +17,9 @@ Workboard 是一个用于管理 Paseo workspace 与工作想法的看板插件�
 
 ## 兼容性与信任边界
 
-`paseo-workboard@0.1.0` 已针对 **Paseo app 与 daemon 0.9.1** 验证。插件 manifest 有意要求 `=0.9.1`。
+已发布的 `paseo-workboard@0.1.0` 在 Paseo app 与 daemon 0.9.1 上通过验证。当前 checkout 以 `paseo-plugin.json` 中的最低版本为准，并已覆盖更新宿主的集成测试；实际验证版本及客户端检查边界见[验证记录](docs/zh-CN/verification.md)。
 
-Paseo 0.9.1 的公开插件 SDK 可读取标签，但不能写入标签。Workboard 因此通过一个版本受限的内部桥接执行标签与 workspace 操作。该桥接复用宿主会话；升级 Paseo 后需要重新验证。
+公开插件 SDK 尚未覆盖 Workboard 所需的全部标签和 workspace 操作，因此插件使用复用宿主会话的内部桥接。manifest 设置最低版本，桥接在运行时校验响应；新的 Paseo 版本可能还需要适配。
 
 插件服务端代码运行在 daemon 中。安装前请审阅源码，并将它视为受信任、未沙箱隔离的本地代码。
 
@@ -71,7 +71,7 @@ npm pack --dry-run
 
 ## 限制
 
-- Workboard 精确面向 Paseo 0.9.1。用于写入标签和 workspace 的内部桥接在未来 Paseo 版本中可能需要调整。
+- manifest 设置 Paseo 最低版本。内部桥接在后续版本中可能需要调整；已验证宿主见[验证记录](docs/zh-CN/verification.md)。
 - 自动归档可能停止 Agent 与 terminal，并可能移除托管 worktree。对话历史不完整时会延期自动归档；Workboard 无法恢复原生归档或被移除的 worktree。
 - 原生 workspace 标签、归档和侧边栏置顶可在 Workboard 外变化。宿主没有提供全部原子操作；结果不确定时会保留给人工处理，不会进行破坏性重试。
 - 尚未验证原生移动端客户端。

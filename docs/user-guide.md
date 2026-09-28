@@ -83,7 +83,7 @@ The native pin API has no ownership or compare-and-set operation. When an operat
 
 ## Limits and support boundaries
 
-- Workboard targets Paseo 0.9.1 exactly. Its internal label bridge may require changes for later versions.
+- The plugin manifest sets the minimum Paseo version. Its internal label bridge may require changes later; see [verification](verification.md) for tested hosts.
 - Local filters, column widths, and collapsed columns are stored per client and host; they are not shared task data.
 - Workspace labels and native archive/pin operations can change outside Workboard. The plugin rechecks state where possible, but native APIs do not provide every atomic operation.
 - Archived workspace history can be incomplete in Paseo 0.9.1. Workboard treats incomplete conversation evidence conservatively and postpones automatic archival.

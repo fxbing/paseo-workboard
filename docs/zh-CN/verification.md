@@ -6,7 +6,7 @@ English: [English](../verification.md)
 
 ## 已验证基线
 
-最近一次记录的基线为 macOS arm64、通过 `mise` 使用的 Node 22.22.2，以及 Paseo app 和 daemon 0.9.1。
+当前源码在 macOS arm64、通过 `mise` 使用的 Node 22.22.2，以及 Paseo 0.10.0-beta.1 daemon 上检查。已发布的 0.1.0 源码此前在 Paseo app 与 daemon 0.9.1 上检查。
 
 ```sh
 mise exec -- npm run check
@@ -16,7 +16,7 @@ mise exec -- npm run check
 
 ## 隔离真宿主集成
 
-最近一次记录的真宿主运行在 Paseo 0.9.1 上通过了 **12 个隔离集成测试**。覆盖自定义分组持久化和颜色、标签驱动状态、进行中置顶所有权、草稿创建和重载、未写标签的 Inbox 导入、草稿开始工作、受保护的归档行为，以及干净托管 worktree 的归档路径。
+2026-09-28，当前源码在 Paseo 0.10.0-beta.1 上通过 **12 个隔离集成测试**；已发布的 0.1.0 源码此前在 0.9.1 上通过同一套测试。本次覆盖自定义分组持久化和颜色、标签驱动状态、进行中置顶所有权、草稿创建和重载、未写标签的 Inbox 导入、草稿开始工作、受保护的归档行为，以及干净托管 worktree 的归档路径。
 
 只能按[集成测试说明](../../tests/integration/README.zh-CN.md)中的临时 home 和 marker 流程复现。测试 fixture 是确定性 provider：它重放 fixture 历史，绝不发送模型请求。
 
@@ -32,11 +32,12 @@ mise exec -- npm run check
 
 同一次真实插件安装还将预置的 v4 配置迁移至 v5：移除了旧语言字段，保留了 fixture 任务、自定义分组和其它偏好。
 
-`npm run check:package` 对发布候选验证通过。另用一次性副本验证了漏装运行模块、额外文件混入包时均被拒绝。格式及本地文档链接检查通过。CI 已配置，但尚未在 GitHub 执行；npm 发布、npm 源安装和 Cafe 准入仍是独立、尚未执行的发布步骤。
+`npm run check:package` 对当时的发布候选验证通过。另用一次性副本验证了漏装运行模块、额外文件混入包时均被拒绝。格式及本地文档链接检查通过。0.1.0 随后已发布到 npm。本次兼容性改动尚未发布或经过 GitHub Actions 检查；Cafe 准入与 npm 发布是独立状态。
 
 ## 未验证边界
 
 - 尚未验证原生 iOS 和 Android。
+- 尚未人工检查 Paseo 0.10.0-beta.1 客户端界面。
 - 尚未验证真实远端 PR/MR 合并触发 Paseo 原生归档的路径。
 - 未证明全部自定义 Paseo 主题、未来 SDK 版本或所有远端 MR/PR 状态变化的行为。
 - 单元测试和 fixture 集成测试不能代替真实外部模型或 forge 服务的端到端验证。

@@ -1,5 +1,5 @@
 {
   "id": "paseo-workboard",
   "description": "Workspace tasks, draft todos and a label-linked kanban for Paseo",
-  "requirements": { "paseo": "=0.9.1" }
+  "requirements": { "paseo": ">=0.9.1" }
 }

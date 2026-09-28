@@ -47,15 +47,18 @@ it("correlates reversed replies without interfering with the host session", asyn
   expect(p.sent).toHaveLength(2);
   expect(p.events.listenerCount("message")).toBe(0);
 });
-it("fails closed for an unsupported daemon and RPC permission errors", async () => {
+it("accepts a newer daemon identity and propagates RPC permission errors", async () => {
   const p = port();
   const bridge = new PaseoCompat(p.value);
   const version = bridge.identity();
   p.respond(0, "daemon.get_status.response", {
     serverId: "test",
-    version: "0.10.0",
+    version: "0.10.0-beta.1",
   });
-  await expect(version).rejects.toThrow();
+  await expect(version).resolves.toEqual({
+    serverId: "test",
+    version: "0.10.0-beta.1",
+  });
   const write = bridge.setLabel("w", "task:done", "emerald", true);
   p.respond(1, "rpc_error", { error: "Permission denied" });
   await expect(write).rejects.toThrow("Permission denied");

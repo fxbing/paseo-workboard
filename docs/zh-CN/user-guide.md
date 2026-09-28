@@ -83,7 +83,7 @@ Paseo 原生的 **Archive merged PR workspaces** 设置是独立功能。它按�
 
 ## 限制与支持边界
 
-- Workboard 精确面向 Paseo 0.9.1；升级后的内部标签桥接可能需要调整。
+- 插件 manifest 设置 Paseo 最低版本。内部标签桥接在后续版本中可能需要调整；已验证宿主见[验证记录](verification.md)。
 - 本地筛选、列宽和折叠列按客户端与 host 保存，不是共享任务数据。
 - workspace 标签以及原生归档/置顶可以在 Workboard 外变化。插件会尽可能重读状态，但原生 API 不提供所有原子操作。
 - Paseo 0.9.1 中已归档 workspace 的历史可能不完整。Workboard 会保守处理不完整的对话证据，并延期自动归档。

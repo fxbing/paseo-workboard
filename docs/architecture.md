@@ -13,7 +13,7 @@ Workboard is a trusted Paseo plugin with separate client and server entries. The
 | `index.server.ts`                                 | Settings registration, RPC handlers and server lifecycle                     |
 | `server/workboard.ts`                             | Reconciliation, serialized mutations, binding, pinning and archive decisions |
 | `server/host.ts`                                  | Paseo inventory, subscriptions, history and workspace operations             |
-| `server/paseo-compat.ts`                          | Version-limited access to host operations missing from the public SDK        |
+| `server/paseo-compat.ts`                          | Access to host operations missing from the public SDK                        |
 | `server/conversations.ts`, `server/git-safety.ts` | Conversation timestamps and pre-archive checks                               |
 | `server/store.ts`, `shared/migrations.ts`         | Revision-checked persistence and data migration                              |
 | `shared/model.ts`, `shared/rpc.ts`                | Zod models, settings and RPC contracts                                       |
@@ -54,9 +54,9 @@ Native archive may stop agents/terminals and remove a managed worktree. Workboar
 
 ## Compatibility boundary
 
-The public SDK does not expose every required operation in 0.9.1. The compatibility module uses the plugin's existing authenticated IPC session for labels, pins, settings writes, bootstrap and selected history/record queries. It does not create a second login, replace credentials or modify Paseo.
+The public SDK does not expose every required operation. The compatibility module uses the plugin's existing authenticated IPC session for labels, pins, settings writes, bootstrap and selected history/record queries. It does not create a second login, replace credentials or modify Paseo.
 
-Both the manifest and the bridge restrict execution to Paseo **0.9.1**. Widening that version requires testing the bridge against the target runtime and updating its contracts. Keep this risk explicit in release notes and the Cafe listing.
+The manifest owns the minimum Paseo version. The bridge validates response shapes but does not pin a host version. Later versions may require a compatibility change; record tested hosts and remaining limits in [verification](verification.md) and the Cafe listing.
 
 The runtime uses the fixed plugin ID `paseo-workboard`; install it without an `--id` override.
 

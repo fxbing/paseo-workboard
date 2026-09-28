@@ -4,7 +4,7 @@
 
 This suite is separate from `npm test`. It runs `*.integration.ts` files only
 through `npm run test:integration` and requires an already-running, isolated
-Paseo 0.9.1 daemon.
+Paseo daemon whose version satisfies `paseo-plugin.json`.
 
 ## Prepare a temporary home
 
@@ -19,7 +19,7 @@ printf '%s\n' paseo-workboard-integration-v1 > "$WORKBOARD_INTEGRATION_HOME/.pas
 printf '%s\n' '{"daemon":{"listen":"127.0.0.1:6768"},"pluginsEnabled":true}' > "$WORKBOARD_INTEGRATION_HOME/config.json"
 ```
 
-Start Paseo 0.9.1 with `PASEO_HOME` set to that exact home, then install the
+Start the target Paseo version with `PASEO_HOME` set to that exact home, then install the
 checkout there and confirm it is running:
 
 ```sh
@@ -35,7 +35,7 @@ mise exec -- npm run test:integration
 ```
 
 The harness rejects a home outside a system temporary directory, a missing or
-incorrect marker, a non-loopback listener, a daemon other than 0.9.1, or a
+incorrect marker, a non-loopback listener, an unreported daemon version, or a
 non-running Workboard plugin. It does not start, stop, or fall back to another
 daemon during the test run.
 

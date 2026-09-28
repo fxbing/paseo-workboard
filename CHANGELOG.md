@@ -4,6 +4,11 @@
 
 All notable changes are documented here.
 
+## Unreleased
+
+- Accept Paseo `>=0.9.1` and validate the internal host bridge on 0.10.0-beta.1.
+- Align the development SDK and isolated integration suite with Paseo 0.10.0-beta.1.
+
 ## 0.1.0 — 2026-09-24
 
 - Follow Paseo's desktop language for Chinese/English UI and dates; migrate away from the separate plugin language preference.

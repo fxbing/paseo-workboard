@@ -8,8 +8,9 @@ tested.
 
 ## Verified baseline
 
-The latest recorded baseline used macOS arm64, Node 22.22.2 through `mise`, and
-Paseo app and daemon 0.9.1.
+The current source was checked on macOS arm64 with Node 22.22.2 through `mise`
+and a Paseo 0.10.0-beta.1 daemon. The published 0.1.0 source was previously
+checked with Paseo app and daemon 0.9.1.
 
 ```sh
 mise exec -- npm run check
@@ -24,8 +25,9 @@ or a model.
 
 ## Isolated host integration
 
-The latest recorded host run passed **12 isolated integration tests** against
-Paseo 0.9.1. It covered custom-group persistence and colors, label-driven
+On 2026-09-28, the current source passed **12 isolated integration tests** against
+Paseo 0.10.0-beta.1. The published 0.1.0 source had passed the same suite on
+Paseo 0.9.1. The current run covered custom-group persistence and colors, label-driven
 stages, in-progress pin ownership, draft creation and restart, Inbox import
 without writing a label, starting a draft, guarded archive behavior, and a
 clean managed-worktree archive path.
@@ -64,13 +66,14 @@ custom group, and remaining preferences were preserved.
 `npm run check:package` passed for the release candidate. Separate disposable
 copies confirmed that it rejects an omitted runtime module and an unexpected
 file added to the package. Formatting and local documentation links also
-passed. The CI workflow is configured but has not been run on GitHub; npm
-publication, npm-source installation and Cafe admission remain separate,
-unexecuted release steps.
+passed. The 0.1.0 package was later published to npm. The current compatibility
+change has not been published or checked by GitHub Actions; Cafe admission
+remains separate from npm publication.
 
 ## Unverified boundaries
 
 - Native iOS and Android behavior has not been exercised.
+- The Paseo 0.10.0-beta.1 client UI has not been manually checked.
 - A real remote PR/MR merge triggering Paseo's native archive has not been
   exercised.
 - The checks do not establish behavior for every custom Paseo theme, future

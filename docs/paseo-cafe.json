@@ -4,7 +4,7 @@
   "categories": ["productivity", "automation"],
   "platforms": ["macos"],
   "caveats": [
-    "Requires Paseo app and daemon 0.9.1; the internal bridge must be revalidated before widening compatibility.",
+    "Uses an internal bridge for host operations; check the manifest for its minimum Paseo version and the verification guide for tested releases.",
     "Runs as trusted, unsandboxed plugin code on the Paseo daemon host.",
     "Automatic archive is opt-in and may stop agents or terminals and remove a Paseo-managed worktree.",
     "Missing conversation history, active work, or unsafe Git state defer automatic archive.",

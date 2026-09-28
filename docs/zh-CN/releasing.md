@@ -2,7 +2,7 @@
 
 [English](../releasing.md) · [README](../../README.zh-CN.md)
 
-首个发布候选版本为 `paseo-workboard@0.1.0`，适配 Paseo **0.9.1**。完成本地仓库准备不代表 npm 已发布或 Paseo Cafe 已收录。
+已发布的 `paseo-workboard@0.1.0` 面向 Paseo **0.9.1**。当前 checkout 含尚未发布的兼容性改动；最低版本以 manifest 为准，已验证宿主见[验证说明](verification.md)。准备新候选版本不等于发布到 npm 或提交 Paseo Cafe。
 
 ## 发布包约定
 
@@ -10,12 +10,12 @@ Paseo 加载 TypeScript 客户端/服务端入口及相对模块，所有外部�
 
 npm 包包含 manifest、入口、`client/`、`server/`、`shared/`、中英文 README、更新日志和 MIT 许可证。测试、开发脚本、daemon 数据、日志、凭证与 `node_modules` 不进入发布包。
 
-`npm run check:package` 检查包身份/版本、manifest 与桥接版本一致性、Cafe 提取所需 README 标题以及完整文件清单。从 checkout 发布时，`prepublishOnly` 还运行 TypeScript、单元测试和格式检查。CI 执行这些检查并生成可下载 tarball，不自动发布 npm 或提交 Cafe。
+`npm run check:package` 检查包身份/版本、manifest 最低版本、Cafe 提取所需 README 标题以及完整文件清单。从 checkout 发布时，`prepublishOnly` 还运行 TypeScript、单元测试和格式检查。CI 执行这些检查并生成可下载 tarball，不自动发布 npm 或提交 Cafe。
 
 ## 验证发布候选
 
 1. 同步更新 `package.json` 与 `package-lock.json`。每次发布变更都使用新的正式语义版本；同步更新两份更新日志与中英文文档。
-2. `requirements.paseo` 必须与 `server/paseo-compat.ts` 的 `SUPPORTED_VERSION` 一致，未验证目标宿主前不扩大兼容范围。
+2. `requirements.paseo` 应设置预期的最低版本；扩大范围前在当前目标宿主运行集成测试。内部桥接校验响应结构，但无法保证后续 Paseo 版本始终兼容。
 3. 在干净 checkout 中运行：
 
    ```sh

@@ -17,9 +17,9 @@ Workboard is a Paseo kanban plugin for workspaces and ideas. Each active workspa
 
 ## Compatibility and trust
 
-`paseo-workboard@0.1.0` is verified for **Paseo app and daemon 0.9.1**. Its plugin manifest intentionally requires `=0.9.1`.
+The published `paseo-workboard@0.1.0` was verified with Paseo app and daemon 0.9.1. This checkout uses the minimum Paseo version in `paseo-plugin.json` and has newer host integration coverage; see [verification](docs/verification.md) for tested versions and remaining client checks.
 
-Paseo 0.9.1 exposes label reads through the public plugin SDK, but not label writes. Workboard therefore uses a version-specific internal bridge for its label and workspace operations. The bridge reuses the host session and must be revalidated when Paseo changes.
+The public plugin SDK does not expose all of Workboard's label and workspace operations. Workboard uses an internal bridge that reuses the host session. The manifest sets the minimum version; bridge responses are checked at runtime. New Paseo versions may require another compatibility update.
 
 The plugin server runs with the daemon. Install it only after reviewing the source and treating it as trusted, unsandboxed local code.
 
@@ -71,7 +71,7 @@ Use the [isolated integration fixture](tests/integration/README.md) for host-lev
 
 ## Limitations
 
-- Workboard targets Paseo 0.9.1 exactly. Its internal bridge for label and workspace writes can require changes for later Paseo versions.
+- The manifest sets the minimum Paseo version. The internal bridge may require changes in later releases; see [verification](docs/verification.md) for tested hosts.
 - Automatic archival can stop Agents and terminals and may remove a managed worktree. Incomplete conversation history postpones automatic archival; Workboard cannot restore a native archive or a removed worktree.
 - Native workspace labels, archive, and sidebar pins can change outside Workboard. The host does not expose every atomic operation, so uncertain operations are retained for manual review rather than retried destructively.
 - The native mobile clients are not verified.

@@ -15,11 +15,7 @@ assert.equal(lock.version, pkg.version);
 assert.equal(lock.packages[""].version, pkg.version);
 assert.equal(pkg.publishConfig.access, "public");
 assert.equal(pkg.publishConfig.registry, "https://registry.npmjs.org/");
-const bridgeVersion = readFileSync("server/paseo-compat.ts", "utf8").match(
-  /SUPPORTED_VERSION = "([^"]+)"/,
-)?.[1];
-assert.ok(bridgeVersion, "Missing compatibility bridge version");
-assert.equal(manifest.requirements.paseo, `=${bridgeVersion}`);
+assert.match(manifest.requirements.paseo, /^>=\d+\.\d+\.\d+(?:-[\w.-]+)?$/);
 assert.match(readFileSync("README.md", "utf8"), /^## Installation$/m);
 assert.match(readFileSync("README.md", "utf8"), /^## Limitations$/m);
 

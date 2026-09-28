@@ -2,9 +2,9 @@
 
 中文：[中文](CONTRIBUTING.zh-CN.md)
 
-Thank you for improving Workboard. This repository targets Paseo 0.9.1; keep
-the manifest and the three Paseo SDK packages on the tested version unless the
-change includes an explicit compatibility update.
+Thank you for improving Workboard. `paseo-plugin.json` owns the minimum Paseo
+version. Keep the three Paseo SDK development packages aligned with a tested
+host version, and run isolated host integration tests when changing the bridge.
 
 ## Setup and checks
 

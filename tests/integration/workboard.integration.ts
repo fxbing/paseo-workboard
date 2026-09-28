@@ -124,17 +124,18 @@ beforeAll(async () => {
     throw new Error("paseo status resolved a different home");
   if (!/^127\.0\.0\.1:\d+$/.test(daemon.listen))
     throw new Error("Integration daemon must use a loopback listener");
-  if (daemon.daemonVersion !== "0.9.1")
-    throw new Error(`Expected Paseo 0.9.1, found ${daemon.daemonVersion}`);
+  if (!daemon.daemonVersion)
+    throw new Error("Integration daemon did not report its version");
 
   client = new DaemonClient({
     url: `ws://${daemon.listen}/ws`,
     clientId: `workboard-integration-${Date.now()}`,
     clientType: "cli",
-    appVersion: "0.9.1",
+    appVersion: daemon.daemonVersion,
   });
   await client.connect();
   const plugins = await client.listPlugins();
+  // Paseo enforces the manifest's version range before a plugin can run.
   if (
     !plugins.some(
       (plugin) => plugin.id === pluginId && plugin.status === "running",
@@ -156,7 +157,7 @@ afterAll(async () => {
   await client?.close();
 });
 
-describe("Paseo 0.9.1 isolated workboard", () => {
+describe("isolated Paseo workboard", () => {
   test("persists custom groups, follows native labels and deletes only after tasks move out", async () => {
     const initial = await readyBoard();
     const stamp = Date.now();

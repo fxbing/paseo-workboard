@@ -11,7 +11,6 @@ import type { TimelineReader } from "./conversations";
 export type PaseoApi = PluginHandlerContext["paseo"];
 
 export const PLUGIN_ID = "paseo-workboard";
-export const SUPPORTED_VERSION = "0.9.1";
 export interface IpcPort {
   on(event: "message", listener: (message: unknown) => void): void;
   off(event: "message", listener: (message: unknown) => void): void;
@@ -36,7 +35,7 @@ type Pending = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-/** 0.9.1 only. Borrow the host's authenticated session; never hello, reconnect or close it. */
+/** Borrow the host's authenticated session; never hello, reconnect or close it. */
 export class PaseoCompat {
   private pending = new Map<string, Pending>();
   private closed = false;
@@ -163,7 +162,7 @@ export class PaseoCompat {
   }
   async identity(): Promise<{ serverId: string; version: string }> {
     const info = z
-      .object({ serverId: z.string(), version: z.literal(SUPPORTED_VERSION) })
+      .object({ serverId: z.string(), version: z.string() })
       .parse(
         await this.request(
           "daemon.get_status.request",

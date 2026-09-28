@@ -13,7 +13,7 @@ Workboard 是受信任的 Paseo 插件，客户端和服务端使用独立入口
 | `index.server.ts`                                 | 注册设置、RPC handler 与服务端生命周期           |
 | `server/workboard.ts`                             | 对账、串行变更、绑定、置顶和归档决策             |
 | `server/host.ts`                                  | Paseo 清单、订阅、历史和 workspace 操作          |
-| `server/paseo-compat.ts`                          | 在指定版本内桥接公开 SDK 尚未提供的宿主操作      |
+| `server/paseo-compat.ts`                          | 桥接公开 SDK 尚未提供的宿主操作                  |
 | `server/conversations.ts`、`server/git-safety.ts` | 对话时间与归档前检查                             |
 | `server/store.ts`、`shared/migrations.ts`         | revision 校验保存与数据迁移                      |
 | `shared/model.ts`、`shared/rpc.ts`                | Zod 模型、设置与 RPC 契约                        |
@@ -54,9 +54,9 @@ host settings 使用 schema version 5，保存任务、分组、偏好、绑定/
 
 ## 兼容边界
 
-0.9.1 公开 SDK 尚未覆盖所有所需操作。兼容模块复用插件现有的已认证 IPC 会话，完成标签、置顶、settings 写入、启动初始化及部分历史/记录查询；不另建登录、不替换凭证、不修改 Paseo。
+公开 SDK 尚未覆盖所有所需操作。兼容模块复用插件现有的已认证 IPC 会话，完成标签、置顶、settings 写入、启动初始化及部分历史/记录查询；不另建登录、不替换凭证、不修改 Paseo。
 
-manifest 与桥接模块都严格限定 Paseo **0.9.1**。扩大版本范围前须在目标 runtime 验证桥接并更新契约，发布说明与 Cafe 信息需明确这个边界。
+manifest 定义 Paseo 最低版本。桥接校验响应结构，但不固定宿主版本；后续版本可能需要适配。已测试的宿主与剩余边界记录在[验证说明](verification.md)和 Cafe 信息中。
 
 运行时使用固定插件 ID `paseo-workboard`；安装时不要通过 `--id` 覆盖。
 

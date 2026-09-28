@@ -2,7 +2,7 @@
 
 English: [English](CONTRIBUTING.md)
 
-感谢改进 Workboard。本仓库当前面向 Paseo 0.9.1；除非变更同时完成明确的兼容性更新，请保持 manifest 和三个 Paseo SDK 包使用已验证版本。
+感谢改进 Workboard。Paseo 最低版本由 `paseo-plugin.json` 定义。三个 Paseo SDK 开发依赖应与已验证的宿主版本一致；修改内部桥接时要运行隔离宿主集成测试。
 
 ## 环境与检查
 

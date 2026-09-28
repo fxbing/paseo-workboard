@@ -2,7 +2,7 @@
 
 [中文](zh-CN/releasing.md) · [README](../README.md)
 
-The initial release candidate is `paseo-workboard@0.1.0`, for Paseo **0.9.1**. Preparing this repository does not publish an npm package or submit a Paseo Cafe listing.
+The published `paseo-workboard@0.1.0` targets Paseo **0.9.1**. This checkout has newer compatibility changes that are not published; use the manifest for the minimum version and [verification](verification.md) for tested hosts. Preparing a new candidate does not publish it or submit a Paseo Cafe listing.
 
 ## Package contract
 
@@ -10,12 +10,12 @@ Paseo loads the TypeScript client/server entries and their relative modules. All
 
 The npm package includes the manifest, entries, `client/`, `server/`, `shared/`, both READMEs, both changelogs and the MIT license. Tests, development scripts, daemon data, logs, credentials and `node_modules` are excluded.
 
-`npm run check:package` checks the package identity/version, manifest/bridge compatibility, README sections used by Cafe and the complete npm file list. `prepublishOnly` also runs TypeScript, unit tests and formatting when publishing from the checkout. The CI workflow runs these checks and creates a downloadable tarball; it does not publish to npm or Cafe.
+`npm run check:package` checks the package identity/version, manifest minimum, README sections used by Cafe and the complete npm file list. `prepublishOnly` also runs TypeScript, unit tests and formatting when publishing from the checkout. The CI workflow runs these checks and creates a downloadable tarball; it does not publish to npm or Cafe.
 
 ## Validate a release candidate
 
 1. Update `package.json` and `package-lock.json` together. Use a new stable semantic version for every published change. Update both changelogs and keep the English and Chinese documentation aligned.
-2. Keep `requirements.paseo` consistent with `SUPPORTED_VERSION` in `server/paseo-compat.ts`. Do not widen support without testing that host version.
+2. Keep `requirements.paseo` at the intended minimum version. Run host integration tests on the current target before widening the range; the internal bridge checks response shapes but cannot guarantee later Paseo versions.
 3. From a clean checkout, run:
 
    ```sh
