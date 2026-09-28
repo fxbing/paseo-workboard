@@ -6,6 +6,7 @@ All notable changes are documented here.
 
 ## Unreleased
 
+- Save general setting switches immediately so their values survive leaving and reopening Settings, while confirming automatic archive when workspaces are already due.
 - Accept Paseo `>=0.9.1` and validate the internal host bridge on 0.10.0-beta.1.
 - Align the development SDK and isolated integration suite with Paseo 0.10.0-beta.1.
 

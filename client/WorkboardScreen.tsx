@@ -2029,7 +2029,7 @@ function ArchivePage({
     </View>
   );
 }
-function SettingsPage({
+export function SettingsPage({
   board,
   t,
   theme,
@@ -2046,36 +2046,28 @@ function SettingsPage({
   mutate(mutation: Mutation): Promise<Board | undefined>;
   onBack(): void;
 }) {
-  const [autoArchive, setAutoArchive] = useState(board.settings.autoArchive);
-  const [pinInProgressWorkspaces, setPinInProgressWorkspaces] = useState(
-    board.settings.pinInProgressWorkspaces,
-  );
   const [confirmed, setConfirmed] = useState({
     settings: board.settings,
     revision: board.revision,
   });
-  const groups = confirmed.settings.groups;
-  const settings = {
-    ...confirmed.settings,
-    autoArchive,
-    pinInProgressWorkspaces,
-    groups,
-  };
+  const [confirmAutoArchive, setConfirmAutoArchive] = useState(false);
+  const current =
+    board.revision > confirmed.revision
+      ? { settings: board.settings, revision: board.revision }
+      : confirmed;
+  const settings = current.settings;
+  const groups = settings.groups;
   const preview = mappingPreview(board.cards, settings, Date.now());
   const persist = async (next: Settings) => {
     const result = await mutate({
       action: "settings",
-      revision: confirmed.revision,
-      expectedSettings: confirmed.settings,
+      revision: current.revision,
+      expectedSettings: current.settings,
       settings: next,
     });
     if (result)
       setConfirmed({ settings: result.settings, revision: result.revision });
     return result;
-  };
-  const save = async () => {
-    const result = await persist(settings);
-    if (result) onBack();
   };
   return (
     <View style={[styles.screen, { backgroundColor: theme.colors.surface0 }]}>
@@ -2087,17 +2079,29 @@ function SettingsPage({
               <SettingsSwitch
                 label={t.pinInProgressWorkspaces}
                 hint={t.pinInProgressHint}
-                value={pinInProgressWorkspaces}
-                onValueChange={setPinInProgressWorkspaces}
+                value={settings.pinInProgressWorkspaces}
+                onValueChange={async (value) => {
+                  await persist({
+                    ...settings,
+                    pinInProgressWorkspaces: value,
+                  });
+                }}
                 disabled={disabled}
                 testID="workboard-pin-in-progress"
               />
               <SettingsSwitch
                 label={t.autoArchive}
                 hint={t.autoArchiveHint}
-                value={autoArchive}
-                onValueChange={setAutoArchive}
+                value={settings.autoArchive}
+                onValueChange={async (value) => {
+                  if (value && preview.due > 0) {
+                    setConfirmAutoArchive(true);
+                    return;
+                  }
+                  await persist({ ...settings, autoArchive: value });
+                }}
                 disabled={disabled}
+                testID="workboard-auto-archive"
               />
             </SettingsCard>
           </SettingsSection>
@@ -2105,7 +2109,7 @@ function SettingsPage({
             board={board}
             groups={groups}
             onChange={async (next) =>
-              !!(await persist({ ...confirmed.settings, groups: next }))
+              !!(await persist({ ...settings, groups: next }))
             }
             disabled={disabled}
             saving={saving}
@@ -2113,7 +2117,7 @@ function SettingsPage({
             theme={theme}
           />
           <View>
-            {(autoArchive || preview.affected > 0) && (
+            {(settings.autoArchive || preview.affected > 0) && (
               <View style={styles.settingsPreview}>
                 <Text
                   style={[
@@ -2137,30 +2141,25 @@ function SettingsPage({
               </View>
             )}
           </View>
-          <Pressable
-            accessibilityRole="button"
-            disabled={disabled}
-            onPress={() => void save()}
-            style={({ pressed }) => [
-              styles.toolbarButton,
-              styles.saveButton,
-              {
-                backgroundColor: theme.colors.accent,
-                opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.controlText,
-                { color: theme.colors.accentForeground },
-              ]}
-            >
-              {t.save}
-            </Text>
-          </Pressable>
         </View>
       </ScrollView>
+      {confirmAutoArchive && (
+        <ConfirmationModal
+          title={t.enableAutoArchive}
+          description={t.enableAutoArchiveConfirm.replace(
+            "{count}",
+            String(preview.due),
+          )}
+          confirmLabel={t.enable}
+          disabled={disabled}
+          t={t}
+          theme={theme}
+          onClose={() => setConfirmAutoArchive(false)}
+          onConfirm={async () =>
+            !!(await persist({ ...settings, autoArchive: true }))
+          }
+        />
+      )}
     </View>
   );
 }
@@ -2479,9 +2478,4 @@ const styles = StyleSheet.create({
   settingsContent: { width: "100%", maxWidth: 760, alignSelf: "center" },
   settingsPreview: { gap: 4 },
   hintText: { fontSize: 13, lineHeight: 18 },
-  saveButton: {
-    alignSelf: "flex-end",
-    minWidth: 88,
-    minHeight: 40,
-  },
 });

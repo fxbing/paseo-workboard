@@ -16,12 +16,13 @@ checked with Paseo app and daemon 0.9.1.
 mise exec -- npm run check
 ```
 
-This command passed with **123 unit tests in 16 files**. The suite exercises
+This command passed with **128 unit tests in 17 files**. The suite exercises
 the board model, persistence and migrations, native-label projection,
 workspace and draft flows, archive and pin ownership safeguards, filters, and
-client layout preferences, Paseo language resolution and subscriptions, and
-removal of the legacy language preference. It is deterministic and does not require a daemon
-or a model.
+client layout preferences, immediate settings-switch persistence across a
+pending leave/reopen, automatic archive confirmation, Paseo language resolution
+and subscriptions, and removal of the legacy language preference. It is
+deterministic and does not require a daemon or a model.
 
 ## Isolated host integration
 

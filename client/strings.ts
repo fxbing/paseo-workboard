@@ -129,6 +129,10 @@ const zh = {
   archiveDraftConfirm: "归档草稿“{name}”？归档后将移出看板，目前不支持恢复。",
   autoArchive: "自动归档",
   autoArchiveHint: "完成或废弃且最后对话超过 30 天后，自动归档 workspace。",
+  enableAutoArchive: "开启自动归档",
+  enableAutoArchiveConfirm:
+    "当前有 {count} 个任务已到期。开启后会在安全检查通过时自动归档对应 workspace，可能停止 Agent 和 terminal，并移除托管 worktree。",
+  enable: "开启",
   pinInProgressWorkspaces: "进行中任务在 Paseo 侧边栏自动置顶",
   pinInProgressHint:
     "按“进行中”分组判断；离开该分组时仅取消插件添加的置顶，保留你手动置顶的 workspace。",
@@ -353,6 +357,10 @@ const en: typeof zh = {
   autoArchive: "Automatic archive",
   autoArchiveHint:
     "Archive a completed or canceled workspace after 30 days since its last conversation.",
+  enableAutoArchive: "Enable automatic archive",
+  enableAutoArchiveConfirm:
+    "{count} task(s) are currently due. Enabling this will archive their workspaces after safety checks, which may stop agents and terminals and remove managed worktrees.",
+  enable: "Enable",
   pinInProgressWorkspaces: "Pin in-progress tasks in the Paseo sidebar",
   pinInProgressHint:
     "Use the In progress group. Leaving it removes only the pin added by this plugin; manually pinned workspaces stay pinned.",

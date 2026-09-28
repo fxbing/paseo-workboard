@@ -57,13 +57,13 @@ The locate-groups button opens a group list. Selecting a desktop group expands i
 
 Groups have a name, type, managed label, and display color. Color is purely visual: it does not change labels, task rules, pinning, or archival. Workboard uses the same group color in column headers, card accents, status choices, narrow tabs, and group settings. New groups recommend an unused color first, then the least-used color.
 
-Keep at least one Inbox group and one To do group. Inbox receives unmanaged workspaces. To do receives drafts and, under the default mapping, explicit `task:todo` workspaces. Deleting a group requires moving its tasks first. Group changes take effect when the group dialog saves; general settings use their own save action.
+Keep at least one Inbox group and one To do group. Inbox receives unmanaged workspaces. To do receives drafts and, under the default mapping, explicit `task:todo` workspaces. Deleting a group requires moving its tasks first. Group changes take effect when the group dialog saves; general switches save immediately.
 
 Reordering groups changes only their display order. It does not change the default draft destination or which In progress group Start work chooses.
 
 ## Archive workspaces
 
-Automatic archival is off by default. When enabled, Workboard considers only tasks in Done or Canceled groups whose last verified user or assistant conversation is more than 30 days old. It does not use a label-change time, task edit time, tool call, or import time as conversation activity.
+Automatic archival is off by default. The switch saves immediately; when tasks are already due, Workboard asks for confirmation before enabling it. Once enabled, Workboard considers only tasks in Done or Canceled groups whose last verified user or assistant conversation is more than 30 days old. It does not use a label-change time, task edit time, tool call, or import time as conversation activity.
 
 Before archiving, Workboard defers when conversation history cannot be verified or the workspace has active/waiting Agents, terminals, running scripts, or unsafe or unverified Git state. It never stashes, commits, pushes, or deletes files itself.
 
