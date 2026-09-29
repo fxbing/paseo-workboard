@@ -316,7 +316,15 @@ export class PaseoHost implements Host {
         ? this.compat.subagentTimeline(agent.parentAgentId, agent.subagentId)
         : (options: Parameters<import("./conversations").TimelineReader>[0]) =>
             this.api.agents.ref(agent.id).timeline.refetch(options);
-    const time = await readConversationTime(read, now, agent.updatedAt);
+    const window = await readConversationTime(read, {
+      now,
+      observedUpdatedAt: agent.updatedAt,
+    });
+    // Hydration-stamped windows are classified by the caller; keep the previous
+    // "cannot be verified" failure until the evidence model consumes the counts.
+    if (window.latest === null && window.replayStamped > 0)
+      throw new Error("Conversation timestamp cannot be verified");
+    const time = window.latest;
     if (
       agent.lastUserMessageAt &&
       (!time || Date.parse(time) < Date.parse(agent.lastUserMessageAt))
