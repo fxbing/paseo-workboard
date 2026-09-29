@@ -91,8 +91,7 @@ it("refuses a changed epoch, gaps, a failed history request and unusable timesta
   ).rejects.toThrow();
   await expect(
     readConversationTime(
-      async () =>
-        page([["tool_call", "2026-09-22T00:00:00Z"]], true, 200),
+      async () => page([["tool_call", "2026-09-22T00:00:00Z"]], true, 200),
       { now },
     ),
   ).rejects.toThrow();

@@ -370,13 +370,7 @@ it("keeps a parent readable when its provider children cannot be listed", async 
       throw new Error("provider unavailable");
     }),
   } as unknown as PaseoCompat;
-  const host = providerHost(
-    parentAgent,
-    compat,
-    vi.fn(),
-    [],
-    read,
-  );
+  const host = providerHost(parentAgent, compat, vi.fn(), [], read);
   try {
     const parent = (await host.inventory()).agents.find(
       (agent) => agent.id === "parent",

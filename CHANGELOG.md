@@ -9,6 +9,8 @@ All notable changes are documented here.
 - Save general setting switches immediately so their values survive leaving and reopening Settings, while confirming automatic archive when workspaces are already due.
 - Accept Paseo `>=0.9.1` and validate the internal host bridge on 0.10.0-beta.1.
 - Align the development SDK and isolated integration suite with Paseo 0.10.0-beta.1.
+- Split conversation display evidence from the archive gate: cards keep a time (marking `≥` and `≤` bounds), and Paseo's recorded activity gates archiving only as an upper bound.
+- Read conversation time from a bounded timeline window, drop hydration-stamped rows instead of failing a whole workspace, and cache provider child listings per parent activity.
 
 ## 0.1.0 — 2026-09-24
 

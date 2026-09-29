@@ -5,7 +5,10 @@ import {
   DEFAULT_GROUPS,
   resolveStage,
   archiveDueAt,
+  archiveGate,
+  conversationStatusFor,
   isArchiveDue,
+  newTask,
   settingsSchema,
 } from "../shared/model";
 
@@ -39,6 +42,41 @@ describe("task stages and conversation-based expiry", () => {
     expect(isArchiveDue("inbox", conversation, boundary + 1)).toBe(false);
     expect(isArchiveDue("conflict", conversation, boundary + 1)).toBe(false);
     expect(isArchiveDue("done", null, boundary + 1)).toBe(false);
+  });
+  it("gates archiving on an upper bound and never on a lower bound", () => {
+    const task = (evidence: {
+      conversationGateEvidence: "exact" | "upper-bound" | "unknown";
+      conversationGateAt: string | null;
+    }) => ({ ...newTask("t", "T", "2026-01-01T00:00:00Z"), ...evidence });
+    const at = "2026-08-01T00:00:00.000Z";
+    expect(
+      archiveGate(
+        task({ conversationGateEvidence: "exact", conversationGateAt: at }),
+      ),
+    ).toBe(at);
+    expect(
+      archiveGate(
+        task({
+          conversationGateEvidence: "upper-bound",
+          conversationGateAt: at,
+        }),
+      ),
+    ).toBe(at);
+    expect(
+      archiveGate(
+        task({
+          conversationGateEvidence: "unknown",
+          conversationGateAt: at,
+        }),
+      ),
+    ).toBe(null);
+  });
+  it("summarizes display evidence without losing a bound", () => {
+    expect(conversationStatusFor("exact")).toBe("known");
+    expect(conversationStatusFor("lower-bound")).toBe("known");
+    expect(conversationStatusFor("upper-bound")).toBe("known");
+    expect(conversationStatusFor("none")).toBe("none");
+    expect(conversationStatusFor("unknown")).toBe("unknown");
   });
   it("rejects ambiguous mappings and keeps autoarchive opt-in", () => {
     expect(settingsSchema.parse({}).autoArchive).toBe(false);

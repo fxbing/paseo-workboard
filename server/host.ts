@@ -37,7 +37,6 @@ interface ChildRecord {
   refused: boolean;
 }
 
-
 export type Workspace = Pick<
   PaseoWorkspace,
   | "id"

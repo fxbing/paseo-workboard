@@ -41,7 +41,7 @@
 
 ### 阅读卡片
 
-卡片显示标题、项目、活动和最近对话日期。展开可查看标签、Agent 和完整 PR/MR 标题。Paseo 提供信息时，卡片还会用原生风格图标显示 PR/MR 状态、CI 结果和评审结论。Workboard 不会直接查询 forge。PR/MR 合并或关闭不会改变任务状态。
+卡片显示标题、项目、活动和最近对话日期。时间带 `≥` 或 `≤` 前缀说明 Paseo 那边只能给边界：`≥` 表示 Paseo 记录的最后一条用户消息，或部分回放窗口里较早的行；`≤` 表示 Paseo 记录的活动时间。Workboard 不会把 Paseo 记录的活动时间当成消息时间展示。展开可查看标签、Agent 和完整 PR/MR 标题。Paseo 提供信息时，卡片还会用原生风格图标显示 PR/MR 状态、CI 结果和评审结论。Workboard 不会直接查询 forge。PR/MR 合并或关闭不会改变任务状态。
 
 需关注包括等待、报错和未读活动；标签或同步冲突；需要核实的对话、归档、Git、terminal 或目录问题；以及开放或草稿 PR/MR 的 CI 失败或要求修改。已合并、已关闭和暂不可用的 PR/MR 不会沿用旧 CI 结果触发提醒。聚焦、悬停或点击说明图标可查看原因。
 
@@ -63,9 +63,9 @@
 
 ## 归档 workspace
 
-自动归档默认关闭。开关会立即保存；已有到期任务时，Workboard 会先要求确认再开启。启用后，Workboard 只考虑位于已完成或已废弃分组、且最后一条已验证用户或助手对话超过 30 天的任务。它不会把改标签时间、编辑任务时间、工具调用或导入时间视为对话活动。
+自动归档默认关闭。开关会立即保存；已有到期任务时，Workboard 会先要求确认再开启。启用后，Workboard 只考虑位于已完成或已废弃分组、且最后一条已验证用户或助手对话超过 30 天的任务；精确消息时间不可得时，用 Paseo 记录的活动时间度量。它不会把改标签时间、编辑任务时间、工具调用或导入时间视为对话活动，卡片上展示的 `≥` 下界也从不用于归档。
 
-归档前，如果无法验证对话历史，或 workspace 有运行/等待的 Agent、terminal、运行脚本，或 Git 状态不安全/无法核实，Workboard 会延期。它不会自动 stash、commit、push 或删除文件。
+归档前，如果无法证明任何对话上界，或 workspace 有运行/等待的 Agent、terminal、运行脚本，或 Git 状态不安全/无法核实，Workboard 会延期。它不会自动 stash、commit、push 或删除文件。
 
 自动归档调用 Paseo 原生 workspace 归档。这可能停止 Agent 与 terminal，并可能移除托管 worktree。成功需要原生响应 `error=null` 且存在 `archivedAt`，随后刷新确认 workspace 已从原生活跃列表消失；不确定结果会保留供人工处理，不会盲目重试。
 
@@ -86,4 +86,4 @@ Paseo 原生的 **Archive merged PR workspaces** 设置是独立功能。它按�
 - 插件 manifest 设置 Paseo 最低版本。内部标签桥接在后续版本中可能需要调整；已验证宿主见[验证记录](verification.md)。
 - 本地筛选、列宽和折叠列按客户端与 host 保存，不是共享任务数据。
 - workspace 标签以及原生归档/置顶可以在 Workboard 外变化。插件会尽可能重读状态，但原生 API 不提供所有原子操作。
-- Paseo 0.9.1 中已归档 workspace 的历史可能不完整。Workboard 会保守处理不完整的对话证据，并延期自动归档。
+- Paseo 0.9.1 对已归档 parent 拒绝 provider 子 agent API，其 pi provider 回放历史时不给每行时间戳；Workboard 因此回退到展示用边界，只在无法证明任何上界时延期归档。

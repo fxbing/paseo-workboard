@@ -117,11 +117,7 @@ export async function readConversationTime(
       break;
     }
     const next = page.startCursor;
-    if (
-      !next ||
-      next.epoch !== epoch ||
-      (cursor && next.seq >= cursor.seq)
-    ) {
+    if (!next || next.epoch !== epoch || (cursor && next.seq >= cursor.seq)) {
       throw new Error("Conversation history did not advance");
     }
     cursor = next;

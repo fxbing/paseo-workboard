@@ -41,7 +41,7 @@ On desktop and Web, Workboard follows Paseo's language setting. Chinese and Engl
 
 ### Read cards
 
-Cards show task title, project, activity, and the latest conversation date. Expand a card for labels, Agents, and a full PR/MR title. When Paseo supplies it, the card also shows PR/MR state, CI result, and review decision using native-style icons. Workboard does not query your forge directly. A merged or closed PR/MR does not change task status.
+Cards show task title, project, activity, and the latest conversation date. A `≥` or `≤` prefix means Paseo only supports a bound there: `≥` is the recorded last user message or the oldest rows of a partially replayed window, `≤` is Paseo's recorded activity. Workboard never shows Paseo's recorded activity as if it were the message time. Expand a card for labels, Agents, and a full PR/MR title. When Paseo supplies it, the card also shows PR/MR state, CI result, and review decision using native-style icons. Workboard does not query your forge directly. A merged or closed PR/MR does not change task status.
 
 Needs attention covers waiting, error, and unread activity; label or synchronization conflicts; conversation, archive, Git, terminal, or directory problems that need verification; and an open or draft PR/MR with failed CI or requested changes. Merged, closed, and unavailable PR/MR data never trigger attention from an older CI result. Focus, hover, or tap an explanatory icon for its reason.
 
@@ -63,9 +63,9 @@ Reordering groups changes only their display order. It does not change the defau
 
 ## Archive workspaces
 
-Automatic archival is off by default. The switch saves immediately; when tasks are already due, Workboard asks for confirmation before enabling it. Once enabled, Workboard considers only tasks in Done or Canceled groups whose last verified user or assistant conversation is more than 30 days old. It does not use a label-change time, task edit time, tool call, or import time as conversation activity.
+Automatic archival is off by default. The switch saves immediately; when tasks are already due, Workboard asks for confirmation before enabling it. Once enabled, Workboard considers only tasks in Done or Canceled groups whose last verified user or assistant conversation is more than 30 days old, measured against Paseo's recorded activity when the exact message time is unavailable. It does not use a label-change time, task edit time, tool call, or import time as conversation activity, and a displayed `≥` bound is never used to archive.
 
-Before archiving, Workboard defers when conversation history cannot be verified or the workspace has active/waiting Agents, terminals, running scripts, or unsafe or unverified Git state. It never stashes, commits, pushes, or deletes files itself.
+Before archiving, Workboard defers when no conversation bound can be proven or the workspace has active/waiting Agents, terminals, running scripts, or unsafe or unverified Git state. It never stashes, commits, pushes, or deletes files itself.
 
 An automatic archive uses Paseo's native workspace archive. That can stop Agents and terminals and may remove a managed worktree. Success requires a native response with `error=null` and `archivedAt`, followed by a refresh in which the workspace leaves the native active list. Uncertain outcomes remain visible for manual review and are not blindly retried.
 
@@ -86,4 +86,4 @@ The native pin API has no ownership or compare-and-set operation. When an operat
 - The plugin manifest sets the minimum Paseo version. Its internal label bridge may require changes later; see [verification](verification.md) for tested hosts.
 - Local filters, column widths, and collapsed columns are stored per client and host; they are not shared task data.
 - Workspace labels and native archive/pin operations can change outside Workboard. The plugin rechecks state where possible, but native APIs do not provide every atomic operation.
-- Archived workspace history can be incomplete in Paseo 0.9.1. Workboard treats incomplete conversation evidence conservatively and postpones automatic archival.
+- Paseo 0.9.1 refuses the provider-subagent API for archived parents, and its pi provider replays history without per-row timestamps, so Workboard falls back to displayed bounds and defers only when no bound can be proven.

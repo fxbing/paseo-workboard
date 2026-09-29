@@ -976,14 +976,22 @@ function TaskCard({
     ? `${request.forge === "gitlab" ? "MR" : "PR"}${request.number === null ? "" : ` ${request.forge === "gitlab" ? "!" : "#"}${request.number}`}`
     : "";
   const isDraft = card.workspaceId === null;
+  const displayedDate = card.lastConversationAt
+    ? shortDate(card.lastConversationAt, t.locale)
+    : null;
   const time =
-    card.conversationStatus === "none"
+    card.conversationDisplayEvidence === "none"
       ? t.noConversation
-      : card.conversationStatus === "unknown"
+      : card.conversationDisplayEvidence === "unknown" || displayedDate === null
         ? t.unknownConversation
-        : card.lastConversationAt
-          ? shortDate(card.lastConversationAt, t.locale)
-          : t.unknownConversation;
+        : card.conversationDisplayEvidence === "lower-bound"
+          ? t.conversationAtLeast.replace("{date}", displayedDate)
+          : card.conversationDisplayEvidence === "upper-bound"
+            ? t.conversationAtMost.replace("{date}", displayedDate)
+            : displayedDate;
+  const reason = card.conversationReason
+    ? t.conversationReasons[card.conversationReason]
+    : null;
   const terminal = isTerminalGroup(card.stage, board.settings.groups);
   const issue =
     card.issue === "no-conversation" || card.issue === "conversation-unknown"

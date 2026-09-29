@@ -109,6 +109,8 @@ const zh = {
   noWorkspace: "草稿 · 未创建 workspace",
   noConversation: "尚无对话",
   unknownConversation: "对话时间待核实",
+  conversationAtLeast: "不低于 {date}",
+  conversationAtMost: "不晚于 {date}",
   expires: "将于 {date} 归档",
   overdue: "已到期，等待检查",
   syncing: "同步中",
@@ -217,6 +219,13 @@ const zh = {
     "native-archive-unknown": "归档结果待人工核实",
     "changed-during-check": "检查期间状态已变化",
     "label-sync-incomplete": "标签同步未完成",
+  },
+  conversationReasons: {
+    "replay-timestamp": "Paseo 回放历史时用水合时刻打戳，已改用记录的上下界",
+    "truncated-window": "只读取了有限的历史窗口",
+    "timeline-unreadable": "时间线读取失败",
+    "child-enumeration-unavailable": "无法枚举 provider 子 agent",
+    "child-timeline-unreadable": "子 agent 时间线读取失败",
   },
 };
 
@@ -334,6 +343,8 @@ const en: typeof zh = {
   noWorkspace: "Draft · no workspace",
   noConversation: "No conversation yet",
   unknownConversation: "Conversation time needs verification",
+  conversationAtLeast: "No earlier than {date}",
+  conversationAtMost: "No later than {date}",
   expires: "Archives {date}",
   overdue: "Due; waiting for checks",
   syncing: "Syncing",
@@ -451,6 +462,15 @@ const en: typeof zh = {
     "native-archive-unknown": "Archive result needs manual verification",
     "changed-during-check": "State changed during the check",
     "label-sync-incomplete": "Label sync is incomplete",
+  },
+  conversationReasons: {
+    "replay-timestamp":
+      "Paseo stamps replayed history with the hydration moment; recorded bounds are used instead",
+    "truncated-window": "Only a bounded history window was read",
+    "timeline-unreadable": "The timeline could not be read",
+    "child-enumeration-unavailable": "Provider children cannot be listed",
+    "child-timeline-unreadable":
+      "A provider child's timeline could not be read",
   },
 };
 

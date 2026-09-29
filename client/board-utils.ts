@@ -1,4 +1,5 @@
 import {
+  archiveGate,
   isArchiveDue,
   groupKind,
   labelKey,
@@ -183,14 +184,10 @@ export function mappingPreview(
       const stage = resolveStage(card.labels, settings.groups);
       if (stage !== card.stage) result.affected += 1;
       if (
-        card.conversationStatus === "known" &&
+        archiveGate(card) !== null &&
         !card.archived &&
         !card.binding &&
-        isArchiveDue(
-          groupKind(stage, settings.groups),
-          card.lastConversationAt,
-          now,
-        )
+        isArchiveDue(groupKind(stage, settings.groups), archiveGate(card), now)
       )
         result.due += 1;
       return result;

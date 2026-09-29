@@ -274,9 +274,10 @@ export class Workboard {
               : data.autoPins[workspace.id] === workspace.pinnedAt
                 ? "automatic"
                 : "manual",
-          dueAt: task.workspaceId && isTerminalGroup(stage, data.settings.groups)
-            ? archiveDueAt(archiveGate(task))
-            : null,
+          dueAt:
+            task.workspaceId && isTerminalGroup(stage, data.settings.groups)
+              ? archiveDueAt(archiveGate(task))
+              : null,
           agents: agents.map((a) => ({
             id: a.id,
             title: a.title ?? a.id,
@@ -425,7 +426,9 @@ export class Workboard {
         agent.childEnumeration === "unavailable"
       )
         reasons.add("child-enumeration-unavailable");
-      const time = conversation.displayAt ? Date.parse(conversation.displayAt) : null;
+      const time = conversation.displayAt
+        ? Date.parse(conversation.displayAt)
+        : null;
       if (time !== null) {
         // An upper-bound display value never counts as a lower bound of the conversation.
         if (conversation.display === "upper-bound")
@@ -466,7 +469,9 @@ export class Workboard {
       agentsEvidence.push(entry);
       // A child that vanished before its time was recorded may have outlived the known
       // conversation, so the gate cannot claim an upper bound any more.
-      const time = entry.lastObservedAt ? Date.parse(entry.lastObservedAt) : null;
+      const time = entry.lastObservedAt
+        ? Date.parse(entry.lastObservedAt)
+        : null;
       if (time === null || upper === null || time > upper)
         reasons.add("child-enumeration-unavailable");
     }
@@ -477,7 +482,10 @@ export class Workboard {
         ? upper === null
           ? ({ display: "unknown", gate: "unknown" } as const)
           : ({ display: "upper-bound", gate: "upper-bound" } as const)
-        : ({ display: "lower-bound", gate: upper === null ? "unknown" : "upper-bound" } as const);
+        : ({
+            display: "lower-bound",
+            gate: upper === null ? "unknown" : "upper-bound",
+          } as const);
     const boundAt = lower ?? upper;
     const display: ConversationDisplay = exact
       ? "exact"
@@ -513,10 +521,13 @@ export class Workboard {
     let gate: number | null = null;
     try {
       const evidence = await this.observe(agents, candidate, this.now());
-      if (candidate.conversationAgents.some(
-        (entry) =>
-          entry.seenWhileLive && !evidence.agents.some((next) => next.id === entry.id),
-      ))
+      if (
+        candidate.conversationAgents.some(
+          (entry) =>
+            entry.seenWhileLive &&
+            !evidence.agents.some((next) => next.id === entry.id),
+        )
+      )
         return null;
       const at = archiveGate({
         conversationGateAt: evidence.gateAt,
