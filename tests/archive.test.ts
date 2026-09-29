@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { settingsSchema } from "../shared/model";
 import { Workboard } from "../server/workboard";
 import { Store } from "../server/store";
-import { fixture, workspace } from "./fixtures";
+import { agentEvidence, fixture, observed, workspace } from "./fixtures";
 afterEach(() => vi.useRealTimers());
 function dueFixture() {
   const test = fixture({
@@ -17,7 +17,7 @@ function dueFixture() {
     lastUserMessageAt: "2026-08-01T00:00:00Z",
     activity: "idle",
   });
-  test.host.conversation = async () => "2026-08-01T00:00:00Z";
+  test.host.conversation = agentEvidence("2026-08-01T00:00:00Z");
   return test;
 }
 it("archives on cold start without any UI and keeps the original conversation clock", async () => {
@@ -28,7 +28,7 @@ it("archives on cold start without any UI and keeps the original conversation cl
     expect(board.snapshot().cards[0].archived).toMatchObject({
       status: "archived",
       kind: "automatic",
-      lastConversationAt: "2026-08-01T00:00:00Z",
+      lastConversationAt: "2026-08-01T00:00:00.000Z",
     });
     await board.refresh();
     expect(host.archive).toHaveBeenCalledTimes(1);
@@ -55,23 +55,12 @@ it("periodic work strictly crosses 30 days, includes archived Agents, and stops 
     board.dispose();
   }
 });
-it("defers missing history, recent replies, busy agents, unsafe Git and label conflicts", async () => {
-  for (const reason of [
-    "none",
-    "unknown",
-    "recent",
-    "busy",
-    "git",
-    "conflict",
-  ]) {
+it("defers no conversation, recent replies, busy agents, unsafe Git and label conflicts", async () => {
+  for (const reason of ["none", "recent", "busy", "git", "conflict"]) {
     const { board, host, inventory } = dueFixture();
-    if (reason === "none") host.conversation = async () => null;
-    if (reason === "unknown")
-      host.conversation = async () => {
-        throw new Error("History missing");
-      };
+    if (reason === "none") host.conversation = agentEvidence(null);
     if (reason === "recent")
-      host.conversation = async () => "2026-09-22T00:00:00Z";
+      host.conversation = agentEvidence("2026-09-22T00:00:00Z");
     if (reason === "busy") inventory.agents[0].activity = "waiting";
     if (reason === "git") host.safety = async () => "git-dirty";
     if (reason === "conflict")
@@ -85,12 +74,31 @@ it("defers missing history, recent replies, busy agents, unsafe Git and label co
     }
   }
 });
+it("archives an unreadable history from its recorded upper bound and keeps the reason", async () => {
+  const { board, host } = dueFixture();
+  host.conversation = async () => {
+    throw new Error("History missing");
+  };
+  try {
+    await board.start();
+    // Paseo's recorded activity is never earlier than the last message, so gating on it can
+    // only delay an archive; the degraded evidence stays visible on the card.
+    expect(host.archive).toHaveBeenCalledExactlyOnceWith("old");
+    expect(board.snapshot().cards[0]).toMatchObject({
+      conversationDisplayEvidence: "upper-bound",
+      conversationGateEvidence: "upper-bound",
+      conversationReason: "timeline-unreadable",
+    });
+  } finally {
+    board.dispose();
+  }
+});
 it("invalidates a scan when labels or a new conversation change while safety checks wait", async () => {
   for (const change of ["labels", "conversation"]) {
     const { board, host, inventory } = dueFixture();
     host.safety = vi.fn(async () => {
       if (change === "labels") inventory.workspaces[0].labels = ["task:todo"];
-      else host.conversation = async () => "2026-09-23T00:00:00Z";
+      else host.conversation = agentEvidence("2026-09-23T00:00:00Z");
       board.changed();
       return null;
     });
@@ -153,7 +161,7 @@ it.each(["disconnect", "stage change"])(
     host.conversation = async () => {
       entered();
       await blocked;
-      return "2026-08-01T00:00:00Z";
+      return observed("2026-08-01T00:00:00Z");
     };
     inventory.workspaces[0].labels = ["task:done"];
     try {
@@ -207,18 +215,20 @@ it("uses the latest of multiple agents, including a provider child, without borr
     activity: "idle",
   });
   test.host.conversation = async (agent) =>
-    agent.id.includes("child")
-      ? "2026-09-22T00:00:00Z"
-      : agent.id === "unrelated"
-        ? "2026-09-23T00:00:00Z"
-        : "2026-08-01T00:00:00Z";
+    observed(
+      agent.id.includes("child")
+        ? "2026-09-22T00:00:00Z"
+        : agent.id === "unrelated"
+          ? "2026-09-23T00:00:00Z"
+          : "2026-08-01T00:00:00Z",
+    );
   try {
     await test.board.start();
     expect(test.host.archive).not.toHaveBeenCalled();
     expect(
       test.board.snapshot().cards.find((c) => c.workspaceId === "old")
         ?.lastConversationAt,
-    ).toBe("2026-09-22T00:00:00Z");
+    ).toBe("2026-09-22T00:00:00.000Z");
   } finally {
     test.board.dispose();
   }

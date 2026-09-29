@@ -2,7 +2,36 @@ import { vi } from "vitest";
 import { dataSchema, type Data } from "../shared/model";
 import { Store } from "../server/store";
 import { Workboard } from "../server/workboard";
-import type { Host, Inventory, Workspace } from "../server/host";
+import type {
+  Agent,
+  ConversationEvidence,
+  Host,
+  Inventory,
+  Workspace,
+} from "../server/host";
+
+/**
+ * Build one agent's evidence. Fixtures describe the conversation a workspace observes and
+ * default to an exact time, so a test only spells out the degraded case it exercises.
+ */
+export function observed(
+  at: string | null,
+  evidence: Partial<ConversationEvidence> = {},
+): ConversationEvidence {
+  return {
+    displayAt: at,
+    display: at === null ? "none" : "exact",
+    gateAt: at,
+    gate: at === null ? "unknown" : "exact",
+    reason: null,
+    ...evidence,
+  };
+}
+
+/** Evidence for one agent at a fixed time, for host mocks. */
+export function agentEvidence(at: string | null = null) {
+  return async (_agent: Agent): Promise<ConversationEvidence> => observed(at);
+}
 
 export function fixture(initial: Partial<Data> = {}) {
   let saved = dataSchema.parse(initial);
@@ -32,7 +61,7 @@ export function fixture(initial: Partial<Data> = {}) {
     inventory: async () => structuredClone(inventory),
     workspace: async (id) =>
       structuredClone(inventory.workspaces.find((w) => w.id === id) ?? null),
-    conversation: async () => null,
+    conversation: agentEvidence(),
     create: vi.fn(async (_source, title, key) => {
       if (created.has(key)) return created.get(key)!;
       const id = `w${created.size + 1}`;

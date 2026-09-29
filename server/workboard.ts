@@ -2,28 +2,58 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
   archiveDueAt,
+  archiveGate,
+  conversationStatusFor,
   defaultGroup,
   defaultWorkspaceGroup,
   groupKind,
+  isArchiveDue,
   isDraftGroup,
   isTerminalGroup,
-  settingsSchema,
-  type Settings,
-  isArchiveDue,
   labelKey,
   newTask,
   orderedGroups,
   resolveStage,
+  settingsSchema,
   statusLabels,
   STAGE_COLORS,
   type Board,
   type Card,
+  type ConversationAgent,
+  type ConversationDisplay,
+  type ConversationGate,
+  type ConversationReason,
+  type Settings,
   type Stage,
   type Task,
 } from "../shared/model";
 import type { Mutation } from "../shared/rpc";
-import type { Host, Inventory, Workspace } from "./host";
+import type {
+  Agent,
+  ConversationEvidence,
+  Host,
+  Inventory,
+  Workspace,
+} from "./host";
 import type { Store } from "./store";
+
+/** One workspace's combined conversation evidence. */
+interface WorkspaceConversation {
+  displayAt: string | null;
+  display: ConversationDisplay;
+  gateAt: string | null;
+  gate: ConversationGate;
+  reason: ConversationReason | null;
+  agents: ConversationAgent[];
+}
+/** Most severe first, so one reason is stored per task. */
+const REASON_ORDER: ConversationReason[] = [
+  "timeline-unreadable",
+  "child-enumeration-unavailable",
+  "child-timeline-unreadable",
+  "replay-timestamp",
+  "truncated-window",
+];
 
 const labelsEqual = (a: string[], b: string[]) =>
   JSON.stringify(a.map(labelKey).sort()) ===
@@ -244,12 +274,9 @@ export class Workboard {
               : data.autoPins[workspace.id] === workspace.pinnedAt
                 ? "automatic"
                 : "manual",
-          dueAt:
-            task.workspaceId &&
-            task.conversationStatus === "known" &&
-            isTerminalGroup(stage, data.settings.groups)
-              ? archiveDueAt(task.lastConversationAt)
-              : null,
+          dueAt: task.workspaceId && isTerminalGroup(stage, data.settings.groups)
+            ? archiveDueAt(archiveGate(task))
+            : null,
           agents: agents.map((a) => ({
             id: a.id,
             title: a.title ?? a.id,
@@ -265,10 +292,7 @@ export class Workboard {
     const inventory = await this.host.inventory();
     await this.syncPins(inventory, connection);
     const prior = this.store.current;
-    const observations = new Map<
-      string,
-      { time: string | null; ids: string[]; unknown: boolean }
-    >();
+    const observations = new Map<string, WorkspaceConversation>();
     for (const workspace of inventory.workspaces) {
       const agents = inventory.agents.filter(
         (agent) => agent.workspaceId === workspace.id,
@@ -277,26 +301,10 @@ export class Workboard {
         (task) => task.workspaceId === workspace.id,
       );
       if (scope && !scope.has(workspace.id) && previous) continue;
-      let time: string | null = null;
-      let unknown = false;
-      const ids = agents.map((a) => a.id).sort();
-      if (previous?.conversationAgents.some((id) => !ids.includes(id)))
-        unknown = true;
-      for (const agent of agents) {
-        try {
-          const latest = await this.host.conversation(agent, this.now());
-          if (latest && (!time || Date.parse(latest) > Date.parse(time)))
-            time = latest;
-        } catch {
-          unknown = true;
-        }
-      }
-      if (
-        previous?.lastConversationAt &&
-        (!time || Date.parse(time) < Date.parse(previous.lastConversationAt))
-      )
-        unknown = true;
-      observations.set(workspace.id, { time, ids, unknown });
+      observations.set(
+        workspace.id,
+        await this.observe(agents, previous, this.now()),
+      );
     }
     if (this.stopped) throw new Error("Workboard stopped");
     this.inventory = inventory;
@@ -322,15 +330,13 @@ export class Workboard {
         task.lastStage = resolveStage(workspace.labels, data.settings.groups);
         const observation = observations.get(workspace.id);
         if (observation) {
-          task.conversationStatus = observation.unknown
-            ? "unknown"
-            : observation.time
-              ? "known"
-              : "none";
-          if (!observation.unknown) {
-            task.lastConversationAt = observation.time;
-            task.conversationAgents = observation.ids;
-          }
+          task.lastConversationAt = observation.displayAt;
+          task.conversationDisplayEvidence = observation.display;
+          task.conversationStatus = conversationStatusFor(observation.display);
+          task.conversationGateAt = observation.gateAt;
+          task.conversationGateEvidence = observation.gate;
+          task.conversationReason = observation.reason;
+          task.conversationAgents = observation.agents;
         }
         task.issue =
           task.archived?.status === "uncertain"
@@ -375,6 +381,155 @@ export class Workboard {
     this.connected = true;
     this.error = null;
     this.refreshedAt = this.stamp();
+  }
+  /**
+   * Combine every agent's evidence into one display time and one archive gate. Only a full
+   * exact read of every agent and every provider child can claim an exact time; anything
+   * else keeps the newest observed bound so a task never loses its card time, while the gate
+   * stays an upper bound that can only delay archiving.
+   */
+  private async observe(
+    agents: readonly Agent[],
+    previous: Task | undefined,
+    now: number,
+  ): Promise<WorkspaceConversation> {
+    const readings: Array<{
+      agent: Agent;
+      conversation: ConversationEvidence;
+    }> = [];
+    for (const agent of agents) {
+      const isChild = Boolean(agent.parentAgentId && agent.subagentId);
+      let conversation: ConversationEvidence;
+      try {
+        conversation = await this.host.conversation(agent, now);
+      } catch {
+        // One unreadable agent degrades its own evidence instead of the whole workspace.
+        const bound = isChild ? null : (agent.updatedAt ?? null);
+        conversation = {
+          displayAt: bound,
+          display: bound === null ? "unknown" : "upper-bound",
+          gateAt: bound,
+          gate: bound === null ? "unknown" : "upper-bound",
+          reason: isChild ? "child-timeline-unreadable" : "timeline-unreadable",
+        };
+      }
+      readings.push({ agent, conversation });
+    }
+    const reasons = new Set<ConversationReason>();
+    let lower: number | null = null;
+    let upper: number | null = null;
+    for (const { agent, conversation } of readings) {
+      if (conversation.reason) reasons.add(conversation.reason);
+      if (
+        agent.childEnumeration === "refused" ||
+        agent.childEnumeration === "unavailable"
+      )
+        reasons.add("child-enumeration-unavailable");
+      const time = conversation.displayAt ? Date.parse(conversation.displayAt) : null;
+      if (time !== null) {
+        // An upper-bound display value never counts as a lower bound of the conversation.
+        if (conversation.display === "upper-bound")
+          upper = Math.max(upper ?? time, time);
+        else lower = Math.max(lower ?? time, time);
+      }
+      const isChild = Boolean(agent.parentAgentId && agent.subagentId);
+      const activity = isChild ? null : Date.parse(agent.updatedAt);
+      if (activity !== null && Number.isFinite(activity))
+        upper = Math.max(upper ?? activity, activity);
+    }
+    // A workspace with no conversation at all is never archivable, while a vanished child
+    // keeps the "none" claim and the upper bound out of reach.
+    const noConversation =
+      readings.length > 0 &&
+      reasons.size === 0 &&
+      readings.every(({ conversation }) => conversation.display === "none");
+    const exact =
+      readings.length > 0 &&
+      reasons.size === 0 &&
+      readings.every(({ conversation }) => conversation.gate === "exact");
+    const recorded = previous?.conversationAgents ?? [];
+    const live = new Set(
+      readings
+        .filter(({ agent }) => agent.childEnumeration === "complete")
+        .map(({ agent }) => agent.id),
+    );
+    const agentsEvidence: ConversationAgent[] = readings
+      .filter(({ agent }) => Boolean(agent.parentAgentId && agent.subagentId))
+      .map(({ agent, conversation }) => ({
+        id: agent.id,
+        lastObservedAt: conversation.displayAt,
+        seenWhileLive: live.has(agent.parentAgentId!),
+      }));
+    const current = new Set(readings.map(({ agent }) => agent.id));
+    for (const entry of recorded) {
+      if (current.has(entry.id)) continue;
+      agentsEvidence.push(entry);
+      // A child that vanished before its time was recorded may have outlived the known
+      // conversation, so the gate cannot claim an upper bound any more.
+      const time = entry.lastObservedAt ? Date.parse(entry.lastObservedAt) : null;
+      if (time === null || upper === null || time > upper)
+        reasons.add("child-enumeration-unavailable");
+    }
+    const reason =
+      REASON_ORDER.find((candidate) => reasons.has(candidate)) ?? null;
+    const bounded =
+      lower === null
+        ? upper === null
+          ? ({ display: "unknown", gate: "unknown" } as const)
+          : ({ display: "upper-bound", gate: "upper-bound" } as const)
+        : ({ display: "lower-bound", gate: upper === null ? "unknown" : "upper-bound" } as const);
+    const boundAt = lower ?? upper;
+    const display: ConversationDisplay = exact
+      ? "exact"
+      : noConversation
+        ? "none"
+        : bounded.display;
+    const gate: ConversationGate = exact
+      ? "exact"
+      : noConversation || upper === null
+        ? "unknown"
+        : "upper-bound";
+    const gateAt = exact ? boundAt : noConversation ? null : upper;
+    return {
+      displayAt:
+        noConversation || boundAt === null
+          ? null
+          : new Date(boundAt).toISOString(),
+      display,
+      gateAt: gateAt === null ? null : new Date(gateAt).toISOString(),
+      gate,
+      reason: exact || noConversation ? null : reason,
+      agents: agentsEvidence,
+    };
+  }
+  /**
+   * Re-read one candidate's conversation before archiving it. Returns the gate that the
+   * archive decision may use, or null when no bound can be proven right now.
+   */
+  private async verifyConversation(
+    candidate: Task,
+    agents: readonly Agent[],
+  ): Promise<string | null> {
+    let gate: number | null = null;
+    try {
+      const evidence = await this.observe(agents, candidate, this.now());
+      if (candidate.conversationAgents.some(
+        (entry) =>
+          entry.seenWhileLive && !evidence.agents.some((next) => next.id === entry.id),
+      ))
+        return null;
+      const at = archiveGate({
+        conversationGateAt: evidence.gateAt,
+        conversationGateEvidence: evidence.gate,
+      });
+      if (at === null) return null;
+      gate = Date.parse(at);
+    } catch {
+      return null;
+    }
+    return gate === null || !Number.isFinite(gate)
+      ? null
+      : new Date(gate).toISOString();
   }
   private async syncPins(
     inventory: Inventory,
@@ -859,10 +1014,10 @@ export class Workboard {
         (scope && !scope.has(candidate.workspaceId)) ||
         candidate.archived ||
         candidate.binding ||
-        candidate.conversationStatus !== "known" ||
+        archiveGate(candidate) === null ||
         !isArchiveDue(
           groupKind(candidate.lastStage, this.store.current.settings.groups),
-          candidate.lastConversationAt,
+          archiveGate(candidate),
           this.now(),
         )
       )
@@ -891,33 +1046,15 @@ export class Workboard {
         await this.issue(candidate.id, "agent-busy");
         continue;
       }
-      let time: string | null = null;
-      try {
-        if (
-          candidate.conversationAgents.some(
-            (id) => !agents.some((a) => a.id === id),
-          )
-        )
-          throw new Error("An Agent disappeared");
-        for (const agent of agents) {
-          const latest = await this.host.conversation(agent, this.now());
-          if (latest && (!time || Date.parse(latest) > Date.parse(time)))
-            time = latest;
-        }
-        if (
-          !time ||
-          (candidate.lastConversationAt &&
-            Date.parse(time) < Date.parse(candidate.lastConversationAt))
-        )
-          throw new Error("Conversation evidence changed");
-      } catch {
+      const gate = await this.verifyConversation(candidate, agents);
+      if (gate === null) {
         await this.issue(candidate.id, "conversation-unknown");
         continue;
       }
       if (
         !isArchiveDue(
           groupKind(stage, this.store.current.settings.groups),
-          time,
+          gate,
           this.now(),
         )
       )
@@ -943,7 +1080,7 @@ export class Workboard {
             data.settings.groups.find((group) => group.id === stage) ?? null,
           startedAt: this.stamp(),
           archivedAt: null,
-          lastConversationAt: time,
+          lastConversationAt: candidate.lastConversationAt,
           detail: "Archive intent persisted; native result not yet known",
         };
       });
@@ -962,7 +1099,7 @@ export class Workboard {
                 a.lastUserMessageAt,
                 a.activity,
                 a.archivedAt,
-                a.providerUnavailable,
+                a.childEnumeration,
               ])
               .sort(),
           );
@@ -971,7 +1108,11 @@ export class Workboard {
           current.archivingAt ||
           current.status === "running" ||
           current.status === "needs_input" ||
-          currentAgents.some((a) => a.providerUnavailable) ||
+          currentAgents.some(
+            (a) =>
+              a.childEnumeration === "refused" ||
+              a.childEnumeration === "unavailable",
+          ) ||
           resolveStage(current.labels, this.store.current.settings.groups) !==
             stage ||
           !labelsEqual(current.labels, workspace.labels) ||

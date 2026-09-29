@@ -1,4 +1,13 @@
-import type { Board, Card, StartInput } from "../shared/model";
+import type {
+  Board,
+  Card,
+  ConversationAgent,
+  ConversationDisplay,
+  ConversationGate,
+  ConversationReason,
+  StartInput,
+} from "../shared/model";
+import type { ConversationWindow, TimelineReader } from "./conversations";
 import { readConversationTime } from "./conversations";
 import { checkGitSafety } from "./git-safety";
 import type { PaseoApi, PaseoCompat } from "./paseo-compat";
@@ -18,6 +27,16 @@ type Subscription = {
     observer: Omit<Observer, "snapshot"> & { snapshot(): void },
   ): unknown;
 };
+export type ProviderChild = Awaited<
+  ReturnType<PaseoCompat["subagents"]>
+>[number];
+interface ChildRecord {
+  parentUpdatedAt: string;
+  seenWhileLive: boolean;
+  children: ProviderChild[];
+  refused: boolean;
+}
+
 
 export type Workspace = Pick<
   PaseoWorkspace,
@@ -45,8 +64,24 @@ export type Agent = Pick<
   | "updatedAt"
   | "lastUserMessageAt"
   | "archivedAt"
-  | "providerUnavailable"
-> & { activity: Card["activity"]; parentAgentId?: string; subagentId?: string };
+> & {
+  activity: Card["activity"];
+  parentAgentId?: string;
+  subagentId?: string;
+  /** Whether this parent's provider children could be listed in this inventory. */
+  childEnumeration?: "complete" | "refused" | "unavailable";
+};
+/**
+ * One agent's conversation evidence. Display and gate stay separate because Paseo records
+ * neither a trustworthy exact time nor a single usable bound for every provider.
+ */
+export interface ConversationEvidence {
+  displayAt: string | null;
+  display: ConversationDisplay;
+  gateAt: string | null;
+  gate: ConversationGate;
+  reason: ConversationReason | null;
+}
 export interface Inventory {
   workspaces: Workspace[];
   agents: Agent[];
@@ -56,7 +91,7 @@ export interface Host {
   identity: { serverId: string; version: string };
   inventory(): Promise<Inventory>;
   workspace(id: string): Promise<Workspace | null>;
-  conversation(agent: Agent, now: number): Promise<string | null>;
+  conversation(agent: Agent, now: number): Promise<ConversationEvidence>;
   setLabel(
     workspaceId: string,
     name: string,
@@ -126,6 +161,8 @@ export class PaseoHost implements Host {
   private workspaceUpdates = new Map<string, Workspace | null>();
   private agentUpdates = new Map<string, Agent | null>();
   private agentWorkspaces = new Map<string, string | undefined>();
+  /** Provider children per parent, keyed by the parent activity Paseo last reported. */
+  private childRecords = new Map<string, ChildRecord>();
   constructor(
     private api: PaseoApi,
     private compat: PaseoCompat,
@@ -165,6 +202,7 @@ export class PaseoHost implements Host {
         });
         this.changed(change.agent.workspaceId);
       } else {
+        this.childRecords.delete(change.agentId);
         this.agentUpdates.set(change.agentId, null);
         const workspaceId = this.agentWorkspaces.get(change.agentId);
         this.agentWorkspaces.delete(change.agentId);
@@ -172,13 +210,14 @@ export class PaseoHost implements Host {
       }
     } else if (message.type === "agent.provider_subagents.update") {
       const change = message.payload;
-      this.changed(
-        this.agentWorkspaces.get(
-          change.kind === "upsert"
-            ? change.subagent.parentAgentId
-            : change.parentAgentId,
-        ),
-      );
+      const parentAgentId =
+        change.kind === "upsert"
+          ? change.subagent.parentAgentId
+          : change.parentAgentId;
+      // A child change does not have to touch the parent, so the cache cannot wait for
+      // the parent's updatedAt to move.
+      this.childRecords.delete(parentAgentId);
+      this.changed(this.agentWorkspaces.get(parentAgentId));
     }
   }
   async inventory(): Promise<Inventory> {
@@ -262,33 +301,28 @@ export class PaseoHost implements Host {
     for (const agent of [...agentMap.values()]) {
       this.agentWorkspaces.set(agent.id, agent.workspaceId);
       if (!agent.workspaceId || !workspaceMap.has(agent.workspaceId)) continue;
-      // 0.9.1 refuses the provider-subagent API for archived parents. On a
-      // first import we cannot prove that no provider children existed, so the
-      // parent's whole conversation is unknown even if its own timeline reads.
-      if (agent.archivedAt) {
-        agent.providerUnavailable = true;
-        continue;
-      }
-      try {
-        for (const child of await this.compat.subagents(agent.id))
-          agentMap.set(`${agent.id}/provider/${child.id}`, {
-            id: `${agent.id}/provider/${child.id}`,
-            workspaceId: agent.workspaceId,
-            parentAgentId: agent.id,
-            subagentId: child.id,
-            title: child.title,
-            updatedAt: child.updatedAt,
-            lastUserMessageAt: null,
-            activity:
-              child.status === "running"
-                ? "running"
-                : child.status === "failed"
-                  ? "error"
-                  : "idle",
-          });
-      } catch {
-        agent.providerUnavailable = true;
-      }
+      const record = await this.childRecord(agent);
+      agent.childEnumeration = record.refused
+        ? agent.archivedAt
+          ? "refused"
+          : "unavailable"
+        : "complete";
+      for (const child of record.children)
+        agentMap.set(`${agent.id}/provider/${child.id}`, {
+          id: `${agent.id}/provider/${child.id}`,
+          workspaceId: agent.workspaceId,
+          parentAgentId: agent.id,
+          subagentId: child.id,
+          title: child.title,
+          updatedAt: child.updatedAt,
+          lastUserMessageAt: null,
+          activity:
+            child.status === "running"
+              ? "running"
+              : child.status === "failed"
+                ? "error"
+                : "idle",
+        });
     }
     return {
       workspaces: [...workspaceMap.values()],
@@ -301,36 +335,135 @@ export class PaseoHost implements Host {
       })),
     };
   }
+  /**
+   * Provider children are cached per parent activity. Re-listing them costs the daemon one
+   * request per agent on every pass, and an archived parent cannot be re-listed at all, so
+   * the children observed while it was live are kept instead of its chat going unknown.
+   */
+  private async childRecord(agent: Agent): Promise<ChildRecord> {
+    const cached = this.childRecords.get(agent.id);
+    if (cached && cached.parentUpdatedAt === agent.updatedAt) return cached;
+    let record: ChildRecord;
+    if (agent.archivedAt) {
+      record = {
+        parentUpdatedAt: agent.updatedAt,
+        seenWhileLive: false,
+        children: cached?.children ?? [],
+        refused: true,
+      };
+    } else {
+      try {
+        record = {
+          parentUpdatedAt: agent.updatedAt,
+          seenWhileLive: true,
+          children: await this.compat.subagents(agent.id),
+          refused: false,
+        };
+      } catch {
+        record = {
+          parentUpdatedAt: agent.updatedAt,
+          seenWhileLive: false,
+          children: cached?.children ?? [],
+          refused: true,
+        };
+      }
+    }
+    this.childRecords.set(agent.id, record);
+    return record;
+  }
   async workspace(id: string): Promise<Workspace | null> {
     const value = await this.api.workspaces.ref(id).refresh();
     return value ? normalize(value) : null;
   }
-  async conversation(agent: Agent, now: number): Promise<string | null> {
-    if (agent.providerUnavailable)
-      throw new Error("Conversation provider is unavailable");
-    // A subagent descriptor timestamp is only a cautious consistency check against
-    // replay synthesized as "now". It is never the conversation time; a projected
-    // row newer than the descriptor remains unknown rather than being archived.
-    const read =
-      agent.parentAgentId && agent.subagentId
-        ? this.compat.subagentTimeline(agent.parentAgentId, agent.subagentId)
-        : (options: Parameters<import("./conversations").TimelineReader>[0]) =>
+  async conversation(agent: Agent, now: number): Promise<ConversationEvidence> {
+    const isChild = Boolean(agent.parentAgentId && agent.subagentId);
+    const parse = (value: string | null | undefined): number | null => {
+      if (!value) return null;
+      const time = Date.parse(value);
+      return Number.isFinite(time) ? time : null;
+    };
+    // A recorded user message is a lower bound of the last message. A provider child's
+    // descriptor timestamp is a hydration stamp, so only its parent bounds that window.
+    const recordedLower = parse(agent.lastUserMessageAt);
+    const recordedUpper = isChild ? null : parse(agent.updatedAt);
+    const evidenceFor = (
+      lower: number | null,
+      reason: ConversationReason | null,
+    ): ConversationEvidence => {
+      const gate = (value: number | null) =>
+        value === null
+          ? { gateAt: null, gate: "unknown" as ConversationGate }
+          : {
+              gateAt: new Date(value).toISOString(),
+              gate: "upper-bound" as ConversationGate,
+            };
+      if (lower !== null)
+        return {
+          displayAt: new Date(lower).toISOString(),
+          display: "lower-bound",
+          ...gate(recordedUpper),
+          reason,
+        };
+      if (recordedUpper !== null)
+        return {
+          displayAt: new Date(recordedUpper).toISOString(),
+          display: "upper-bound",
+          ...gate(recordedUpper),
+          reason,
+        };
+      return {
+        displayAt: null,
+        display: "unknown",
+        gateAt: null,
+        gate: "unknown",
+        reason,
+      };
+    };
+    let window: ConversationWindow;
+    try {
+      const read = isChild
+        ? this.compat.subagentTimeline(agent.parentAgentId!, agent.subagentId!)
+        : (options: Parameters<TimelineReader>[0]) =>
             this.api.agents.ref(agent.id).timeline.refetch(options);
-    const window = await readConversationTime(read, {
-      now,
-      observedUpdatedAt: agent.updatedAt,
-    });
-    // Hydration-stamped windows are classified by the caller; keep the previous
-    // "cannot be verified" failure until the evidence model consumes the counts.
-    if (window.latest === null && window.replayStamped > 0)
-      throw new Error("Conversation timestamp cannot be verified");
-    const time = window.latest;
+      window = await readConversationTime(read, {
+        now,
+        observedUpdatedAt: agent.updatedAt,
+      });
+    } catch {
+      return evidenceFor(recordedLower, "timeline-unreadable");
+    }
+    const admitted = parse(window.latest);
+    const lower =
+      admitted === null
+        ? recordedLower
+        : recordedLower === null
+          ? admitted
+          : Math.max(admitted, recordedLower);
+    if (window.messages > 0 && window.replayStamped === 0 && lower !== null)
+      return {
+        displayAt: new Date(lower).toISOString(),
+        display: "exact",
+        gateAt: new Date(lower).toISOString(),
+        gate: "exact",
+        reason: null,
+      };
     if (
-      agent.lastUserMessageAt &&
-      (!time || Date.parse(time) < Date.parse(agent.lastUserMessageAt))
+      window.messages === 0 &&
+      window.replayStamped === 0 &&
+      !window.truncated &&
+      recordedLower === null
     )
-      throw new Error("Conversation history is incomplete");
-    return time;
+      return {
+        displayAt: null,
+        display: "none",
+        gateAt: null,
+        gate: "unknown",
+        reason: null,
+      };
+    return evidenceFor(
+      lower,
+      window.truncated ? "truncated-window" : "replay-timestamp",
+    );
   }
   setLabel(id: string, name: string, color: string, assigned: boolean) {
     return this.compat.setLabel(id, name, color, assigned);

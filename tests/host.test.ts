@@ -5,6 +5,7 @@ import type {
   SubscriptionObserver,
 } from "@getpaseo/client";
 import { allPages, PaseoHost } from "../server/host";
+import type { TimelineReader } from "../server/conversations";
 import type { PaseoCompat } from "../server/paseo-compat";
 import { workspace } from "./fixtures";
 
@@ -139,6 +140,16 @@ function providerHost(
   compat: PaseoCompat,
   changed = vi.fn(),
   observers: SubscriptionObserver<unknown>[] = [],
+  timeline: TimelineReader = async () => ({
+    epoch: "epoch-empty",
+    gap: false,
+    staleCursor: false,
+    error: null,
+    hasOlder: false,
+    startCursor: null,
+    window: { maxSeq: 0 },
+    entries: [],
+  }),
 ) {
   const release = vi.fn(async () => {});
   const subscribe = () =>
@@ -167,6 +178,7 @@ function providerHost(
         subscription: options.subscribe ? subscribe() : undefined,
         pageInfo: { nextCursor: null, hasMore: false },
       }),
+      ref: () => ({ timeline: { refetch: timeline } }),
     },
     projects: { list: async () => ({ projects: [] }) },
   };
@@ -276,7 +288,13 @@ it("merges provider-managed subagents and reads their projected conversation tim
     });
     expect(
       await host.conversation(child!, Date.parse("2026-08-04T00:00:00.000Z")),
-    ).toBe("2026-08-02T00:00:00.000Z");
+    ).toEqual({
+      displayAt: "2026-08-02T00:00:00.000Z",
+      display: "exact",
+      gateAt: "2026-08-02T00:00:00.000Z",
+      gate: "exact",
+      reason: null,
+    });
     expect(read).toHaveBeenCalledWith({ direction: "tail", limit: 200 });
   } finally {
     host.dispose();
@@ -315,49 +333,106 @@ it("keeps a projected child whose row is newer than its descriptor unknown", asy
     const child = (await host.inventory()).agents.find(
       (agent) => agent.id === "parent/provider/child",
     );
-    await expect(
-      host.conversation(child!, Date.parse("2026-08-05T00:00:00.000Z")),
-    ).rejects.toThrow("timestamp cannot be verified");
+    // The stamped row is neither activity nor a conversation time, and a child descriptor
+    // never bounds the archive gate.
+    expect(
+      await host.conversation(child!, Date.parse("2026-08-05T00:00:00.000Z")),
+    ).toEqual({
+      displayAt: null,
+      display: "unknown",
+      gateAt: null,
+      gate: "unknown",
+      reason: "replay-timestamp",
+    });
   } finally {
     host.dispose();
   }
 });
 
-it("marks a parent unavailable when its provider inventory cannot be read, leaving its conversation unknown", async () => {
+it("keeps a parent readable when its provider children cannot be listed", async () => {
+  const read = vi.fn(async () => ({
+    epoch: "epoch-1",
+    gap: false,
+    staleCursor: false,
+    error: null,
+    hasOlder: false,
+    startCursor: null,
+    window: { maxSeq: 2 },
+    entries: [
+      {
+        timestamp: "2026-08-02T00:00:00.000Z",
+        item: { type: "assistant_message" },
+      },
+    ],
+  }));
   const compat = {
     subagents: vi.fn(async () => {
       throw new Error("provider unavailable");
     }),
   } as unknown as PaseoCompat;
-  const host = providerHost(parentAgent, compat);
-  try {
-    const parent = (await host.inventory()).agents.find(
-      (agent) => agent.id === "parent",
-    );
-    expect(parent?.providerUnavailable).toBe(true);
-    await expect(
-      host.conversation(parent!, Date.parse("2026-08-04T00:00:00.000Z")),
-    ).rejects.toThrow("provider is unavailable");
-  } finally {
-    host.dispose();
-  }
-});
-
-it("marks a first-imported archived parent unavailable because its provider children cannot be enumerated", async () => {
-  const compat = { subagents: vi.fn() } as unknown as PaseoCompat;
   const host = providerHost(
-    { ...parentAgent, archivedAt: "2026-08-03T01:00:00.000Z" },
+    parentAgent,
     compat,
+    vi.fn(),
+    [],
+    read,
   );
   try {
     const parent = (await host.inventory()).agents.find(
       (agent) => agent.id === "parent",
     );
-    expect(parent?.providerUnavailable).toBe(true);
+    expect(parent?.childEnumeration).toBe("unavailable");
+    expect(compat.subagents).toHaveBeenCalledTimes(1);
+    await host.inventory();
+    // A cached record keeps the daemon from being asked once per agent and pass.
+    expect(compat.subagents).toHaveBeenCalledTimes(1);
+    const evidence = await host.conversation(
+      parent!,
+      Date.parse("2026-08-04T00:00:00.000Z"),
+    );
+    expect(evidence.display).toBe("exact");
+    expect(evidence.displayAt).toBe("2026-08-02T00:00:00.000Z");
+  } finally {
+    host.dispose();
+  }
+});
+
+it("reads an archived parent's own timeline without listing its children", async () => {
+  const read = vi.fn(async () => ({
+    epoch: "epoch-1",
+    gap: false,
+    staleCursor: false,
+    error: null,
+    hasOlder: false,
+    startCursor: null,
+    window: { maxSeq: 2 },
+    entries: [
+      {
+        timestamp: "2026-08-02T00:00:00.000Z",
+        item: { type: "assistant_message" },
+      },
+    ],
+  }));
+  const compat = { subagents: vi.fn() } as unknown as PaseoCompat;
+  const host = providerHost(
+    { ...parentAgent, archivedAt: "2026-08-03T01:00:00.000Z" },
+    compat,
+    vi.fn(),
+    [],
+    read,
+  );
+  try {
+    const parent = (await host.inventory()).agents.find(
+      (agent) => agent.id === "parent",
+    );
+    expect(parent?.childEnumeration).toBe("refused");
     expect(compat.subagents).not.toHaveBeenCalled();
-    await expect(
-      host.conversation(parent!, Date.parse("2026-08-04T00:00:00.000Z")),
-    ).rejects.toThrow("provider is unavailable");
+    const evidence = await host.conversation(
+      parent!,
+      Date.parse("2026-08-04T00:00:00.000Z"),
+    );
+    expect(evidence.display).toBe("exact");
+    expect(evidence.gate).toBe("exact");
   } finally {
     host.dispose();
   }

@@ -13,7 +13,7 @@ import {
   type Group,
 } from "../shared/model";
 import { mutationSchema } from "../shared/rpc";
-import { fixture, workspace } from "./fixtures";
+import { agentEvidence, fixture, workspace } from "./fixtures";
 
 const custom: Group = {
   id: "blocked",
@@ -518,7 +518,7 @@ it("archives by custom group kind at the conversation boundary, independent of g
     lastUserMessageAt: "2026-08-01T00:00:00Z",
     activity: "idle",
   }));
-  host.conversation = async () => "2026-08-01T00:00:00Z";
+  host.conversation = agentEvidence("2026-08-01T00:00:00Z");
   let clock = Date.parse("2026-08-31T00:00:00Z");
   const board = new Workboard(host, store, () => clock);
   try {

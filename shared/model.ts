@@ -214,6 +214,23 @@ export function isArchiveDue(
   );
 }
 
+/** Only an exact or upper-bound time may gate archiving; a lower bound never may. */
+export function archiveGate(
+  task: Pick<Task, "conversationGateAt" | "conversationGateEvidence">,
+): string | null {
+  return task.conversationGateEvidence === "exact" ||
+    task.conversationGateEvidence === "upper-bound"
+    ? task.conversationGateAt
+    : null;
+}
+/** The card summary of what the display evidence supports. */
+export function conversationStatusFor(
+  display: ConversationDisplay,
+): "known" | "none" | "unknown" {
+  if (display === "none") return "none";
+  return display === "unknown" ? "unknown" : "known";
+}
+
 export const sourceSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("directory"),
@@ -246,6 +263,40 @@ const archiveSchema = z.object({
   lastConversationAt: z.string().nullable(),
   detail: z.string(),
 });
+/**
+ * Display evidence and gate evidence stay separate: a lower bound may be shown to the user
+ * but must never trigger automatic archiving, and an upper bound may gate archiving but is
+ * not a conversation time when Paseo polluted it with an archive or hydration timestamp.
+ */
+export const conversationDisplaySchema = z.enum([
+  "exact",
+  "lower-bound",
+  "upper-bound",
+  "none",
+  "unknown",
+]);
+export const conversationGateSchema = z.enum([
+  "exact",
+  "upper-bound",
+  "unknown",
+]);
+export const CONVERSATION_REASONS = [
+  "replay-timestamp",
+  "truncated-window",
+  "timeline-unreadable",
+  "child-enumeration-unavailable",
+  "child-timeline-unreadable",
+] as const;
+export const conversationReasonSchema = z.enum(CONVERSATION_REASONS);
+export const conversationAgentSchema = z.object({
+  id: z.string(),
+  lastObservedAt: z.string().nullable().default(null),
+  seenWhileLive: z.boolean().default(false),
+});
+export type ConversationDisplay = z.infer<typeof conversationDisplaySchema>;
+export type ConversationGate = z.infer<typeof conversationGateSchema>;
+export type ConversationReason = z.infer<typeof conversationReasonSchema>;
+export type ConversationAgent = z.infer<typeof conversationAgentSchema>;
 export const taskSchema = z.object({
   id: z.string(),
   workspaceId: z.string().nullable(),
@@ -259,7 +310,13 @@ export const taskSchema = z.object({
   lastStage: z.union([stageSchema, z.literal("conflict")]),
   lastConversationAt: z.string().nullable(),
   conversationStatus: z.enum(["known", "none", "unknown"]),
-  conversationAgents: z.array(z.string()).default([]),
+  conversationDisplayEvidence: conversationDisplaySchema.default("unknown"),
+  // Paseo's recorded activity: never later than the real last message, but polluted for
+  // archived agents, whose updatedAt lands on the archive time instead.
+  conversationGateAt: z.string().nullable().default(null),
+  conversationGateEvidence: conversationGateSchema.default("unknown"),
+  conversationReason: conversationReasonSchema.nullable().default(null),
+  conversationAgents: z.array(conversationAgentSchema).default([]),
   issue: z.string().nullable(),
   archived: archiveSchema.nullable(),
   binding: z
@@ -274,7 +331,7 @@ export const taskSchema = z.object({
 export type Task = z.infer<typeof taskSchema>;
 export const dataSchema = z
   .object({
-    schemaVersion: z.literal(5).default(5),
+    schemaVersion: z.literal(6).default(6),
     revision: z.number().int().nonnegative().default(0),
     serverId: z.string().nullable().default(null),
     settings: settingsSchema.default(() => settingsSchema.parse({})),
@@ -389,6 +446,10 @@ export function newTask(
     lastStage: stage,
     lastConversationAt: null,
     conversationStatus: "none",
+    conversationDisplayEvidence: "none",
+    conversationGateAt: null,
+    conversationGateEvidence: "unknown",
+    conversationReason: null,
     conversationAgents: [],
     issue: null,
     archived: null,

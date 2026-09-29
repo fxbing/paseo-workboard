@@ -43,13 +43,26 @@ const legacySettings = priorSettings.omit({ groups: true }).extend({
         legacyStages.length,
     ),
 });
+/**
+ * Before v6 a task kept one conversation status plus a string list of agent ids. Stored
+ * data from those versions is parsed with this shape and upgraded by `migrateV5`.
+ */
+const preV6Task = taskSchema
+  .omit({
+    conversationDisplayEvidence: true,
+    conversationGateAt: true,
+    conversationGateEvidence: true,
+    conversationReason: true,
+  })
+  .extend({ conversationAgents: z.array(z.string()).default([]) });
+const preV6Tasks = z.array(preV6Task).default([]);
 const legacyData = z.object({
   ...dataSchema.shape,
   schemaVersion: z.literal(1).default(1),
   settings: legacySettings.default(() => legacySettings.parse({})),
   tasks: z
     .array(
-      taskSchema.extend({
+      preV6Task.extend({
         draftStage: z.enum(["todo", "canceled"]),
         lastStage: z.enum([...legacyStages, "conflict"]),
         archived: taskSchema.shape.archived
@@ -70,12 +83,59 @@ const v2Settings = priorSettings.extend({
 const v2Data = z.object({
   ...dataSchema.shape,
   schemaVersion: z.literal(2).default(2),
+  tasks: preV6Tasks,
   settings: v2Settings.default(() => v2Settings.parse({})),
 });
 const v3Data = v2Data.extend({
   schemaVersion: z.literal(3).default(3),
   settings: priorSettings.default(() => priorSettings.parse({})),
 });
+
+/**
+ * v6 splits the conversation record into display evidence and gate evidence. A once exact
+ * observation stays a valid lower bound when the task later became unknown, and never a
+ * gate: the real last message may be newer than what was last observed.
+ */
+function migrateV5(values: unknown) {
+  const previous = z
+    .object({
+      ...dataSchema.shape,
+      schemaVersion: z.literal(5).default(5),
+      tasks: preV6Tasks,
+    })
+    .parse(values);
+  return dataSchema.parse({
+    ...previous,
+    schemaVersion: 6,
+    tasks: previous.tasks.map((task) => {
+      const observedAt = task.lastConversationAt;
+      const display =
+        task.conversationStatus === "known"
+          ? observedAt
+            ? "exact"
+            : "none"
+          : task.conversationStatus === "none"
+            ? "none"
+            : observedAt
+              ? "lower-bound"
+              : "unknown";
+      const gate =
+        task.conversationStatus === "known" && observedAt ? observedAt : null;
+      return {
+        ...task,
+        conversationDisplayEvidence: display,
+        conversationGateAt: gate,
+        conversationGateEvidence: gate ? "exact" : "unknown",
+        conversationReason: null,
+        conversationAgents: task.conversationAgents.map((id) => ({
+          id,
+          lastObservedAt: null,
+          seenWhileLive: true,
+        })),
+      };
+    }),
+  });
+}
 
 function migrateV1(values: unknown) {
   const previous = legacyData.parse(values);
@@ -132,11 +192,16 @@ function addInbox(values: unknown, fromVersion: number) {
 
 /** Paseo persists the validated migration once, retaining its revision check. */
 export function migrateData(values: unknown, fromVersion: number) {
+  if (fromVersion === 5) return migrateV5(values);
   if (fromVersion === 4) {
     const previous = z
-      .object({ ...dataSchema.shape, schemaVersion: z.literal(4) })
+      .object({
+        ...dataSchema.shape,
+        schemaVersion: z.literal(4),
+        tasks: preV6Tasks,
+      })
       .parse(values);
-    return dataSchema.parse({ ...previous, schemaVersion: 5 });
+    return migrateV5({ ...previous, schemaVersion: 5 });
   }
   if (![1, 2, 3].includes(fromVersion))
     throw new Error("Unsupported Workboard storage version");
@@ -144,7 +209,7 @@ export function migrateData(values: unknown, fromVersion: number) {
     fromVersion === 3 ? values : addInbox(values, fromVersion),
   );
   const { pinRunningWorkspaces, ...settings } = previous.settings;
-  return dataSchema.parse({
+  return migrateV5({
     ...previous,
     schemaVersion: 5,
     settings: { ...settings, pinInProgressWorkspaces: pinRunningWorkspaces },

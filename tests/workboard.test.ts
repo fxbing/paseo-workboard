@@ -3,7 +3,7 @@ import { Store } from "../server/store";
 import { Workboard } from "../server/workboard";
 import { boardSchema, DEFAULT_GROUPS, settingsSchema } from "../shared/model";
 import { mutationSchema } from "../shared/rpc";
-import { fixture, workspace } from "./fixtures";
+import { agentEvidence, fixture, observed, workspace } from "./fixtures";
 import { visibleCards } from "../client/board-utils";
 
 const pullRequest = {
@@ -204,7 +204,7 @@ it("keeps another agent's actionable status visible while a workspace is running
       archivedAt: "2026-09-22T00:00:00Z",
     },
   );
-  host.conversation = async () => "2026-09-23T00:00:00Z";
+  host.conversation = agentEvidence("2026-09-23T00:00:00Z");
   await board.start();
   try {
     for (const activity of ["error", "attention", "waiting"] as const) {
@@ -546,7 +546,7 @@ it("coalesces events during a slow refresh and yields to mutations before the fo
       entered();
       await blocked;
     }
-    return "2026-09-01T00:00:00Z";
+    return observed("2026-09-01T00:00:00Z");
   });
   const read = vi.mocked(host.conversation);
   try {

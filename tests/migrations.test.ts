@@ -39,7 +39,7 @@ it.each(["zh", "en"])(
       autoPins: { "workspace-1": "2026-09-23T00:00:00Z" },
     };
     const migrated = migrateData(previous, 4);
-    expect(migrated).toEqual({ ...previous, schemaVersion: 5, settings });
+    expect(migrated).toEqual({ ...previous, schemaVersion: 6, settings });
     expect(migrated.settings).not.toHaveProperty("language");
   },
 );
@@ -56,7 +56,7 @@ it.each([true, false])(
       },
       3,
     );
-    expect(result.schemaVersion).toBe(5);
+    expect(result.schemaVersion).toBe(6);
     expect(result.settings.pinInProgressWorkspaces).toBe(value);
     expect(result.settings).not.toHaveProperty("pinRunningWorkspaces");
     expect(result.settings).not.toHaveProperty("language");
@@ -98,7 +98,7 @@ it("adds Inbox to v2 without replacing colliding custom groups, labels, order or
     tasks: [newTask("draft", "Idea", "2026-09-23T00:00:00Z")],
   };
   const result = migrateData(previous, 2);
-  expect(result.schemaVersion).toBe(5);
+  expect(result.schemaVersion).toBe(6);
   expect(
     result.settings.groups.find((group) => group.kind === "inbox"),
   ).toEqual({
@@ -170,7 +170,7 @@ it("migrates v1 settings, task identities, pending binding and archived history 
     1,
   );
   expect(result).toMatchObject({
-    schemaVersion: 5,
+    schemaVersion: 6,
     revision: 42,
     serverId: "fixture-host",
     settings: {
@@ -193,7 +193,7 @@ it("migrates v1 settings, task identities, pending binding and archived history 
 });
 
 it("rejects unsupported storage and ambiguous legacy mappings instead of replacing data", () => {
-  expect(() => migrateData({}, 5)).toThrow("Unsupported");
+  expect(() => migrateData({}, 6)).toThrow("Unsupported");
   expect(() => migrateData({ schemaVersion: 2 }, 1)).toThrow();
   expect(() =>
     migrateData(
@@ -201,6 +201,63 @@ it("rejects unsupported storage and ambiguous legacy mappings instead of replaci
       1,
     ),
   ).toThrow();
+});
+
+it("splits the v5 conversation status into display and gate evidence", () => {
+  const result = migrateData(
+    {
+      schemaVersion: 5,
+      revision: 3,
+      serverId: "fixture-host",
+      settings: settingsSchema.parse({}),
+      tasks: [
+        {
+          ...newTask("known", "Known", "2026-09-23T00:00:00Z"),
+          workspaceId: "w1",
+          lastConversationAt: "2026-08-01T00:00:00Z",
+          conversationStatus: "known",
+          conversationAgents: ["a1", "a1/provider/c1"],
+        },
+        {
+          ...newTask("stale", "Stale", "2026-09-23T00:00:00Z"),
+          workspaceId: "w2",
+          lastConversationAt: "2026-08-02T00:00:00Z",
+          conversationStatus: "unknown",
+        },
+        {
+          ...newTask("empty", "Empty", "2026-09-23T00:00:00Z"),
+          workspaceId: "w3",
+          conversationStatus: "none",
+        },
+      ],
+    },
+    5,
+  );
+  expect(result.schemaVersion).toBe(6);
+  expect(result.tasks[0]).toMatchObject({
+    conversationDisplayEvidence: "exact",
+    conversationGateAt: "2026-08-01T00:00:00Z",
+    conversationGateEvidence: "exact",
+    conversationAgents: [
+      { id: "a1", lastObservedAt: null, seenWhileLive: true },
+      {
+        id: "a1/provider/c1",
+        lastObservedAt: null,
+        seenWhileLive: true,
+      },
+    ],
+  });
+  // A once exact observation stays a lower bound: the real last message may be newer, so it
+  // must never gate archiving.
+  expect(result.tasks[1]).toMatchObject({
+    conversationDisplayEvidence: "lower-bound",
+    conversationGateAt: null,
+    conversationGateEvidence: "unknown",
+  });
+  expect(result.tasks[2]).toMatchObject({
+    conversationDisplayEvidence: "none",
+    conversationGateEvidence: "unknown",
+  });
 });
 
 it("rejects ambiguous labels or identities and missing default destinations", () => {
