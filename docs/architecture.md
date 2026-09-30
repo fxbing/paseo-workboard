@@ -30,7 +30,7 @@ Agent activity is a separate projection. A reply finishing never marks a task do
 
 ## Persistence and concurrency
 
-Host settings store schema version 5, including tasks, groups, preferences, binding/archive intents and owned pin timestamps. Version 5 removes the former host-wide language preference. The store validates data and writes against the host settings revision. Migrations preserve existing records; unsupported or invalid data stops normal initialization instead of silently replacing it.
+Host settings store schema version 6, including tasks, groups, preferences, binding/archive intents and owned pin timestamps. Version 6 splits the conversation record into display evidence and gate evidence. The store validates data and writes against the host settings revision. Migrations preserve existing records; unsupported or invalid data stops normal initialization instead of silently replacing it.
 
 One server-side queue serializes mutations and reconciliation. Subscriptions coalesce affected workspace changes, and a 60-second refresh reconciles missed events. Polling clients do not own archive timers. The client uses optimistic stage changes, then confirms or rolls back using the server result.
 

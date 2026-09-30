@@ -14,7 +14,7 @@ export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(
     defineSettings({
       id: "workboard-data",
-      version: 5,
+      version: 6,
       scope: "host",
       schema: dataSchema,
       migrate: migrateData,
