@@ -391,7 +391,7 @@ it("keeps a parent readable when its provider children cannot be listed", async 
   }
 });
 
-it("reads an archived parent's own timeline without listing its children", async () => {
+it("keeps an archived parent off the periodic timeline path", async () => {
   const read = vi.fn(async () => ({
     epoch: "epoch-1",
     gap: false,
@@ -409,7 +409,11 @@ it("reads an archived parent's own timeline without listing its children", async
   }));
   const compat = { subagents: vi.fn() } as unknown as PaseoCompat;
   const host = providerHost(
-    { ...parentAgent, archivedAt: "2026-08-03T01:00:00.000Z" },
+    {
+      ...parentAgent,
+      archivedAt: "2026-08-03T01:00:00.000Z",
+      lastUserMessageAt: "2026-08-01T00:00:00.000Z",
+    },
     compat,
     vi.fn(),
     [],
@@ -421,12 +425,73 @@ it("reads an archived parent's own timeline without listing its children", async
     );
     expect(parent?.childEnumeration).toBe("refused");
     expect(compat.subagents).not.toHaveBeenCalled();
+    const periodic = await host.conversation(
+      parent!,
+      Date.parse("2026-08-04T00:00:00.000Z"),
+    );
+    // Re-projecting an archived history costs seconds per read, so the periodic refresh
+    // stays on the recorded bounds and only the archive recheck asks for the timeline.
+    expect(read).not.toHaveBeenCalled();
+    expect(periodic).toEqual({
+      displayAt: "2026-08-01T00:00:00.000Z",
+      display: "lower-bound",
+      gateAt: "2026-08-03T00:00:00.000Z",
+      gate: "upper-bound",
+      reason: null,
+    });
+    const candidate = await host.conversation(
+      parent!,
+      Date.parse("2026-08-04T00:00:00.000Z"),
+      { archivedTimeline: true },
+    );
+    expect(read).toHaveBeenCalled();
+    expect(candidate.display).toBe("exact");
+    expect(candidate.gate).toBe("exact");
+  } finally {
+    host.dispose();
+  }
+});
+
+it("never labels a lower bound exact when the recorded user message is missing", async () => {
+  const read = vi.fn(async () => ({
+    epoch: "epoch-1",
+    gap: false,
+    staleCursor: false,
+    error: null,
+    hasOlder: false,
+    startCursor: null,
+    window: { maxSeq: 2 },
+    entries: [
+      {
+        timestamp: "2026-08-01T00:00:00.000Z",
+        item: { type: "assistant_message" },
+      },
+    ],
+  }));
+  const compat = { subagents: vi.fn(async () => []) } as unknown as PaseoCompat;
+  const host = providerHost(
+    { ...parentAgent, lastUserMessageAt: "2026-08-02T00:00:00.000Z" },
+    compat,
+    vi.fn(),
+    [],
+    read,
+  );
+  try {
+    const parent = (await host.inventory()).agents.find(
+      (agent) => agent.id === "parent",
+    );
     const evidence = await host.conversation(
       parent!,
       Date.parse("2026-08-04T00:00:00.000Z"),
     );
-    expect(evidence.display).toBe("exact");
-    expect(evidence.gate).toBe("exact");
+    // The record says a user message exists that this timeline does not show.
+    expect(evidence).toEqual({
+      displayAt: "2026-08-02T00:00:00.000Z",
+      display: "lower-bound",
+      gateAt: "2026-08-03T00:00:00.000Z",
+      gate: "upper-bound",
+      reason: "timeline-unreadable",
+    });
   } finally {
     host.dispose();
   }

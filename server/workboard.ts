@@ -393,6 +393,7 @@ export class Workboard {
     agents: readonly Agent[],
     previous: Task | undefined,
     now: number,
+    options: { archivedTimeline?: boolean } = {},
   ): Promise<WorkspaceConversation> {
     const readings: Array<{
       agent: Agent;
@@ -402,7 +403,7 @@ export class Workboard {
       const isChild = Boolean(agent.parentAgentId && agent.subagentId);
       let conversation: ConversationEvidence;
       try {
-        conversation = await this.host.conversation(agent, now);
+        conversation = await this.host.conversation(agent, now, options);
       } catch {
         // One unreadable agent degrades its own evidence instead of the whole workspace.
         const bound = isChild ? null : (agent.updatedAt ?? null);
@@ -440,16 +441,6 @@ export class Workboard {
       if (activity !== null && Number.isFinite(activity))
         upper = Math.max(upper ?? activity, activity);
     }
-    // A workspace with no conversation at all is never archivable, while a vanished child
-    // keeps the "none" claim and the upper bound out of reach.
-    const noConversation =
-      readings.length > 0 &&
-      reasons.size === 0 &&
-      readings.every(({ conversation }) => conversation.display === "none");
-    const exact =
-      readings.length > 0 &&
-      reasons.size === 0 &&
-      readings.every(({ conversation }) => conversation.gate === "exact");
     const recorded = previous?.conversationAgents ?? [];
     const live = new Set(
       readings
@@ -464,17 +455,35 @@ export class Workboard {
         seenWhileLive: live.has(agent.parentAgentId!),
       }));
     const current = new Set(readings.map(({ agent }) => agent.id));
+    let blocked = false;
     for (const entry of recorded) {
       if (current.has(entry.id)) continue;
       agentsEvidence.push(entry);
-      // A child that vanished before its time was recorded may have outlived the known
-      // conversation, so the gate cannot claim an upper bound any more.
+      // A vanished child cannot be re-read, so this workspace can no longer claim an exact
+      // time. Its recorded observation still participates in both bounds; without one nothing
+      // bounds its conversation any more.
+      reasons.add("child-enumeration-unavailable");
       const time = entry.lastObservedAt
         ? Date.parse(entry.lastObservedAt)
         : null;
-      if (time === null || upper === null || time > upper)
-        reasons.add("child-enumeration-unavailable");
+      if (time === null || !Number.isFinite(time)) {
+        blocked = true;
+        continue;
+      }
+      lower = Math.max(lower ?? time, time);
+      upper = Math.max(upper ?? time, time);
     }
+    if (lower !== null) upper = Math.max(upper ?? lower, lower);
+    // Derived after the vanished children folded in: their reasons and their time decide whether
+    // this workspace can claim an exact time or the absence of any conversation at all.
+    const exact =
+      readings.length > 0 &&
+      reasons.size === 0 &&
+      readings.every(({ conversation }) => conversation.gate === "exact");
+    const noConversation =
+      readings.length > 0 &&
+      reasons.size === 0 &&
+      readings.every(({ conversation }) => conversation.display === "none");
     const reason =
       REASON_ORDER.find((candidate) => reasons.has(candidate)) ?? null;
     const bounded =
@@ -494,10 +503,11 @@ export class Workboard {
         : bounded.display;
     const gate: ConversationGate = exact
       ? "exact"
-      : noConversation || upper === null
+      : blocked || noConversation || upper === null
         ? "unknown"
         : "upper-bound";
-    const gateAt = exact ? boundAt : noConversation ? null : upper;
+    const gateAt =
+      gate === "exact" ? boundAt : blocked || noConversation ? null : upper;
     return {
       displayAt:
         noConversation || boundAt === null
@@ -520,15 +530,11 @@ export class Workboard {
   ): Promise<string | null> {
     let gate: number | null = null;
     try {
-      const evidence = await this.observe(agents, candidate, this.now());
-      if (
-        candidate.conversationAgents.some(
-          (entry) =>
-            entry.seenWhileLive &&
-            !evidence.agents.some((next) => next.id === entry.id),
-        )
-      )
-        return null;
+      // The archive candidate is the one place that pays for an archived agent's timeline,
+      // and a vanished child without a recorded time already forces an unknown gate.
+      const evidence = await this.observe(agents, candidate, this.now(), {
+        archivedTimeline: true,
+      });
       const at = archiveGate({
         conversationGateAt: evidence.gateAt,
         conversationGateEvidence: evidence.gate,
@@ -1119,11 +1125,8 @@ export class Workboard {
           current.archivingAt ||
           current.status === "running" ||
           current.status === "needs_input" ||
-          currentAgents.some(
-            (a) =>
-              a.childEnumeration === "refused" ||
-              a.childEnumeration === "unavailable",
-          ) ||
+          // A refused child listing for an archived parent keeps the gate on its recorded
+          // bounds, so it must not defer the archive forever as a state change would.
           resolveStage(current.labels, this.store.current.settings.groups) !==
             stage ||
           !labelsEqual(current.labels, workspace.labels) ||

@@ -26,6 +26,8 @@ export interface ConversationWindow {
   latest: string | null;
   messages: number;
   replayStamped: number;
+  /** Accepted rows that look like a re-projected batch, so the read is not exact. */
+  reproduced: boolean;
   pages: number;
   truncated: boolean;
 }
@@ -33,6 +35,11 @@ export interface ConversationWindowOptions {
   now: number;
   /** Paseo's recorded last live activity; rows newer than this are hydration stamps. */
   observedUpdatedAt?: string;
+  /**
+   * Paseo's recorded last user message. Live user rows match it, while a re-projected
+   * history stamps every row at the hydration moment, so a mismatch proves a replay.
+   */
+  observedUserMessageAt?: string;
   pageLimit?: number;
   /** Tail page plus this many look-back pages before the window counts as truncated. */
   maxPages?: number;
@@ -40,12 +47,15 @@ export interface ConversationWindowOptions {
   skewMs?: number;
   /** A rewind re-projection stamps rows and `updatedAt` together inside this window. */
   hydrationMs?: number;
+  /** How far a live user row may trail the recorded user message before it is a replay. */
+  userMessageSkewMs?: number;
 }
 
 const DEFAULT_PAGE_LIMIT = 200;
 const DEFAULT_MAX_PAGES = 3;
 const DEFAULT_SKEW_MS = 5 * 60 * 1000;
 const DEFAULT_HYDRATION_MS = 15 * 60 * 1000;
+const DEFAULT_USER_MESSAGE_SKEW_MS = 60 * 1000;
 const MESSAGE_TYPES = new Set(["user_message", "assistant_message"]);
 
 /**
@@ -65,11 +75,23 @@ export async function readConversationTime(
       : Date.parse(options.observedUpdatedAt);
   const pageLimit = options.pageLimit ?? DEFAULT_PAGE_LIMIT;
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
+  const userMessageAt =
+    options.observedUserMessageAt === undefined
+      ? now
+      : Date.parse(options.observedUserMessageAt);
+  const hasUserMessage = options.observedUserMessageAt !== undefined;
   const skew = options.skewMs ?? DEFAULT_SKEW_MS;
   const hydration = options.hydrationMs ?? DEFAULT_HYDRATION_MS;
-  if (!Number.isFinite(observed) || !Number.isFinite(now))
+  const userMessageSkew =
+    options.userMessageSkewMs ?? DEFAULT_USER_MESSAGE_SKEW_MS;
+  if (
+    !Number.isFinite(observed) ||
+    !Number.isFinite(now) ||
+    !Number.isFinite(userMessageAt)
+  )
     throw new Error("Conversation observation time is invalid");
   const accepted: number[] = [];
+  let acceptedUser: number | null = null;
   let replayStamped = 0;
   let seenMessages = 0;
   let pages = 0;
@@ -109,6 +131,9 @@ export async function readConversationTime(
         continue;
       }
       accepted.push(timestamp);
+      if (entry.item.type === "user_message")
+        acceptedUser =
+          acceptedUser === null ? timestamp : Math.max(acceptedUser, timestamp);
     }
     if (seenMessages > 0) break;
     if (!page.hasOlder) break;
@@ -123,15 +148,20 @@ export async function readConversationTime(
     cursor = next;
   }
   // A rewind re-projects history and bumps `updatedAt` to the same hydration moment, so a
-  // batch that shares one stamp matching the record is a replay, never live activity.
-  if (
-    accepted.length >= 2 &&
-    accepted.every((value) => value === accepted[0]) &&
-    Math.abs(accepted[0] - observed) <= hydration
-  ) {
-    replayStamped += accepted.length;
-    accepted.length = 0;
-  }
+  // batch that shares one stamp matching the record is a replay, never live activity. The
+  // recorded user message is the sharper check: a live user row carries its real time, while
+  // a re-projection stamps it at the hydration moment. Paseo stamps replayed rows one at a
+  // time, so equal stamps alone cannot identify a batch when no user message is recorded.
+  // Observed rows stay a bound even when they cannot claim an exact time, so nothing is
+  // dropped here: a session continued outside Paseo must still bound its own archive gate.
+  const reproduced =
+    acceptedUser !== null && hasUserMessage
+      ? acceptedUser > userMessageAt + userMessageSkew
+      : !hasUserMessage &&
+        accepted.length >= 2 &&
+        acceptedUser === null &&
+        accepted.every((value) => value === accepted[0]) &&
+        Math.abs(accepted[0] - observed) <= hydration;
   return {
     latest:
       accepted.length === 0
@@ -139,6 +169,7 @@ export async function readConversationTime(
         : new Date(Math.max(...accepted)).toISOString(),
     messages: accepted.length,
     replayStamped,
+    reproduced,
     pages,
     truncated,
   };

@@ -42,6 +42,7 @@ it("reads past a tools-only tail and counts the later assistant response", async
     latest: "2026-08-02T00:00:00.000Z",
     messages: 2,
     replayStamped: 0,
+    reproduced: false,
     pages: 2,
     truncated: false,
   });
@@ -110,6 +111,7 @@ it("drops hydration-stamped rows instead of failing the whole read", async () =>
     latest: null,
     messages: 0,
     replayStamped: 2,
+    reproduced: false,
     pages: 1,
     truncated: false,
   });
@@ -128,7 +130,7 @@ it("drops hydration-stamped rows instead of failing the whole read", async () =>
   expect(partial.messages).toBe(2);
 });
 
-it("treats a rewind re-projection as replay even when updatedAt matches the stamps", async () => {
+it("downgrades a rewind re-projection whose stamps match the record", async () => {
   const stamped = "2026-09-22T22:59:30Z";
   const read = await readConversationTime(
     async () =>
@@ -137,15 +139,60 @@ it("treats a rewind re-projection as replay even when updatedAt matches the stam
         ["assistant_message", stamped],
         ["assistant_message", stamped],
       ]),
-    { now, observedUpdatedAt: stamped },
+    {
+      now,
+      observedUpdatedAt: stamped,
+      // A live user row carries the recorded user-message time; this one does not.
+      observedUserMessageAt: "2026-09-20T08:00:00Z",
+    },
   );
+  // Observed rows stay a bound for the display and the gate.
   expect(read).toEqual({
-    latest: null,
-    messages: 0,
-    replayStamped: 3,
+    latest: "2026-09-22T22:59:30.000Z",
+    messages: 3,
+    replayStamped: 0,
+    reproduced: true,
     pages: 1,
     truncated: false,
   });
+});
+
+it("downgrades a per-row re-stamped batch with the recorded user message", async () => {
+  const read = await readConversationTime(
+    async () =>
+      page([
+        ["user_message", "2026-09-22T23:00:00.100Z"],
+        ["assistant_message", "2026-09-22T23:00:00.400Z"],
+      ]),
+    {
+      now,
+      // Paseo stamps each replayed row with its own hydration moment.
+      observedUpdatedAt: "2026-09-22T23:00:00.500Z",
+      observedUserMessageAt: "2026-09-20T08:00:00Z",
+    },
+  );
+  expect(read.reproduced).toBe(true);
+  expect(read.replayStamped).toBe(0);
+  expect(read.latest).toBe("2026-09-22T23:00:00.400Z");
+});
+
+it("keeps a live batch exact when its rows match the recorded user message", async () => {
+  const read = await readConversationTime(
+    async () =>
+      page([
+        ["user_message", "2026-09-20T08:00:00.000Z"],
+        ["assistant_message", "2026-09-20T08:00:00.000Z"],
+        ["assistant_message", "2026-09-20T08:00:00.000Z"],
+      ]),
+    {
+      now,
+      // Codex-style rows share one real stamp, so equal stamps alone cannot mean replay.
+      observedUpdatedAt: "2026-09-20T08:00:00.600Z",
+      observedUserMessageAt: "2026-09-20T08:00:00.000Z",
+    },
+  );
+  expect(read.reproduced).toBe(false);
+  expect(read.latest).toBe("2026-09-20T08:00:00.000Z");
 });
 
 it("keeps a single live row exact when its stamp matches the record", async () => {
@@ -155,6 +202,7 @@ it("keeps a single live row exact when its stamp matches the record", async () =
   );
   expect(read.latest).toBe("2026-09-22T23:00:00.000Z");
   expect(read.replayStamped).toBe(0);
+  expect(read.reproduced).toBe(false);
 });
 
 it("reports a truncated window instead of an empty history", async () => {
@@ -169,6 +217,7 @@ it("reports a truncated window instead of an empty history", async () => {
     latest: null,
     messages: 0,
     replayStamped: 0,
+    reproduced: false,
     pages: 2,
     truncated: true,
   });
@@ -179,6 +228,7 @@ it("reports a complete history without user or assistant rows as empty", async (
     latest: null,
     messages: 0,
     replayStamped: 0,
+    reproduced: false,
     pages: 1,
     truncated: false,
   });

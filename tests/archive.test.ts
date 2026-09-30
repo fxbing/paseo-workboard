@@ -3,6 +3,7 @@ import { settingsSchema } from "../shared/model";
 import { Workboard } from "../server/workboard";
 import { Store } from "../server/store";
 import { agentEvidence, fixture, observed, workspace } from "./fixtures";
+import { newTask } from "../shared/model";
 afterEach(() => vi.useRealTimers());
 function dueFixture() {
   const test = fixture({
@@ -253,5 +254,74 @@ it("keeps native timeout/partial failure uncertain across restart and never send
     } finally {
       board.dispose();
     }
+  }
+});
+
+/**
+ * A child that vanished before its time was recorded leaves the timeline unreadable, so the
+ * gate may never go back before an observation that was actually recorded.
+ */
+function vanishedChildFixture(lastObservedAt: string | null) {
+  const test = fixture({
+    settings: settingsSchema.parse({ autoArchive: true }),
+    tasks: [
+      {
+        ...newTask("task", "Old task", "2026-08-01T00:00:00Z", "done"),
+        workspaceId: "old",
+        lastStage: "done",
+        conversationAgents: [
+          {
+            id: "a/provider/child",
+            lastObservedAt,
+            seenWhileLive: true,
+          },
+        ],
+      },
+    ],
+  });
+  test.inventory.workspaces.push(workspace("old", undefined, ["task:done"]));
+  test.inventory.agents.push({
+    id: "a",
+    workspaceId: "old",
+    title: null,
+    updatedAt: "2026-08-01T00:00:00Z",
+    lastUserMessageAt: "2026-08-01T00:00:00Z",
+    activity: "idle",
+  });
+  test.host.conversation = agentEvidence("2026-08-01T00:00:00Z");
+  return test;
+}
+
+it("folds a vanished child's recorded time into the archive gate", async () => {
+  const test = vanishedChildFixture("2026-09-10T00:00:00Z");
+  try {
+    await test.board.start();
+    const card = test.board
+      .snapshot()
+      .cards.find((c) => c.workspaceId === "old")!;
+    // Gating on the parent alone would be 2026-08-01 and archive this workspace.
+    expect(card.conversationGateAt).toBe("2026-09-10T00:00:00.000Z");
+    expect(card.conversationGateEvidence).toBe("upper-bound");
+    expect(card.conversationDisplayEvidence).toBe("lower-bound");
+    expect(test.host.archive).not.toHaveBeenCalled();
+  } finally {
+    test.board.dispose();
+  }
+});
+
+it("refuses the gate when a vanished child has no recorded time", async () => {
+  const test = vanishedChildFixture(null);
+  try {
+    await test.board.start();
+    const card = test.board
+      .snapshot()
+      .cards.find((c) => c.workspaceId === "old")!;
+    expect(card.conversationGateAt).toBeNull();
+    expect(card.conversationGateEvidence).toBe("unknown");
+    expect(card.conversationReason).toBe("child-enumeration-unavailable");
+    expect(card.conversationStatus).toBe("known");
+    expect(test.host.archive).not.toHaveBeenCalled();
+  } finally {
+    test.board.dispose();
   }
 });

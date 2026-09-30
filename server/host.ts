@@ -90,7 +90,11 @@ export interface Host {
   identity: { serverId: string; version: string };
   inventory(): Promise<Inventory>;
   workspace(id: string): Promise<Workspace | null>;
-  conversation(agent: Agent, now: number): Promise<ConversationEvidence>;
+  conversation(
+    agent: Agent,
+    now: number,
+    options?: { archivedTimeline?: boolean },
+  ): Promise<ConversationEvidence>;
   setLabel(
     workspaceId: string,
     name: string,
@@ -374,7 +378,16 @@ export class PaseoHost implements Host {
     const value = await this.api.workspaces.ref(id).refresh();
     return value ? normalize(value) : null;
   }
-  async conversation(agent: Agent, now: number): Promise<ConversationEvidence> {
+  /**
+   * Read one agent's conversation evidence. `archivedTimeline` is opt-in because Paseo
+   * re-projects an archived agent's whole history on every read (7.2-19.3s for pi), which
+   * must not sit in the periodic refresh path; only the archive recheck asks for it.
+   */
+  async conversation(
+    agent: Agent,
+    now: number,
+    options: { archivedTimeline?: boolean } = {},
+  ): Promise<ConversationEvidence> {
     const isChild = Boolean(agent.parentAgentId && agent.subagentId);
     const parse = (value: string | null | undefined): number | null => {
       if (!value) return null;
@@ -389,13 +402,16 @@ export class PaseoHost implements Host {
       lower: number | null,
       reason: ConversationReason | null,
     ): ConversationEvidence => {
-      const gate = (value: number | null) =>
-        value === null
-          ? { gateAt: null, gate: "unknown" as ConversationGate }
-          : {
-              gateAt: new Date(value).toISOString(),
-              gate: "upper-bound" as ConversationGate,
-            };
+      // The gate is a max of upper bounds, so folding a lower bound in can only delay it.
+      const gate = (value: number | null) => {
+        if (value === null)
+          return { gateAt: null, gate: "unknown" as ConversationGate };
+        const bound = lower === null ? value : Math.max(value, lower);
+        return {
+          gateAt: new Date(bound).toISOString(),
+          gate: "upper-bound" as ConversationGate,
+        };
+      };
       if (lower !== null)
         return {
           displayAt: new Date(lower).toISOString(),
@@ -418,15 +434,18 @@ export class PaseoHost implements Host {
         reason,
       };
     };
+    if (agent.archivedAt && !options.archivedTimeline)
+      return evidenceFor(recordedLower, null);
     let window: ConversationWindow;
     try {
       const read = isChild
         ? this.compat.subagentTimeline(agent.parentAgentId!, agent.subagentId!)
-        : (options: Parameters<TimelineReader>[0]) =>
-            this.api.agents.ref(agent.id).timeline.refetch(options);
+        : (timeline: Parameters<TimelineReader>[0]) =>
+            this.api.agents.ref(agent.id).timeline.refetch(timeline);
       window = await readConversationTime(read, {
         now,
         observedUpdatedAt: agent.updatedAt,
+        observedUserMessageAt: agent.lastUserMessageAt ?? undefined,
       });
     } catch {
       return evidenceFor(recordedLower, "timeline-unreadable");
@@ -438,11 +457,19 @@ export class PaseoHost implements Host {
         : recordedLower === null
           ? admitted
           : Math.max(admitted, recordedLower);
-    if (window.messages > 0 && window.replayStamped === 0 && lower !== null)
+    // An exact time needs every message row, no re-projected batch, and a timeline that
+    // already contains the recorded user message; otherwise the value is only a bound.
+    if (
+      window.messages > 0 &&
+      window.replayStamped === 0 &&
+      !window.reproduced &&
+      admitted !== null &&
+      (recordedLower === null || admitted >= recordedLower)
+    )
       return {
-        displayAt: new Date(lower).toISOString(),
+        displayAt: new Date(admitted).toISOString(),
         display: "exact",
-        gateAt: new Date(lower).toISOString(),
+        gateAt: new Date(admitted).toISOString(),
         gate: "exact",
         reason: null,
       };
@@ -461,7 +488,13 @@ export class PaseoHost implements Host {
       };
     return evidenceFor(
       lower,
-      window.truncated ? "truncated-window" : "replay-timestamp",
+      window.truncated
+        ? "truncated-window"
+        : recordedLower !== null &&
+            admitted !== null &&
+            recordedLower > admitted
+          ? "timeline-unreadable"
+          : "replay-timestamp",
     );
   }
   setLabel(id: string, name: string, color: string, assigned: boolean) {
