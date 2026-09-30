@@ -1,6 +1,6 @@
 import { defineSettings } from "@getpaseo/plugin";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { dataSchema } from "./shared/model";
+import { DATA_SCHEMA_VERSION, dataSchema } from "./shared/model";
 import { migrateData } from "./shared/migrations";
 import { mutateRpc, snapshotRpc } from "./shared/rpc";
 import { PaseoCompat } from "./server/paseo-compat";
@@ -14,7 +14,7 @@ export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(
     defineSettings({
       id: "workboard-data",
-      version: 6,
+      version: DATA_SCHEMA_VERSION,
       scope: "host",
       schema: dataSchema,
       migrate: migrateData,

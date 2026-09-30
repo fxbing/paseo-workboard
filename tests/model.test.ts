@@ -1,6 +1,8 @@
 import { migrateData } from "../shared/migrations";
 import { describe, expect, it } from "vitest";
 import {
+  DATA_SCHEMA_VERSION,
+  dataSchema,
   DEFAULT_LABELS,
   DEFAULT_GROUPS,
   resolveStage,
@@ -42,6 +44,9 @@ describe("task stages and conversation-based expiry", () => {
     expect(isArchiveDue("inbox", conversation, boundary + 1)).toBe(false);
     expect(isArchiveDue("conflict", conversation, boundary + 1)).toBe(false);
     expect(isArchiveDue("done", null, boundary + 1)).toBe(false);
+  });
+  it("keeps one stored settings version for the schema and its registration", () => {
+    expect(dataSchema.parse({}).schemaVersion).toBe(DATA_SCHEMA_VERSION);
   });
   it("gates archiving on an upper bound and never on a lower bound", () => {
     const task = (evidence: {

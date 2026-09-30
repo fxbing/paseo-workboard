@@ -109,7 +109,7 @@ const zh = {
   noWorkspace: "草稿 · 未创建 workspace",
   noConversation: "尚无对话",
   unknownConversation: "对话时间待核实",
-  conversationAtLeast: "不低于 {date}",
+  conversationAtLeast: "不早于 {date}",
   conversationAtMost: "不晚于 {date}",
   expires: "将于 {date} 归档",
   overdue: "已到期，等待检查",

@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { migrateData } from "../shared/migrations";
 import {
+  DATA_SCHEMA_VERSION,
   DEFAULT_GROUPS,
   DEFAULT_LABELS,
   groupsSchema,
@@ -39,7 +40,11 @@ it.each(["zh", "en"])(
       autoPins: { "workspace-1": "2026-09-23T00:00:00Z" },
     };
     const migrated = migrateData(previous, 4);
-    expect(migrated).toEqual({ ...previous, schemaVersion: 6, settings });
+    expect(migrated).toEqual({
+      ...previous,
+      schemaVersion: DATA_SCHEMA_VERSION,
+      settings,
+    });
     expect(migrated.settings).not.toHaveProperty("language");
   },
 );
@@ -56,7 +61,7 @@ it.each([true, false])(
       },
       3,
     );
-    expect(result.schemaVersion).toBe(6);
+    expect(result.schemaVersion).toBe(DATA_SCHEMA_VERSION);
     expect(result.settings.pinInProgressWorkspaces).toBe(value);
     expect(result.settings).not.toHaveProperty("pinRunningWorkspaces");
     expect(result.settings).not.toHaveProperty("language");
@@ -98,7 +103,7 @@ it("adds Inbox to v2 without replacing colliding custom groups, labels, order or
     tasks: [newTask("draft", "Idea", "2026-09-23T00:00:00Z")],
   };
   const result = migrateData(previous, 2);
-  expect(result.schemaVersion).toBe(6);
+  expect(result.schemaVersion).toBe(DATA_SCHEMA_VERSION);
   expect(
     result.settings.groups.find((group) => group.kind === "inbox"),
   ).toEqual({
@@ -170,7 +175,7 @@ it("migrates v1 settings, task identities, pending binding and archived history 
     1,
   );
   expect(result).toMatchObject({
-    schemaVersion: 6,
+    schemaVersion: DATA_SCHEMA_VERSION,
     revision: 42,
     serverId: "fixture-host",
     settings: {
@@ -233,7 +238,7 @@ it("splits the v5 conversation status into display and gate evidence", () => {
     },
     5,
   );
-  expect(result.schemaVersion).toBe(6);
+  expect(result.schemaVersion).toBe(DATA_SCHEMA_VERSION);
   expect(result.tasks[0]).toMatchObject({
     conversationDisplayEvidence: "exact",
     conversationGateAt: "2026-08-01T00:00:00Z",

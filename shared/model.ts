@@ -230,6 +230,11 @@ export function conversationStatusFor(
   if (display === "none") return "none";
   return display === "unknown" ? "unknown" : "known";
 }
+/**
+ * The stored settings version. The plugin registers this same value, because the host only
+ * migrates stored settings when the registered version differs from what it finds.
+ */
+export const DATA_SCHEMA_VERSION = 6;
 
 export const sourceSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -331,7 +336,7 @@ export const taskSchema = z.object({
 export type Task = z.infer<typeof taskSchema>;
 export const dataSchema = z
   .object({
-    schemaVersion: z.literal(6).default(6),
+    schemaVersion: z.literal(DATA_SCHEMA_VERSION).default(DATA_SCHEMA_VERSION),
     revision: z.number().int().nonnegative().default(0),
     serverId: z.string().nullable().default(null),
     settings: settingsSchema.default(() => settingsSchema.parse({})),
