@@ -310,7 +310,7 @@ it.each(["native", "conflict", "missing", "uncertain"])(
       if (reason === "missing" || reason === "uncertain")
         inventory.workspaces = [];
       await expect(saveGroups(board, DEFAULT_GROUPS)).rejects.toThrow(
-        "Only empty groups",
+        "group-tasks-in-use",
       );
       expect(board.snapshot().settings.groups).toContainEqual(custom);
       expect(host.setLabel).not.toHaveBeenCalled();
@@ -341,7 +341,7 @@ it.each(["todo", "inbox"] as const)(
         .snapshot()
         .settings.groups.filter((group) => group.id !== kind);
       await expect(saveGroups(board, withoutDefault)).rejects.toThrow(
-        "Only empty groups",
+        kind === "todo" ? "group-tasks-in-use" : "group-default-in-use",
       );
       await board.mutate({
         action: "stage",
@@ -365,7 +365,7 @@ it.each(["todo", "inbox"] as const)(
           expectedLabels: [],
         });
       await expect(saveGroups(board, withoutDefault)).rejects.toThrow(
-        "Move the drafts",
+        "group-tasks-in-use",
       );
       await board.mutate({
         action: "stage",
@@ -373,7 +373,19 @@ it.each(["todo", "inbox"] as const)(
         stage: ideas.id,
         expectedLabels: [],
       });
-      await saveGroups(board, withoutDefault);
+      const snapshot = board.snapshot();
+      await board.mutate({
+        action: "settings",
+        revision: snapshot.revision,
+        expectedSettings: snapshot.settings,
+        settings: {
+          ...snapshot.settings,
+          groups: withoutDefault,
+          ...(kind === "todo"
+            ? { defaultDraftGroup: ideas.id }
+            : { defaultStartGroup: ideas.id }),
+        },
+      });
       const next = await board.mutate({
         action: "create",
         title: "Next idea",
@@ -467,7 +479,7 @@ it("deletes empty groups persistently while keeping archived group names and kin
   await board.start();
   try {
     await expect(saveGroups(board, DEFAULT_GROUPS)).rejects.toThrow(
-      "Move the drafts",
+      "group-tasks-in-use",
     );
     await board.mutate({ action: "archive-draft", taskId: task.id });
     await saveGroups(board, [

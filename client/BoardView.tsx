@@ -25,6 +25,7 @@ import {
 import {
   isDraftGroup,
   type Card,
+  type CardOrderByStage,
   type Group,
   type Stage,
 } from "../shared/model";
@@ -37,6 +38,7 @@ import {
   MAX_COLUMN_WIDTH,
   MIN_COLUMN_WIDTH,
   stageAtX,
+  moveCardToAnchor,
 } from "./board-utils";
 import { groupTitle, stageTitle, strings } from "./strings";
 import {
@@ -50,6 +52,7 @@ import {
   loadCollapsedColumns,
   saveCollapsedColumns,
 } from "./column-preferences";
+import { HintButton } from "./Hint";
 import { ConfirmationModal } from "./ConfirmationModal";
 
 type Theme = PluginSurfaceProps["theme"];
@@ -66,15 +69,31 @@ type Gesture = {
   card?: Card;
   order: string[];
   widths: Record<string, number>;
+  expectedCardOrder: string[];
+  visibleCardIds: string[];
+  filterKey?: string;
 };
 type Props = {
   hostId: string;
   cards: Card[];
+  fullCards: Card[];
+  cardOrderByStage: CardOrderByStage;
+  filterKey?: string;
+  orderPending?: ReadonlySet<string>;
+  onReorderCards(
+    card: Card,
+    expectedOrder: string[],
+    cardOrder: string[],
+  ): Promise<boolean>;
+  onResetCardOrder(stage: Stage, expectedOrder: string[]): Promise<boolean>;
   groups: Group[];
   compact: boolean;
   stage: Stage;
   setStage(stage: Stage): void;
   disabled: boolean;
+  reordering?: boolean;
+  pendingStages?: ReadonlySet<string>;
+  highlightedCards?: ReadonlySet<string>;
   t: ReturnType<typeof strings>;
   theme: Theme;
   onStage(card: Card, stage: Stage): Promise<boolean>;
@@ -87,7 +106,7 @@ type Props = {
   renderQuickCreate?(group: Group): ReactNode;
   onClearFilters?(): void;
   onCreateTask?(): void;
-  renderCard(card: Card): ReactNode;
+  renderCard(card: Card, showDragHandle: boolean): ReactNode;
   groupColor(group: Group): string;
 };
 
@@ -109,6 +128,34 @@ export function BoardView(props: Props) {
   const compactTabs = useRef<Record<string, View | null>>({});
   const bounds = useRef<Bounds>({ left: 0, top: 0, width: 0, height: 0 });
   const columns = useRef<Record<string, { left: number; right: number }>>({});
+  const cardBounds = useRef<Record<string, { top: number; height: number }>>(
+    {},
+  );
+  const lists = useRef<
+    Record<
+      string,
+      { top: number; height: number; scrollY: number; contentHeight: number }
+    >
+  >({});
+  const listScrollers = useRef<Record<string, NativeScrollView | null>>({});
+  const listState = (stage: Stage) =>
+    (lists.current[stage] ??= {
+      top: 0,
+      height: 0,
+      scrollY: 0,
+      contentHeight: 0,
+    });
+  const [cardInsertion, setCardInsertion] = useState<{
+    stage: Stage;
+    anchor: string;
+    side: "before" | "after";
+  } | null>(null);
+  const completeOrder = (stage: Stage) =>
+    cardsForStage(
+      latest.current.fullCards,
+      stage,
+      latest.current.cardOrderByStage,
+    ).map((card) => card.id);
   const contentWidth = useRef(0);
   const scrollX = useRef(0);
   const [height, setHeight] = useState(500);
@@ -128,7 +175,6 @@ export function BoardView(props: Props) {
   const [insertion, setInsertion] = useState<string | null | undefined>(
     undefined,
   );
-  const [highlighted, setHighlighted] = useState<string | null>(null);
   const position = useRef(new Animated.ValueXY()).current;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cleanup = useRef<() => void>(() => {});
@@ -173,6 +219,7 @@ export function BoardView(props: Props) {
     setPreview(null);
     setTarget(null);
     setInsertion(undefined);
+    setCardInsertion(null);
   };
   const cancel = () => {
     const current = session.current;
@@ -184,7 +231,7 @@ export function BoardView(props: Props) {
   };
   useEffect(() => {
     cancel();
-  }, [disabled, compact, groupSignature]);
+  }, [disabled, compact, groupSignature, props.filterKey]);
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
@@ -192,11 +239,6 @@ export function BoardView(props: Props) {
     },
     [],
   );
-  useEffect(() => {
-    if (!highlighted) return;
-    const id = setTimeout(() => setHighlighted(null), 1800);
-    return () => clearTimeout(id);
-  }, [highlighted]);
 
   const inside = (x: number, y: number) => {
     const view = bounds.current;
@@ -207,6 +249,63 @@ export function BoardView(props: Props) {
       y <= view.top + view.height
     );
   };
+  const anchorAtY = (current: Gesture, y: number) => {
+    if (!current.card) return null;
+    const list = lists.current[current.card.stage];
+    if (!list) return null;
+    const contentY = y - list.top + list.scrollY;
+    const neighbors = current.visibleCardIds.filter(
+      (id) => id !== current.id && cardBounds.current[id],
+    );
+    const before = neighbors.find(
+      (id) =>
+        contentY <
+        cardBounds.current[id].top + cardBounds.current[id].height / 2,
+    );
+    const anchor = before ?? neighbors.at(-1);
+    return anchor
+      ? {
+          stage: current.card.stage as Stage,
+          anchor,
+          side: before ? ("before" as const) : ("after" as const),
+        }
+      : null;
+  };
+  const moveCardRelative = async (card: Card, direction: number) => {
+    if (
+      latest.current.disabled ||
+      latest.current.orderPending?.has(card.stage) ||
+      card.binding ||
+      card.archived
+    )
+      return;
+    const visible = cardsForStage(
+      latest.current.cards,
+      card.stage,
+      latest.current.cardOrderByStage,
+    );
+    const index = visible.findIndex((item) => item.id === card.id);
+    const neighbor = visible[index + direction];
+    if (index < 0 || !neighbor) return;
+    const expected = completeOrder(card.stage);
+    await latest.current.onReorderCards(
+      card,
+      expected,
+      moveCardToAnchor(
+        expected,
+        card.id,
+        neighbor.id,
+        direction < 0 ? "before" : "after",
+      ),
+    );
+  };
+  const cardKeys = (card: Card) =>
+    keyboardProps((key, event) => {
+      if (!event.altKey || (key !== "ArrowUp" && key !== "ArrowDown"))
+        return false;
+      void moveCardRelative(card, key === "ArrowUp" ? -1 : 1);
+      return true;
+    });
   const tick = () => {
     timer.current = null;
     const current = session.current;
@@ -244,7 +343,30 @@ export function BoardView(props: Props) {
     }
     const x = current.x - view.left + scrollX.current;
     if (current.kind === "card") {
-      setTarget(within ? stageAtX(x, columns.current, current.order) : null);
+      const destination = within
+        ? stageAtX(x, columns.current, current.order)
+        : null;
+      setTarget(destination);
+      const list = current.card && lists.current[current.card.stage];
+      if (list && destination === current.card?.stage) {
+        const speedY = edgeScrollSpeed(current.y - list.top, list.height);
+        const nextY = Math.max(
+          0,
+          Math.min(
+            Math.max(0, list.contentHeight - list.height),
+            list.scrollY + speedY * 0.016,
+          ),
+        );
+        if (nextY !== list.scrollY) {
+          list.scrollY = nextY;
+          listScrollers.current[destination]?.scrollTo({
+            y: nextY,
+            animated: false,
+          });
+          queueTick();
+        }
+        setCardInsertion(anchorAtY(current, current.y));
+      } else setCardInsertion(null);
     } else {
       if (!within) setInsertion(undefined);
       else {
@@ -282,13 +404,26 @@ export function BoardView(props: Props) {
       card,
       order: latest.current.groups.map((group) => group.id),
       widths: widthsRef.current,
+      expectedCardOrder: card ? completeOrder(card.stage) : [],
+      visibleCardIds: card
+        ? cardsForStage(
+            latest.current.cards,
+            card.stage,
+            latest.current.cardOrderByStage,
+          ).map((item) => item.id)
+        : [],
+      filterKey: latest.current.filterKey,
     };
     session.current = current;
     setHeld(
       Object.fromEntries(
         latest.current.groups.map((group) => [
           group.id,
-          cardsForStage(latest.current.cards, group.id),
+          cardsForStage(
+            latest.current.cards,
+            group.id,
+            latest.current.cardOrderByStage,
+          ),
         ]),
       ),
     );
@@ -311,6 +446,7 @@ export function BoardView(props: Props) {
     if (!current) return;
     if (
       latest.current.disabled ||
+      current.filterKey !== latest.current.filterKey ||
       current.order.join("\n") !==
         latest.current.groups.map((group) => group.id).join("\n")
     ) {
@@ -335,7 +471,9 @@ export function BoardView(props: Props) {
         void latest.current.onReorder(next, current.order);
     } else if (current.card) {
       const destination = stageAtX(contentX, columns.current, current.order);
-      const live = latest.current.cards.find((card) => card.id === current.id);
+      const live = latest.current.fullCards.find(
+        (card) => card.id === current.id,
+      );
       if (
         !live ||
         live.archived ||
@@ -345,10 +483,26 @@ export function BoardView(props: Props) {
         toast.show(t.dragChanged, { variant: "warning" });
         return;
       }
-      if (destination && destination !== current.card.stage) {
+      if (destination === current.card.stage) {
+        if (latest.current.orderPending?.has(destination)) return;
+        const anchor = anchorAtY(current, y);
+        if (anchor) {
+          const next = moveCardToAnchor(
+            current.expectedCardOrder,
+            current.id,
+            anchor.anchor,
+            anchor.side,
+          );
+          if (next.join("\n") !== current.expectedCardOrder.join("\n"))
+            void latest.current.onReorderCards(
+              current.card,
+              current.expectedCardOrder,
+              next,
+            );
+        }
+      } else if (destination) {
         void latest.current.onStage(current.card, destination).then((ok) => {
           if (ok) {
-            setHighlighted(current.id);
             setColumnCollapsed(destination, false);
           }
         });
@@ -407,9 +561,11 @@ export function BoardView(props: Props) {
   };
   const dropHint =
     preview?.kind === "card" && target
-      ? (preview.card!.workspaceId === null && !isDraftGroup(target, groups)
-          ? t.dropToStart
-          : t.dropToGroup
+      ? (target === preview.card!.stage
+          ? t.dropToReorder
+          : preview.card!.workspaceId === null && !isDraftGroup(target, groups)
+            ? t.dropToStart
+            : t.dropToGroup
         ).replace("{group}", stageTitle(target, groups, t))
       : t.dragCancelHint;
 
@@ -452,7 +608,7 @@ export function BoardView(props: Props) {
                         selectCompactGroup(group.id, key),
                       )}
                       accessibilityRole="radio"
-                      accessibilityLabel={`${groupTitle(group, t)} (${cardsForStage(cards, group.id).length})`}
+                      accessibilityLabel={`${groupTitle(group, t)} (${cardsForStage(cards, group.id, props.cardOrderByStage).length})`}
                       aria-checked={stage === group.id}
                       accessibilityState={{ checked: stage === group.id }}
                       tabIndex={stage === group.id ? 0 : -1}
@@ -485,7 +641,11 @@ export function BoardView(props: Props) {
                         ]}
                       >
                         {groupTitle(group, t)} (
-                        {cardsForStage(cards, group.id).length})
+                        {
+                          cardsForStage(cards, group.id, props.cardOrderByStage)
+                            .length
+                        }
+                        )
                       </Text>
                     </Pressable>
                   ))}
@@ -533,10 +693,45 @@ export function BoardView(props: Props) {
             <ScrollView key={stage} contentContainerStyle={styles.compactList}>
               {selectedGroup?.kind === "todo" &&
                 props.renderQuickCreate?.(selectedGroup)}
-              {cardsForStage(cards, stage).length ? (
-                cardsForStage(cards, stage).map((card) => (
-                  <View key={card.id}>{renderCard(card)}</View>
-                ))
+              {cardsForStage(cards, stage, props.cardOrderByStage).length ? (
+                cardsForStage(cards, stage, props.cardOrderByStage).map(
+                  (card, index, visible) => (
+                    <View
+                      key={card.id}
+                      testID={`workboard-order-${card.id}`}
+                      tabIndex={0}
+                      accessibilityHint={t.cardOrderHint}
+                      {...cardKeys(card)}
+                    >
+                      {renderCard(card, false)}
+                      <View style={{ flexDirection: "row", gap: 2 }}>
+                        {([-1, 1] as const).map((direction) => (
+                          <HintButton
+                            key={direction}
+                            hint={t.cardOrderHint}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${direction < 0 ? t.moveCardUp : t.moveCardDown}: ${card.title}`}
+                            disabled={
+                              disabled ||
+                              props.orderPending?.has(card.stage) ||
+                              !!card.archived ||
+                              !!card.binding ||
+                              !visible[index + direction]
+                            }
+                            onPress={() => moveCardRelative(card, direction)}
+                            style={styles.iconButton}
+                          >
+                            <Icon
+                              name={direction < 0 ? "ArrowUp" : "ArrowDown"}
+                              size={14}
+                              color={theme.colors.foregroundMuted}
+                            />
+                          </HintButton>
+                        ))}
+                      </View>
+                    </View>
+                  ),
+                )
               ) : (
                 <BoardEmpty
                   filtered={props.hasActiveFilter}
@@ -565,7 +760,8 @@ export function BoardView(props: Props) {
           >
             {groups.map((group) => {
               const stageCards =
-                held?.[group.id] ?? cardsForStage(cards, group.id);
+                held?.[group.id] ??
+                cardsForStage(cards, group.id, props.cardOrderByStage);
               const isCollapsed = collapsed.has(group.id);
               return (
                 <BoardColumn
@@ -580,8 +776,23 @@ export function BoardView(props: Props) {
                       : columnWidth(widths[group.id])
                   }
                   count={stageCards.length}
+                  onListRef={(value) => {
+                    listScrollers.current[group.id] = value;
+                  }}
+                  onListLayout={(bounds) => {
+                    Object.assign(listState(group.id), bounds);
+                  }}
+                  onListScroll={(scrollY) => {
+                    listState(group.id).scrollY = scrollY;
+                  }}
+                  onListContentHeight={(contentHeight) => {
+                    listState(group.id).contentHeight = contentHeight;
+                  }}
                   collapsed={isCollapsed}
-                  disabled={disabled || !!preview}
+                  disabled={
+                    disabled || props.orderPending?.has(group.id) || !!preview
+                  }
+                  reordering={props.reordering}
                   active={target === group.id}
                   moving={preview?.kind === "group" && preview.id === group.id}
                   insertBefore={insertion === group.id}
@@ -641,10 +852,23 @@ export function BoardView(props: Props) {
                     <TaskDragShell
                       key={card.id}
                       card={card}
+                      onCardLayout={(top, height) => {
+                        cardBounds.current[card.id] = { top, height };
+                      }}
+                      orderKeys={cardKeys(card)}
+                      orderHint={t.cardOrderHint}
+                      insertion={
+                        cardInsertion?.stage === group.id &&
+                        cardInsertion.anchor === card.id
+                          ? cardInsertion.side
+                          : null
+                      }
                       theme={theme}
                       label={`${t.dragTask}: ${card.title}`}
                       disabled={
                         disabled ||
+                        props.pendingStages?.has(card.id) ||
+                        props.orderPending?.has(group.id) ||
                         card.binding !== null ||
                         card.archived !== null ||
                         !!preview
@@ -652,7 +876,9 @@ export function BoardView(props: Props) {
                       moving={
                         preview?.kind === "card" && preview.id === card.id
                       }
-                      highlighted={highlighted === card.id}
+                      highlighted={
+                        props.highlightedCards?.has(card.id) ?? false
+                      }
                       onBegin={(rect, x, y) => {
                         measureViewport();
                         begin("card", card.id, rect, x, y, card);
@@ -661,7 +887,7 @@ export function BoardView(props: Props) {
                       onEnd={end}
                       onCancel={cancel}
                     >
-                      {renderCard(card)}
+                      {renderCard(card, true)}
                     </TaskDragShell>
                   ))}
                 </BoardColumn>
@@ -704,7 +930,7 @@ export function BoardView(props: Props) {
             ]}
           >
             {preview.kind === "card" ? (
-              renderCard(preview.card!)
+              renderCard(preview.card!, false)
             ) : (
               <View
                 style={[
@@ -786,9 +1012,33 @@ export function BoardView(props: Props) {
                 }}
               />
               <MenuAction
+                icon="RotateCcw"
+                label={t.resetCardOrder}
+                theme={theme}
+                disabled={
+                  disabled ||
+                  props.orderPending?.has(selectedMenu.id) ||
+                  !Object.hasOwn(props.cardOrderByStage, selectedMenu.id)
+                }
+                onPress={() => {
+                  void props
+                    .onResetCardOrder(
+                      selectedMenu.id,
+                      completeOrder(selectedMenu.id),
+                    )
+                    .then((ok) => {
+                      if (ok) setMenu(null);
+                    });
+                }}
+              />
+              <MenuAction
                 icon="ArrowLeft"
                 label={t.moveGroupLeft}
-                disabled={disabled || order.indexOf(selectedMenu.id) === 0}
+                disabled={
+                  disabled ||
+                  props.reordering ||
+                  order.indexOf(selectedMenu.id) === 0
+                }
                 theme={theme}
                 onPress={() => void relativeMove(selectedMenu.id, -1)}
               />
@@ -797,6 +1047,7 @@ export function BoardView(props: Props) {
                 label={t.moveGroupRight}
                 disabled={
                   disabled ||
+                  props.reordering ||
                   order.indexOf(selectedMenu.id) === order.length - 1
                 }
                 theme={theme}
@@ -913,7 +1164,11 @@ export function BoardView(props: Props) {
                       style={{ flex: 1, color: theme.colors.foreground }}
                     >
                       {groupTitle(group, t)} (
-                      {cardsForStage(cards, group.id).length})
+                      {
+                        cardsForStage(cards, group.id, props.cardOrderByStage)
+                          .length
+                      }
+                      )
                     </Text>
                     {collapsed.has(group.id) && !compact && (
                       <Icon
@@ -1109,6 +1364,10 @@ function TaskDragShell({
   disabled,
   moving,
   highlighted,
+  onCardLayout,
+  orderKeys,
+  orderHint,
+  insertion,
   children,
   ...gesture
 }: Omit<HandleProps, "measure"> & {
@@ -1117,6 +1376,10 @@ function TaskDragShell({
   label: string;
   moving: boolean;
   highlighted: boolean;
+  onCardLayout(top: number, height: number): void;
+  orderKeys: ReturnType<typeof keyboardProps>;
+  orderHint: string;
+  insertion: "before" | "after" | null;
   children: ReactNode;
 }) {
   const measured = useRef<View>(null);
@@ -1130,6 +1393,12 @@ function TaskDragShell({
     <View
       ref={measured}
       testID={`workboard-card-${card.id}`}
+      onLayout={(event) =>
+        onCardLayout(
+          event.nativeEvent.layout.y,
+          event.nativeEvent.layout.height,
+        )
+      }
       style={[
         styles.task,
         moving && { opacity: 0.28 },
@@ -1141,9 +1410,26 @@ function TaskDragShell({
         },
       ]}
     >
+      {insertion && (
+        <View
+          pointerEvents="none"
+          testID={`workboard-card-insertion-${card.stage}`}
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            height: 2,
+            backgroundColor: theme.colors.accent,
+            ...(insertion === "before" ? { top: -3 } : { bottom: -3 }),
+          }}
+        />
+      )}
       {children}
       <View
         {...handlers}
+        {...orderKeys}
+        tabIndex={0}
+        accessibilityHint={orderHint}
         accessible
         accessibilityLabel={label}
         accessibilityState={{ disabled }}
@@ -1182,10 +1468,15 @@ function BoardColumn({
   onMenu,
   onToggleCollapsed,
   collapseDisabled,
+  reordering = false,
   onGroupBegin,
   onResizeBegin,
   onReorderKey,
   onWidthKey,
+  onListRef,
+  onListLayout,
+  onListScroll,
+  onListContentHeight,
   ...gesture
 }: Omit<HandleProps, "measure" | "onBegin"> & {
   group: Group;
@@ -1204,15 +1495,21 @@ function BoardColumn({
   onMenu(): void;
   onToggleCollapsed(): void;
   collapseDisabled: boolean;
+  reordering?: boolean;
   onGroupBegin: HandleProps["onBegin"];
   onResizeBegin: HandleProps["onBegin"];
   onReorderKey(direction: number): void;
   onWidthKey(direction: number): void;
+  onListRef(value: NativeScrollView | null): void;
+  onListLayout(bounds: { top: number; height: number }): void;
+  onListScroll(scrollY: number): void;
+  onListContentHeight(height: number): void;
 }) {
   const measured = useRef<View>(null);
+  const list = useRef<NativeScrollView | null>(null);
   const header = useDragHandle({
     ...gesture,
-    disabled,
+    disabled: disabled || reordering,
     horizontal: true,
     measure: measured,
     onBegin: onGroupBegin,
@@ -1225,6 +1522,8 @@ function BoardColumn({
     onBegin: onResizeBegin,
   });
   const lastPress = useRef(0);
+  const [resizeHovered, setResizeHovered] = useState(false);
+  const [resizeFocused, setResizeFocused] = useState(false);
   return (
     <View
       ref={measured}
@@ -1271,17 +1570,21 @@ function BoardColumn({
           style={[{ flex: 1, minWidth: 0 }, collapsed && { width: "100%" }]}
         >
           <Pressable
-            {...keyboardProps((key) => {
-              if (disabled) return false;
-              if (key === "ArrowLeft" || key === "ArrowRight") {
+            {...keyboardProps((key, event) => {
+              if (disabled || reordering) return false;
+              if (
+                (event.altKey || event.metaKey) &&
+                (key === "ArrowLeft" || key === "ArrowRight")
+              ) {
                 onReorderKey(key === "ArrowLeft" ? -1 : 1);
                 return true;
               }
               return false;
             })}
             accessibilityRole="button"
-            accessibilityLabel={`${t.dragGroup}: ${groupTitle(group, t)}`}
-            disabled={disabled}
+            accessibilityLabel={`${t.groupOptions}: ${groupTitle(group, t)}`}
+            accessibilityHint={`${t.dragGroup}. ${t.groupKeyboardHint}`}
+            disabled={disabled || reordering}
             onPress={onMenu}
             testID={`workboard-column-drag-${group.id}`}
             style={[
@@ -1344,7 +1647,24 @@ function BoardColumn({
         </Pressable>
       </View>
       {!collapsed && (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.cards}>
+        <ScrollView
+          ref={(value) => {
+            list.current = value;
+            onListRef(value);
+          }}
+          onLayout={() =>
+            list.current
+              ?.getNativeScrollRef()
+              ?.measureInWindow((_left, top, _width, height) =>
+                onListLayout({ top, height }),
+              )
+          }
+          onScroll={(event) => onListScroll(event.nativeEvent.contentOffset.y)}
+          scrollEventThrottle={16}
+          onContentSizeChange={(_width, height) => onListContentHeight(height)}
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.cards}
+        >
           {children}
         </ScrollView>
       )}
@@ -1378,6 +1698,10 @@ function BoardColumn({
           focusable={!disabled}
           accessibilityState={{ disabled }}
           testID={`workboard-resize-${group.id}`}
+          onFocus={() => setResizeFocused(true)}
+          onBlur={() => setResizeFocused(false)}
+          onPointerEnter={() => setResizeHovered(true)}
+          onPointerLeave={() => setResizeHovered(false)}
           style={[styles.resize, dragCursor(true)]}
         >
           <Pressable
@@ -1397,10 +1721,13 @@ function BoardColumn({
           >
             <View
               style={{
-                width: 2,
+                width: resizeHovered || resizeFocused ? 4 : 2,
                 height: 22,
                 borderRadius: 1,
-                backgroundColor: theme.colors.border,
+                backgroundColor:
+                  resizeHovered || resizeFocused
+                    ? theme.colors.accent
+                    : theme.colors.border,
               }}
             />
           </Pressable>

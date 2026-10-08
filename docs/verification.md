@@ -8,30 +8,41 @@ tested.
 
 ## Verified baseline
 
-The current source was checked on macOS arm64 with Node 22.22.2 through `mise`
-and a Paseo 0.10.0-beta.1 daemon. The published 0.1.0 source was previously
-checked with Paseo app and daemon 0.9.1.
+On 2026-10-08, the final schema-v8 source was checked on macOS arm64 with
+Node 22.22.2 through `mise`.
 
 ```sh
 mise exec -- npm run check
 ```
 
-This command passed with **128 unit tests in 17 files**. The suite exercises
-the board model, persistence and migrations, native-label projection,
-workspace and draft flows, archive and pin ownership safeguards, filters, and
-client layout preferences, immediate settings-switch persistence across a
-pending leave/reopen, automatic archive confirmation, Paseo language resolution
-and subscriptions, and removal of the legacy language preference. It is
-deterministic and does not require a daemon or a model.
+This command passed with **356 unit tests in 26 files**. The deterministic suite
+covers migrations from v1–v7 to v8, persistent column order and reset, complete
+column compare-and-swap, filtered drag anchors, compact reorder controls,
+optimistic failure recovery, archive recovery and evidence, settings safety,
+stage undo races, and independent Start work defaults. Client handler tests use
+primitive and host boundaries; they do not prove actual React focus, rendering,
+or browser layout.
 
 ## Isolated host integration
 
-On 2026-09-28, the current source passed **12 isolated integration tests** against
+Historically, on 2026-09-28, that source passed **12 isolated integration tests** against
 Paseo 0.10.0-beta.1. The published 0.1.0 source had passed the same suite on
-Paseo 0.9.1. The current run covered custom-group persistence and colors, label-driven
+Paseo 0.9.1. That run covered custom-group persistence and colors, label-driven
 stages, in-progress pin ownership, draft creation and restart, Inbox import
 without writing a label, starting a draft, guarded archive behavior, and a
 clean managed-worktree archive path.
+
+On 2026-10-08, the final schema-v8 source passed **13/13 isolated integration
+tests in 30.88s** against Paseo **0.11.1** in a fresh marked home. This includes
+the archived-parent upper-bound contract, fresh worktree ownership, real
+sorting RPCs, plugin reload, stale-order rejection, and reset through host
+storage. The SDK dependencies remain at 0.10.0-beta.1; this run establishes
+the tested fixture behavior on 0.11.1, not a complete SDK migration.
+
+A separate real-host upgrade of existing v7 storage to v8 preserved all
+16 fixture tasks and all previous settings and other data exactly. Only the
+storage and data schema versions changed, with empty `cardOrderByStage` and
+null `defaultStartWorkGroup` added. Both temporary daemons were stopped.
 
 Reproduce it only with the marked temporary-home procedure in
 [the integration guide](../tests/integration/README.md). The test fixture is a
@@ -39,6 +50,9 @@ deterministic provider: it replays fixture history and never sends a model
 request.
 
 ## Visual checks
+
+These are historical checks; they do not cover the current design fixes.
+Those changes have deterministic handler and property checks only.
 
 The desktop client was manually checked in light and dark themes. A separate
 390px narrow-screen check covered the responsive board, group navigation and
@@ -54,6 +68,9 @@ names and task titles were preserved.
 
 ## Release package checks
 
+On 2026-10-08, the final source passed `format:check` and `check:package`: 32
+approved files, 92,313 bytes. This package was not published.
+
 On 2026-09-24, the `0.1.0` npm tarball contained 31 approved runtime and public
 documentation files. The unpacked package was installed without `node_modules`
 into a new marked, loopback-only Paseo 0.9.1 daemon. The plugin reached
@@ -67,8 +84,8 @@ custom group, and remaining preferences were preserved.
 `npm run check:package` passed for the release candidate. Separate disposable
 copies confirmed that it rejects an omitted runtime module and an unexpected
 file added to the package. Formatting and local documentation links also
-passed. The 0.1.0 package was later published to npm. The current compatibility
-change has not been published or checked by GitHub Actions; Cafe admission
+passed. The 0.1.0 package was later published to npm. The current design-fix
+changes have not been published or checked by GitHub Actions; Cafe admission
 remains separate from npm publication.
 
 ## Unverified boundaries

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
@@ -6,6 +12,9 @@ import { useRpc } from "@getpaseo/plugin/client";
 import {
   ExternalLink,
   SettingsCard,
+  SettingsInput,
+  SettingsAction,
+  SettingsSelect,
   SettingsSection,
   SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
@@ -18,6 +27,7 @@ import {
 } from "@getpaseo/plugin/client/react-native";
 import {
   defaultWorkspaceGroup,
+  defaultStartWorkGroup,
   groupKind,
   isDraftGroup,
   isTerminalGroup,
@@ -28,7 +38,12 @@ import {
   type Settings,
   type Stage,
 } from "../shared/model";
-import { mutateRpc, snapshotRpc, type Mutation } from "../shared/rpc";
+import {
+  CANCEL_BINDING_BUSY_ERROR_CODE,
+  mutateRpc,
+  snapshotRpc,
+  type Mutation,
+} from "../shared/rpc";
 import {
   attentionReasons,
   groupDeleteReason,
@@ -61,6 +76,23 @@ type DraftForm = {
   projectId: string | null;
 } | null;
 type StartForm = { card: Card; stage?: Stage } | null;
+type MoveUndo = {
+  group: Pick<Group, "id" | "kind" | "label">;
+  card: Card;
+  expiresAt: number;
+};
+const sameUndoGroup = (board: Board | undefined, undo: MoveUndo) => {
+  const current = board?.settings.groups.find(
+    (group) => group.id === undo.group.id,
+  );
+  return (
+    !!current &&
+    current.kind === undo.group.kind &&
+    current.label === undo.group.label
+  );
+};
+const sameCard = (left: Card | undefined, right: Card) =>
+  !!left && JSON.stringify(left) === JSON.stringify(right);
 
 export function WorkboardScreen(
   props: PluginSurfaceProps & { initialPage?: Page },
@@ -87,7 +119,20 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
   const [starting, setStarting] = useState<StartForm>(null);
   const [statusCard, setStatusCard] = useState<Card | null>(null);
   const [archivingDraft, setArchivingDraft] = useState<Card | null>(null);
-  const [mutating, setMutating] = useState(false);
+  const [detachingDraft, setDetachingDraft] = useState<{
+    card: Card;
+    draftId: string;
+  } | null>(null);
+  const [cancelingBinding, setCancelingBinding] = useState<Card | null>(null);
+  const [pendingMutationIds, setPendingMutationIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [moveUndos, setMoveUndos] = useState<Map<string, MoveUndo>>(
+    () => new Map(),
+  );
+  const [optimisticCardOrders, setOptimisticCardOrders] = useState<
+    Record<string, string[]>
+  >({});
   const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null);
   const [editingGroup, setEditingGroup] = useState<{
     group: Group;
@@ -105,18 +150,74 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
   const serverBoard = boardQuery.data;
   const language = usePaseoLanguage();
   const t = strings(language);
-  const mutationPending = useRef(false);
+  const mutationPending = useRef(new Set<string>());
+  const liveBoard = useRef(serverBoard);
+  liveBoard.current = serverBoard;
+  const liveUndos = useRef(moveUndos);
+  liveUndos.current = moveUndos;
+  const filterValues = useRef(filters);
+  const filterSave = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const filterDirty = useRef(false);
+  const persistFilters = useCallback(() => {
+    filterDirty.current = false;
+    if (
+      !saveBoardFilters(props.host.id, filterValues.current) &&
+      !storageWarned.current
+    ) {
+      storageWarned.current = true;
+      toast.show(t.filterSaveFailed, { variant: "warning" });
+    }
+  }, [props.host.id, toast, t.filterSaveFailed]);
+  useEffect(
+    () => () => {
+      if (filterSave.current) clearTimeout(filterSave.current);
+      if (filterDirty.current) persistFilters();
+    },
+    [persistFilters],
+  );
+  useEffect(() => {
+    const prune = () =>
+      setMoveUndos((current) => {
+        const next = new Map(
+          [...current].filter(
+            ([id, undo]) =>
+              undo.expiresAt > Date.now() &&
+              sameUndoGroup(liveBoard.current, undo) &&
+              sameCard(
+                liveBoard.current?.cards.find((card) => card.id === id),
+                undo.card,
+              ),
+          ),
+        );
+        liveUndos.current = next;
+        return next.size === current.size ? current : next;
+      });
+    prune();
+    if (!moveUndos.size) return;
+    const timer = setTimeout(
+      prune,
+      Math.max(
+        0,
+        Math.min(...[...moveUndos.values()].map((undo) => undo.expiresAt)) -
+          Date.now(),
+      ),
+    );
+    return () => clearTimeout(timer);
+  }, [serverBoard, moveUndos]);
   const writeEligible = useRef(false);
   const updateFilters = useCallback(
     (patch: Partial<BoardFilters>) => {
-      const next = { ...filters, ...patch };
+      const next = { ...filterValues.current, ...patch };
+      filterValues.current = next;
       setFilters(next);
-      if (!saveBoardFilters(props.host.id, next) && !storageWarned.current) {
-        storageWarned.current = true;
-        toast.show(t.filterSaveFailed, { variant: "warning" });
-      }
+      filterDirty.current = true;
+      if (filterSave.current) clearTimeout(filterSave.current);
+      filterSave.current = setTimeout(() => {
+        filterSave.current = null;
+        persistFilters();
+      }, 300);
     },
-    [filters, props.host.id, t.filterSaveFailed, toast],
+    [persistFilters],
   );
   useEffect(() => {
     if (
@@ -129,24 +230,38 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
   }, [projectId, serverBoard?.connected, serverBoard?.projects, updateFilters]);
   writeEligible.current = !!serverBoard?.connected && !boardQuery.isError;
   const mutate = useCallback(
-    async (mutation: Mutation) => {
-      if (mutationPending.current || !writeEligible.current) return undefined;
-      mutationPending.current = true;
-      setMutating(true);
+    async (
+      mutation: Mutation,
+      pendingMutationId = "taskId" in mutation
+        ? `${mutation.action}:${mutation.taskId}`
+        : mutation.action,
+    ) => {
+      if (mutationPending.current.has(pendingMutationId)) {
+        toast.error(t.mutationPending);
+        return undefined;
+      }
+      if (!writeEligible.current) {
+        toast.error(t.disconnected);
+        return undefined;
+      }
+      mutationPending.current.add(pendingMutationId);
+      setPendingMutationIds(new Set(mutationPending.current));
       try {
         const next = await callMutation(mutation);
         await cache.cancelQueries({ queryKey: ["workboard", props.host.id] });
-        cache.setQueryData(["workboard", props.host.id], next);
+        cache.setQueryData<Board>(["workboard", props.host.id], (previous) =>
+          previous && previous.revision > next.revision ? previous : next,
+        );
         return next;
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : t.loadError);
+        toast.error(mutationErrorText(error, t));
         return undefined;
       } finally {
-        mutationPending.current = false;
-        setMutating(false);
+        mutationPending.current.delete(pendingMutationId);
+        setPendingMutationIds(new Set(mutationPending.current));
       }
     },
-    [cache, callMutation, props.host.id, t.loadError, toast],
+    [cache, callMutation, props.host.id, t, toast],
   );
   if (boardQuery.isPending)
     return <Centered theme={props.theme} text={t.loading} />;
@@ -159,14 +274,29 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         onPress={() => void boardQuery.refetch()}
       />
     );
-  const board = withOptimisticStages(serverBoard, optimisticStages);
+  const board = withOptimisticStages(
+    {
+      ...serverBoard,
+      cardOrderByStage: {
+        ...serverBoard.cardOrderByStage,
+        ...optimisticCardOrders,
+      },
+    },
+    optimisticStages,
+  );
   const cards = visibleCards(board, projectId, search, attentionOnly, filters);
   const filterCount = activeFilterCount(filters);
   const hasActiveFilter = filterCount > 0;
   const allCards = visibleCards(board, "all", "", false);
-  const conflicts = allCards.filter((card) => card.stage === "conflict");
+  const conflicts = cards.filter((card) => card.stage === "conflict");
   const archived = board.cards.filter((card) => card.archived !== null);
-  const writesDisabled = !board.connected || boardQuery.isError || mutating;
+  const writesDisabled = !board.connected || boardQuery.isError;
+  const groupsPending = pendingMutationIds.has("settings:groups");
+  const draftPending = pendingMutationIds.has(
+    draft?.task ? `edit:${draft.task.id}` : "create",
+  );
+  const startPending =
+    !!starting && pendingMutationIds.has(`start:${starting.card.id}`);
   if (page === "archive")
     return (
       <ArchivePage
@@ -174,6 +304,8 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         cards={archived}
         t={t}
         theme={props.theme}
+        disabled={writesDisabled}
+        mutate={mutate}
         onBack={() => setPage("board")}
       />
     );
@@ -184,13 +316,19 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         t={t}
         theme={props.theme}
         disabled={writesDisabled}
-        saving={mutating}
+        saving={groupsPending}
+        pendingMutationIds={pendingMutationIds}
         mutate={mutate}
-        onBack={() => setPage("board")}
+        onBack={
+          props.initialPage === "settings" ? undefined : () => setPage("board")
+        }
       />
     );
   const setStage = async (card: Card, stage: Stage) => {
-    if (mutationPending.current || !writeEligible.current) return false;
+    if (mutationPending.current.has(`stage:${card.id}`)) {
+      toast.error(t.mutationPending);
+      return false;
+    }
     if (
       card.workspaceId === null &&
       !isDraftGroup(stage, board.settings.groups)
@@ -199,6 +337,12 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
       setStarting({ card, stage });
       return false;
     }
+    setMoveUndos((current) => {
+      const next = new Map(current);
+      next.delete(card.id);
+      liveUndos.current = next;
+      return next;
+    });
     setOptimisticStages((current) => new Map(current).set(card.id, stage));
     const next = await mutate({
       action: "stage",
@@ -211,7 +355,87 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
       updated.delete(card.id);
       return updated;
     });
-    if (next) setStatusCard(null);
+    if (next) {
+      setStatusCard(null);
+      const moved = next.cards.find((item) => item.id === card.id);
+      const originalGroup = board.settings.groups.find(
+        (group) => group.id === card.stage,
+      );
+      if (
+        moved &&
+        moved.stage === stage &&
+        stage !== card.stage &&
+        originalGroup
+      ) {
+        const undo = {
+          group: {
+            id: originalGroup.id,
+            kind: originalGroup.kind,
+            label: originalGroup.label,
+          },
+          card: moved,
+          expiresAt: Date.now() + 8000,
+        };
+        setMoveUndos((current) => {
+          const entries = new Map(current).set(card.id, undo);
+          liveUndos.current = entries;
+          return entries;
+        });
+      }
+    }
+    return !!next;
+  };
+  const undoMove = async (id: string) => {
+    const undo = liveUndos.current.get(id);
+    const card = liveBoard.current?.cards.find((item) => item.id === id);
+    if (
+      !undo ||
+      undo.expiresAt <= Date.now() ||
+      !sameCard(card, undo.card) ||
+      !sameUndoGroup(liveBoard.current, undo)
+    ) {
+      toast.error(t.undoMoveExpired);
+      return;
+    }
+    if (mutationPending.current.has(`stage:${id}`)) {
+      toast.error(t.mutationPending);
+      return;
+    }
+    const next = await mutate({
+      action: "stage",
+      taskId: id,
+      stage: undo.group.id,
+      expectedLabels: undo.card.managedLabels,
+      expectedUpdatedAt: undo.card.updatedAt,
+      expectedGroup: undo.group,
+    });
+    setMoveUndos((current) => {
+      const entries = new Map(current);
+      entries.delete(id);
+      liveUndos.current = entries;
+      return entries;
+    });
+    if (next) toast.show(t.moveUndone, { variant: "success" });
+  };
+  const saveCardOrder = async (
+    input: Extract<Mutation, { action: "reorder-cards" | "reset-card-order" }>,
+  ) => {
+    const pendingId = `card-order:${input.stage}`;
+    if (mutationPending.current.has(pendingId)) {
+      toast.error(t.mutationPending);
+      return false;
+    }
+    setOptimisticCardOrders((current) => ({
+      ...current,
+      [input.stage]: input.action === "reorder-cards" ? input.cardOrder : [],
+    }));
+    const next = await mutate(input, pendingId);
+    setOptimisticCardOrders((current) => {
+      const copy = { ...current };
+      delete copy[input.stage];
+      return copy;
+    });
+    if (!next) void boardQuery.refetch();
     return !!next;
   };
   const editGroup = (group: Group) =>
@@ -221,7 +445,12 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
       revision: board.revision,
     });
   const deleteReason = (group: Group) => {
-    const reason = groupDeleteReason(board.cards, board.settings.groups, group);
+    const reason = groupDeleteReason(
+      board.cards,
+      board.settings.groups,
+      group,
+      board.settings,
+    );
     return reason ? t[reason] : null;
   };
   const createTask = () =>
@@ -331,6 +560,21 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
               { color: props.theme.colors.foreground },
             ]}
           />
+          {search.length > 0 && (
+            <HintButton
+              hint={t.clearSearch}
+              accessibilityRole="button"
+              accessibilityLabel={t.clearSearch}
+              onPress={() => updateFilters({ search: "" })}
+              style={styles.iconAction}
+            >
+              <Icon
+                name="X"
+                size={16}
+                color={props.theme.colors.foregroundMuted}
+              />
+            </HintButton>
+          )}
         </View>
         <View style={styles.toolbarActions}>
           <HintButton
@@ -342,8 +586,9 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
             style={({ pressed }) => [
               styles.toolbarButton,
               {
-                backgroundColor:
-                  attentionOnly || pressed
+                backgroundColor: attentionOnly
+                  ? props.theme.colors.accent
+                  : pressed
                     ? props.theme.colors.surface2
                     : "transparent",
               },
@@ -352,13 +597,21 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
             <Icon
               name="CircleAlert"
               size={16}
-              color={props.theme.colors.foreground}
+              color={
+                attentionOnly
+                  ? props.theme.colors.accentForeground
+                  : props.theme.colors.foreground
+              }
             />
             {!props.layout.compact && (
               <Text
                 style={[
                   styles.controlText,
-                  { color: props.theme.colors.foreground },
+                  {
+                    color: attentionOnly
+                      ? props.theme.colors.accentForeground
+                      : props.theme.colors.foreground,
+                  },
                 ]}
               >
                 {t.attention}
@@ -375,8 +628,9 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
             style={({ pressed }) => [
               styles.toolbarButton,
               {
-                backgroundColor:
-                  filtersOpen || pressed
+                backgroundColor: filtersOpen
+                  ? props.theme.colors.accent
+                  : pressed
                     ? props.theme.colors.surface2
                     : "transparent",
               },
@@ -385,18 +639,45 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
             <Icon
               name="SlidersHorizontal"
               size={16}
-              color={props.theme.colors.foreground}
+              color={
+                filtersOpen
+                  ? props.theme.colors.accentForeground
+                  : props.theme.colors.foreground
+              }
             />
-            <Text
-              style={[
-                styles.controlText,
-                { color: props.theme.colors.foreground },
-              ]}
-            >
-              {props.layout.compact
-                ? filterCount || ""
-                : `${t.filters}${filterCount ? ` (${filterCount})` : ""}`}
-            </Text>
+            {props.layout.compact ? (
+              filterCount > 0 && (
+                <View
+                  testID="workboard-filter-count"
+                  style={[
+                    styles.filterBadge,
+                    { backgroundColor: props.theme.colors.accent },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.cardMeta,
+                      { color: props.theme.colors.accentForeground },
+                    ]}
+                  >
+                    {filterCount}
+                  </Text>
+                </View>
+              )
+            ) : (
+              <Text
+                style={[
+                  styles.controlText,
+                  {
+                    color: filtersOpen
+                      ? props.theme.colors.accentForeground
+                      : props.theme.colors.foreground,
+                  },
+                ]}
+              >
+                {`${t.filters}${filterCount ? ` (${filterCount})` : ""}`}
+              </Text>
+            )}
           </HintButton>
           <Pressable
             accessibilityRole="button"
@@ -453,9 +734,15 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
             ]}
           >
             {t.filterSummary
-              .replace("{count}", String(cards.length))
-              .replace("{total}", String(allCards.length))
+              .replace("{count}", String(cards.length - conflicts.length))
+              .replace(
+                "{total}",
+                String(
+                  allCards.filter((card) => card.stage !== "conflict").length,
+                ),
+              )
               .replace("{filters}", String(filterCount))}
+            {` · ${t.conflictCount.replace("{count}", String(conflicts.length))}`}
           </Text>
           {hasActiveFilter && (
             <Pressable
@@ -481,17 +768,30 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         </View>
       )}
       {(!board.connected || boardQuery.isError) && (
-        <Text
-          style={[styles.notice, { color: props.theme.colors.statusWarning }]}
-        >
-          {t.disconnected}
-        </Text>
+        <View style={styles.filterSummary}>
+          <Text
+            style={[styles.notice, { color: props.theme.colors.statusWarning }]}
+          >
+            {t.disconnected}
+          </Text>
+          <Pressable
+            testID="workboard-reconnect"
+            accessibilityRole="button"
+            accessibilityLabel={t.refresh}
+            onPress={() => void boardQuery.refetch()}
+            style={styles.toolbarButton}
+          >
+            <Text style={{ color: props.theme.colors.foreground }}>
+              {t.refresh}
+            </Text>
+          </Pressable>
+        </View>
       )}
       {board.error && (
         <Text
           style={[styles.notice, { color: props.theme.colors.statusDanger }]}
         >
-          {board.error}
+          {bootErrorText(board.error, t)}
         </Text>
       )}
       {conflicts.length > 0 && (
@@ -508,7 +808,32 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         hostId={props.host.id}
         groupColor={(group) => groupColor(group, props.theme)}
         disabled={writesDisabled}
+        pendingStages={new Set(optimisticStages.keys())}
+        reordering={pendingMutationIds.has("reorder-groups")}
+        highlightedCards={new Set(moveUndos.keys())}
         cards={cards}
+        fullCards={board.cards}
+        cardOrderByStage={board.cardOrderByStage}
+        filterKey={JSON.stringify(filters)}
+        orderPending={
+          new Set(
+            [...pendingMutationIds]
+              .filter((id) => id.startsWith("card-order:"))
+              .map((id) => id.slice("card-order:".length)),
+          )
+        }
+        onReorderCards={(card, expectedOrder, cardOrder) =>
+          saveCardOrder({
+            action: "reorder-cards",
+            taskId: card.id,
+            stage: card.stage as Stage,
+            expectedOrder,
+            cardOrder,
+          })
+        }
+        onResetCardOrder={(stage, expectedOrder) =>
+          saveCardOrder({ action: "reset-card-order", stage, expectedOrder })
+        }
         hasActiveFilter={hasActiveFilter}
         onClearFilters={clearFilters}
         onCreateTask={writesDisabled ? undefined : createTask}
@@ -521,16 +846,19 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
               theme={props.theme}
               groupName={groupTitle(group, t)}
               onCreate={async (title) => {
-                const next = await mutate({
-                  action: "create",
-                  stage: group.id,
-                  title,
-                  description: "",
-                  projectId:
-                    projectId === "all" || projectId === "none"
-                      ? null
-                      : projectId,
-                });
+                const next = await mutate(
+                  {
+                    action: "create",
+                    stage: group.id,
+                    title,
+                    description: "",
+                    projectId:
+                      projectId === "all" || projectId === "none"
+                        ? null
+                        : projectId,
+                  },
+                  `create:${group.id}`,
+                );
                 if (!next) return false;
                 notifyTaskSaved(next, undefined, true);
                 return true;
@@ -545,14 +873,21 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         compact={props.layout.compact}
         stage={
           board.settings.groups.find((group) => group.id === selectedStage)
-            ?.id ?? defaultWorkspaceGroup(board.settings.groups)
+            ?.id ??
+          defaultWorkspaceGroup(
+            board.settings.groups,
+            board.settings.defaultStartGroup,
+          )
         }
         setStage={setSelectedStage}
         t={t}
         theme={props.theme}
         onStage={setStage}
         onReorder={async (groupOrder, expectedGroupOrder) => {
-          if (mutationPending.current || !writeEligible.current) return false;
+          if (mutationPending.current.has("reorder-groups")) {
+            toast.error(t.mutationPending);
+            return false;
+          }
           setOptimisticOrder(groupOrder);
           const next = await mutate({
             action: "reorder-groups",
@@ -585,21 +920,33 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
             },
           }));
         }}
-        renderCard={(card) => (
+        renderCard={(card, showDragHandle) => (
           <TaskCard
             card={card}
             board={board}
             t={t}
             theme={props.theme}
             disabled={writesDisabled}
-            pending={optimisticStages.has(card.id)}
-            onOpen={() =>
-              card.workspaceId &&
-              props.navigation?.openWorkspace({
-                workspaceId: card.workspaceId,
-                serverId: board.serverId,
-              })
+            pending={
+              pendingMutationIds.has(`stage:${card.id}`) ||
+              pendingMutationIds.has(`card-order:${card.stage}`)
             }
+            compact={props.layout.compact}
+            showDragHandle={showDragHandle}
+            onUndo={
+              moveUndos.has(card.id) ? () => undoMove(card.id) : undefined
+            }
+            onOpen={() => {
+              if (!props.navigation) {
+                toast.error(t.navigationUnavailable);
+                return;
+              }
+              if (card.workspaceId)
+                props.navigation.openWorkspace({
+                  workspaceId: card.workspaceId,
+                  serverId: board.serverId,
+                });
+            }}
             onEdit={() =>
               setDraft({
                 task: card,
@@ -611,6 +958,8 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
             onStart={() => setStarting({ card })}
             onStatus={() => setStatusCard(card)}
             onArchive={() => setArchivingDraft(card)}
+            onCancelBinding={() => setCancelingBinding(card)}
+            onDetachDraft={(draftId) => setDetachingDraft({ card, draftId })}
           />
         )}
       />
@@ -620,24 +969,27 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
           board={board}
           group={editingGroup.group}
           groups={editingGroup.settings.groups}
-          disabled={writesDisabled}
-          saving={mutating}
+          disabled={writesDisabled || groupsPending}
+          saving={groupsPending}
           t={t}
           theme={props.theme}
           onClose={() => setEditingGroup(null)}
           onChange={async (groups) =>
-            !!(await mutate({
-              action: "settings",
-              revision: editingGroup.revision,
-              expectedSettings: editingGroup.settings,
-              settings: { ...editingGroup.settings, groups },
-            }))
+            !!(await mutate(
+              {
+                action: "settings",
+                revision: editingGroup.revision,
+                expectedSettings: editingGroup.settings,
+                settings: { ...editingGroup.settings, groups },
+              },
+              "settings:groups",
+            ))
           }
         />
       )}
       <TaskModal
-        disabled={writesDisabled}
-        pending={mutating}
+        disabled={writesDisabled || draftPending}
+        pending={draftPending}
         form={draft}
         board={board}
         t={t}
@@ -668,20 +1020,20 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         }
       />
       <StartModal
-        disabled={writesDisabled}
-        pending={mutating}
+        disabled={writesDisabled || startPending}
+        pending={startPending}
         stage={starting?.stage}
         card={starting?.card ?? null}
         board={board}
         t={t}
         theme={props.theme}
         onClose={() => setStarting(null)}
-        onStart={(target) =>
+        onStart={(target, stage) =>
           void mutate({
             action: "start",
             taskId: starting!.card.id,
             target,
-            stage: starting!.stage,
+            stage,
           }).then((next) => {
             if (!next) return;
             const workspaceId =
@@ -718,8 +1070,56 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
           }
         />
       )}
+      {detachingDraft && (
+        <ConfirmationModal
+          title={t.detachDraft}
+          description={t.detachDraftConfirm.replace(
+            "{name}",
+            detachingDraft.card.mergedDrafts.find(
+              (source) => source.draftId === detachingDraft.draftId,
+            )!.title,
+          )}
+          confirmLabel={t.detachDraft}
+          disabled={writesDisabled}
+          t={t}
+          theme={props.theme}
+          onClose={() => setDetachingDraft(null)}
+          onConfirm={async () =>
+            !!(await mutate({
+              action: "detach-draft",
+              taskId: detachingDraft.card.id,
+              draftId: detachingDraft.draftId,
+              updatedAt: detachingDraft.card.updatedAt,
+            }))
+          }
+        />
+      )}
+      {cancelingBinding?.binding && (
+        <ConfirmationModal
+          title={t.cancelBinding}
+          description={t.cancelBindingConfirm.replace(
+            "{name}",
+            cancelingBinding.title,
+          )}
+          confirmLabel={t.cancelBinding}
+          disabled={writesDisabled}
+          t={t}
+          theme={props.theme}
+          onClose={() => setCancelingBinding(null)}
+          onConfirm={async () =>
+            !!(await mutate({
+              action: "cancel-binding",
+              taskId: cancelingBinding.id,
+              operationId: cancelingBinding.binding!.operationId,
+            }))
+          }
+        />
+      )}
       <StageModal
-        disabled={writesDisabled}
+        disabled={
+          writesDisabled ||
+          (!!statusCard && pendingMutationIds.has(`stage:${statusCard.id}`))
+        }
         groups={orderedGroups(board.settings)}
         card={statusCard}
         t={t}
@@ -925,16 +1325,40 @@ function ProjectPicker({
                 <Pressable
                   accessibilityRole="button"
                   key={option.id}
-                  style={styles.menuItem}
+                  {...toggleButtonState(option.id === value)}
+                  style={({ pressed }) => [
+                    styles.menuItem,
+                    {
+                      backgroundColor:
+                        option.id === value
+                          ? theme.colors.accent
+                          : pressed
+                            ? theme.colors.surface2
+                            : "transparent",
+                    },
+                  ]}
                   onPress={() => {
                     setValue(option.id);
                     setOpen(false);
                   }}
                 >
-                  <Text style={{ color: theme.colors.foreground }}>
+                  <Text
+                    style={{
+                      color:
+                        option.id === value
+                          ? theme.colors.accentForeground
+                          : theme.colors.foreground,
+                    }}
+                  >
                     {option.name}
-                    {option.id === value ? " ✓" : ""}
                   </Text>
+                  {option.id === value && (
+                    <Icon
+                      name="Check"
+                      size={16}
+                      color={theme.colors.accentForeground}
+                    />
+                  )}
                 </Pressable>
               ))}
             </ScrollView>
@@ -944,7 +1368,32 @@ function ProjectPicker({
     </View>
   );
 }
-function TaskCard({
+function CardAction({
+  theme,
+  style,
+  ...props
+}: ComponentProps<typeof HintButton> & { theme: PluginSurfaceProps["theme"] }) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  return (
+    <HintButton
+      {...props}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={(state) => [
+        typeof style === "function" ? style(state) : style,
+        !props.disabled &&
+          (hovered || focused || state.pressed) && {
+            backgroundColor: theme.colors.surface2,
+          },
+      ]}
+    />
+  );
+}
+
+export function TaskCard({
   card,
   board,
   t,
@@ -956,6 +1405,11 @@ function TaskCard({
   onStart,
   onStatus,
   onArchive,
+  onCancelBinding,
+  onDetachDraft,
+  onUndo,
+  compact = false,
+  showDragHandle = false,
 }: {
   card: Card;
   board: Board;
@@ -968,8 +1422,14 @@ function TaskCard({
   onStart(): void;
   onStatus(): void;
   onArchive(): void;
+  onCancelBinding(): void;
+  onDetachDraft(draftId: string): void;
+  onUndo?(): Promise<void>;
+  compact?: boolean;
+  showDragHandle?: boolean;
 }) {
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const [titleHovered, setTitleHovered] = useState(false);
   const toast = useToast();
   const request = card.changeRequest;
   const requestLabel = request
@@ -1016,26 +1476,56 @@ function TaskCard({
         {
           backgroundColor: theme.colors.surface0,
           borderColor: theme.colors.border,
+          ...(onUndo && compact
+            ? {
+                outlineColor: theme.colors.accent,
+                outlineWidth: 2,
+                outlineStyle: "solid" as const,
+              }
+            : {}),
           borderLeftColor: group
             ? groupColor(group, theme)
             : theme.colors.statusWarning,
         },
       ]}
     >
-      <View style={styles.cardTitleRow}>
-        <Pressable
+      {onUndo && (
+        <HintButton
+          hint={t.undoMoveHint}
           accessibilityRole="button"
-          accessibilityLabel={isDraft ? `${t.edit}: ${card.title}` : card.title}
+          accessibilityLabel={t.undoMove}
+          testID={`workboard-undo-${card.id}`}
+          disabled={disabled || pending}
+          onPress={() => void onUndo()}
+          style={styles.iconAction}
+        >
+          <Icon name="Undo2" size={14} color={theme.colors.accent} />
+          <Text style={{ color: theme.colors.accent }}>{t.undoMove}</Text>
+        </HintButton>
+      )}
+      <View
+        style={[styles.cardTitleRow, { paddingRight: showDragHandle ? 30 : 0 }]}
+      >
+        <HintButton
+          hint={isDraft ? t.edit : t.openWorkspace}
+          onHoverIn={() => setTitleHovered(true)}
+          onHoverOut={() => setTitleHovered(false)}
+          accessibilityRole="button"
+          accessibilityLabel={`${isDraft ? t.edit : t.openWorkspace}: ${card.title}`}
           onPress={isDraft ? onEdit : onOpen}
           style={styles.cardTitlePressable}
         >
           <Text
             numberOfLines={2}
-            style={[styles.cardTitle, { color: theme.colors.foreground }]}
+            style={[
+              styles.cardTitle,
+              { color: theme.colors.foreground },
+              titleHovered && { textDecorationLine: "underline" },
+            ]}
           >
             {card.title}
           </Text>
-        </Pressable>
+        </HintButton>
         {card.pinState !== "none" && (
           <HintButton
             hint={pinHint}
@@ -1124,7 +1614,7 @@ function TaskCard({
         </View>
       )}
       {card.changeRequestUnavailable && (
-        <Text style={{ color: theme.colors.statusWarning }}>
+        <Text style={[styles.cardMeta, { color: theme.colors.statusWarning }]}>
           {t.changeRequestUnavailable}
         </Text>
       )}
@@ -1172,7 +1662,8 @@ function TaskCard({
         )}
         <View style={styles.cardActions}>
           {!isDraft && (
-            <HintButton
+            <CardAction
+              theme={theme}
               hint={agentsOpen ? t.hideDetails : t.details}
               accessibilityRole="button"
               accessibilityLabel={agentsOpen ? t.hideDetails : t.details}
@@ -1189,10 +1680,11 @@ function TaskCard({
                 size={14}
                 color={theme.colors.foregroundMuted}
               />
-            </HintButton>
+            </CardAction>
           )}
           {(isDraft || card.binding) && (
-            <HintButton
+            <CardAction
+              theme={theme}
               hint={card.binding ? t.resumeBinding : t.startHint}
               accessibilityRole="button"
               accessibilityLabel={card.binding ? t.retry : t.start}
@@ -1225,10 +1717,50 @@ function TaskCard({
               >
                 {card.binding ? t.retry : t.start}
               </Text>
-            </HintButton>
+            </CardAction>
+          )}
+          {card.mergedDrafts.map((source) => (
+            <CardAction
+              theme={theme}
+              hint={`${t.detachDraft}: ${source.title}`}
+              key={source.draftId}
+              accessibilityRole="button"
+              accessibilityLabel={`${t.detachDraft}: ${source.title}`}
+              disabled={disabled}
+              onPress={() => onDetachDraft(source.draftId)}
+              style={styles.startAction}
+            >
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.cardMeta,
+                  { color: theme.colors.foreground, flexShrink: 1 },
+                ]}
+              >
+                {t.detachDraft}: {source.title}
+              </Text>
+            </CardAction>
+          ))}
+          {card.binding && (
+            <CardAction
+              theme={theme}
+              hint={t.cancelBinding}
+              accessibilityRole="button"
+              accessibilityLabel={t.cancelBinding}
+              disabled={disabled}
+              onPress={onCancelBinding}
+              style={({ pressed }) => [
+                styles.iconAction,
+                { opacity: disabled ? 0.5 : 1 },
+                pressed && { backgroundColor: theme.colors.surface2 },
+              ]}
+            >
+              <Icon name="X" size={15} color={theme.colors.foregroundMuted} />
+            </CardAction>
           )}
           {!isDraft && (
-            <HintButton
+            <CardAction
+              theme={theme}
               hint={t.notes}
               accessibilityRole="button"
               accessibilityLabel={t.notes}
@@ -1245,19 +1777,28 @@ function TaskCard({
                 size={15}
                 color={theme.colors.foregroundMuted}
               />
-            </HintButton>
+            </CardAction>
           )}
-          <HintButton
+          <CardAction
+            theme={theme}
             hint={t.status}
             accessibilityRole="button"
             accessibilityLabel={t.status}
             disabled={
-              disabled || card.binding !== null || card.archived !== null
+              disabled ||
+              pending ||
+              card.binding !== null ||
+              card.archived !== null
             }
             onPress={onStatus}
             style={({ pressed }) => [
               styles.iconAction,
-              { opacity: disabled || card.binding || card.archived ? 0.5 : 1 },
+              {
+                opacity:
+                  disabled || pending || card.binding || card.archived
+                    ? 0.5
+                    : 1,
+              },
               pressed && { backgroundColor: theme.colors.surface2 },
             ]}
           >
@@ -1266,10 +1807,11 @@ function TaskCard({
               size={15}
               color={theme.colors.foregroundMuted}
             />
-          </HintButton>
+          </CardAction>
           {isDraft &&
             groupKind(card.stage, board.settings.groups) === "canceled" && (
-              <HintButton
+              <CardAction
+                theme={theme}
                 hint={t.archiveDraft}
                 accessibilityRole="button"
                 accessibilityLabel={t.archiveDraft}
@@ -1286,18 +1828,21 @@ function TaskCard({
                   size={15}
                   color={theme.colors.foregroundMuted}
                 />
-              </HintButton>
+              </CardAction>
             )}
         </View>
       </View>
       {terminal && card.dueAt && (
         <Text
-          style={{
-            color:
-              new Date(card.dueAt).getTime() < Date.now()
-                ? theme.colors.statusWarning
-                : theme.colors.foregroundMuted,
-          }}
+          style={[
+            styles.cardMeta,
+            {
+              color:
+                new Date(card.dueAt).getTime() < Date.now()
+                  ? theme.colors.statusWarning
+                  : theme.colors.foregroundMuted,
+            },
+          ]}
         >
           {new Date(card.dueAt).getTime() < Date.now()
             ? t.overdue
@@ -1305,7 +1850,9 @@ function TaskCard({
         </Text>
       )}
       {issue && (
-        <Text style={{ color: theme.colors.statusWarning }}>{issue}</Text>
+        <Text style={[styles.cardMeta, { color: theme.colors.statusWarning }]}>
+          {issue}
+        </Text>
       )}
       {agentsOpen && reasons.length > 0 && (
         <View style={{ gap: 4 }}>
@@ -1414,7 +1961,7 @@ function TaskModal({
   }, [form]);
   if (!form) return null;
   const linked = form.task?.workspaceId !== null && form.task !== undefined;
-  const saveDisabled = disabled || (!linked && !title.trim());
+  const saveDisabled = disabled || pending || (!linked && !title.trim());
   return (
     <Modal
       open
@@ -1561,7 +2108,10 @@ function StartModal({
   t: ReturnType<typeof strings>;
   theme: PluginSurfaceProps["theme"];
   onClose(): void;
-  onStart(target: Extract<Mutation, { action: "start" }>["target"]): void;
+  onStart(
+    target: Extract<Mutation, { action: "start" }>["target"],
+    stage: Stage,
+  ): void;
 }) {
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [projectId, setProjectId] = useState("");
@@ -1591,7 +2141,10 @@ function StartModal({
   const targetStage =
     card.binding?.stage ??
     stage ??
-    board.settings.groups.find((group) => group.kind === "in-progress")?.id;
+    defaultStartWorkGroup(
+      board.settings.groups,
+      board.settings.defaultStartWorkGroup,
+    );
   const hasTarget =
     !!targetStage &&
     board.settings.groups.some((group) => group.id === targetStage);
@@ -1602,29 +2155,54 @@ function StartModal({
       : sourceKind === "directory"
         ? directory.trim()
         : project?.isGit);
-  const startDisabled = disabled || !valid || !hasTarget;
+  const missing = [
+    !hasTarget ? t.noStartGroup : null,
+    !card.binding && mode === "existing" && !existing
+      ? t.startNeedsWorkspace
+      : null,
+    !card.binding &&
+    mode === "new" &&
+    sourceKind === "directory" &&
+    !directory.trim()
+      ? t.startNeedsDirectory
+      : null,
+    !card.binding &&
+    mode === "new" &&
+    sourceKind === "worktree" &&
+    !project?.isGit
+      ? t.startNeedsGitProject
+      : null,
+  ].filter(Boolean);
+  const startDisabled = disabled || pending || !valid || !hasTarget;
   const start = () => {
-    if (card.binding) onStart(card.binding.target);
+    if (!targetStage) return;
+    if (card.binding) onStart(card.binding.target, targetStage);
     else if (mode === "existing" && existing)
-      onStart({ kind: "existing", workspaceId: existing });
+      onStart({ kind: "existing", workspaceId: existing }, targetStage);
     else if (sourceKind === "directory" && directory.trim())
-      onStart({
-        kind: "new",
-        source: {
-          kind: "directory",
-          path: directory.trim(),
-          projectId: projectId || undefined,
+      onStart(
+        {
+          kind: "new",
+          source: {
+            kind: "directory",
+            path: directory.trim(),
+            projectId: projectId || undefined,
+          },
         },
-      });
+        targetStage,
+      );
     else if (sourceKind === "worktree" && projectId)
-      onStart({
-        kind: "new",
-        source: {
-          kind: "worktree",
-          projectId,
-          worktreeSlug: worktreeSlug.trim() || undefined,
+      onStart(
+        {
+          kind: "new",
+          source: {
+            kind: "worktree",
+            projectId,
+            worktreeSlug: worktreeSlug.trim() || undefined,
+          },
         },
-      });
+        targetStage,
+      );
   };
   return (
     <Modal
@@ -1633,11 +2211,6 @@ function StartModal({
       onOpenChange={(open) => !open && !pending && onClose()}
     >
       <Modal.Content>
-        {!hasTarget && (
-          <Text style={{ color: theme.colors.statusWarning }}>
-            {t.noStartGroup}
-          </Text>
-        )}
         {card.binding ? (
           <Text style={{ color: theme.colors.foregroundMuted }}>
             {t.resumeBinding}
@@ -1835,6 +2408,15 @@ function StartModal({
             )}
           </>
         )}
+        {missing.length > 0 && (
+          <Text
+            testID="workboard-start-missing"
+            accessibilityRole="alert"
+            style={{ color: theme.colors.statusWarning }}
+          >
+            {missing.join("\n")}
+          </Text>
+        )}
         <View style={styles.modalActions}>
           <Pressable
             accessibilityRole="button"
@@ -1903,7 +2485,17 @@ function StageModal({
               disabled={disabled}
               key={group.id}
               onPress={() => void onStage(card, group.id)}
-              style={styles.stageMenuItem}
+              style={({ pressed }) => [
+                styles.stageMenuItem,
+                {
+                  backgroundColor:
+                    card.stage === group.id
+                      ? theme.colors.accent
+                      : pressed
+                        ? theme.colors.surface2
+                        : "transparent",
+                },
+              ]}
             >
               <View
                 style={[
@@ -1918,7 +2510,9 @@ function StageModal({
                   {
                     color: disabled
                       ? theme.colors.foregroundMuted
-                      : theme.colors.foreground,
+                      : card.stage === group.id
+                        ? theme.colors.accentForeground
+                        : theme.colors.foreground,
                   },
                 ]}
               >
@@ -1931,7 +2525,7 @@ function StageModal({
                   color={
                     disabled
                       ? theme.colors.foregroundMuted
-                      : groupColor(group, theme)
+                      : theme.colors.accentForeground
                   }
                 />
               )}
@@ -1951,44 +2545,61 @@ function PageHeader({
   title: string;
   t: ReturnType<typeof strings>;
   theme: PluginSurfaceProps["theme"];
-  onBack(): void;
+  onBack?(): void;
 }) {
   return (
     <View style={[styles.pageHeader, { borderColor: theme.colors.border }]}>
-      <Pressable
-        accessibilityRole="button"
-        onPress={onBack}
-        style={({ pressed }) => [
-          styles.toolbarButton,
-          pressed && { backgroundColor: theme.colors.surface2 },
-        ]}
-      >
-        <Icon name="ArrowLeft" size={16} color={theme.colors.foregroundMuted} />
-        <Text
-          style={[styles.controlText, { color: theme.colors.foregroundMuted }]}
+      {onBack && (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onBack}
+          style={({ pressed }) => [
+            styles.toolbarButton,
+            pressed && { backgroundColor: theme.colors.surface2 },
+          ]}
         >
-          {t.back}
-        </Text>
-      </Pressable>
+          <Icon
+            name="ArrowLeft"
+            size={16}
+            color={theme.colors.foregroundMuted}
+          />
+          <Text
+            style={[
+              styles.controlText,
+              { color: theme.colors.foregroundMuted },
+            ]}
+          >
+            {t.back}
+          </Text>
+        </Pressable>
+      )}
       <Text style={[styles.heading, { color: theme.colors.foreground }]}>
         {title}
       </Text>
     </View>
   );
 }
-function ArchivePage({
+export function ArchivePage({
   board,
   cards,
   t,
   theme,
   onBack,
+  disabled,
+  mutate,
 }: {
   board: Board;
   cards: Card[];
   t: ReturnType<typeof strings>;
   theme: PluginSurfaceProps["theme"];
   onBack(): void;
+  disabled: boolean;
+  mutate(input: Mutation): Promise<Board | undefined>;
 }) {
+  const [resolving, setResolving] = useState<{
+    card: Card;
+    outcome: "confirm" | "restore";
+  } | null>(null);
   return (
     <View style={[styles.screen, { backgroundColor: theme.colors.surface0 }]}>
       <PageHeader title={t.archived} t={t} theme={theme} onBack={onBack} />
@@ -2018,11 +2629,44 @@ function ArchivePage({
                       board.settings.groups,
                       t,
                     )}{" "}
-                · {card.archived?.detail}
+                ·{" "}
+                {card.archived?.detail === "archive-confirmed-by-user"
+                  ? t.archiveConfirmedByUser
+                  : card.archived?.detail}
               </Text>
-              <Text selectable style={{ color: theme.colors.foregroundMuted }}>
-                ID: {card.archived?.operationId}
-              </Text>
+              {(card.archived?.status === "uncertain" ||
+                card.archived?.status === "external") && (
+                <Text
+                  selectable
+                  style={{ color: theme.colors.foregroundMuted }}
+                >
+                  ID: {card.archived.operationId}
+                </Text>
+              )}
+              {(card.archived?.status === "uncertain" ||
+                card.archived?.status === "external" ||
+                card.archived?.kind === "draft") && (
+                <View style={styles.cardFooter}>
+                  {(card.archived?.kind === "draft"
+                    ? ["restore" as const]
+                    : (["confirm", "restore"] as const)
+                  ).map((outcome) => (
+                    <Pressable
+                      key={outcome}
+                      accessibilityRole="button"
+                      disabled={disabled}
+                      onPress={() => setResolving({ card, outcome })}
+                      style={styles.toolbarButton}
+                    >
+                      <Text style={{ color: theme.colors.foreground }}>
+                        {outcome === "confirm"
+                          ? t.confirmArchived
+                          : t.restoreTask}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
               <Text style={{ color: theme.colors.foregroundMuted }}>
                 {card.archived?.archivedAt
                   ? shortDate(card.archived.archivedAt, t.locale)
@@ -2034,6 +2678,33 @@ function ArchivePage({
           <Text style={{ color: theme.colors.foregroundMuted }}>{t.empty}</Text>
         )}
       </ScrollView>
+      {resolving && (
+        <ConfirmationModal
+          title={
+            resolving.outcome === "confirm" ? t.confirmArchived : t.restoreTask
+          }
+          description={(resolving.outcome === "confirm"
+            ? t.confirmArchivedConfirm
+            : t.restoreTaskConfirm
+          ).replace("{name}", resolving.card.title)}
+          confirmLabel={
+            resolving.outcome === "confirm" ? t.confirmArchived : t.restoreTask
+          }
+          disabled={disabled}
+          t={t}
+          theme={theme}
+          onClose={() => setResolving(null)}
+          onConfirm={async () =>
+            !!(await mutate({
+              action: "resolve-archive",
+              taskId: resolving.card.id,
+              updatedAt: resolving.card.updatedAt,
+              operationId: resolving.card.archived!.operationId,
+              outcome: resolving.outcome,
+            }))
+          }
+        />
+      )}
     </View>
   );
 }
@@ -2043,6 +2714,7 @@ export function SettingsPage({
   theme,
   disabled,
   saving,
+  pendingMutationIds,
   mutate,
   onBack,
 }: {
@@ -2051,13 +2723,21 @@ export function SettingsPage({
   theme: PluginSurfaceProps["theme"];
   disabled: boolean;
   saving: boolean;
-  mutate(mutation: Mutation): Promise<Board | undefined>;
-  onBack(): void;
+  pendingMutationIds?: ReadonlySet<string>;
+  mutate(
+    mutation: Mutation,
+    pendingMutationId?: string,
+  ): Promise<Board | undefined>;
+  onBack?(): void;
 }) {
   const [confirmed, setConfirmed] = useState({
     settings: board.settings,
     revision: board.revision,
   });
+  const [archiveDaysEdit, setArchiveDaysEdit] = useState<{
+    base: number;
+    text: string;
+  } | null>(null);
   const [confirmAutoArchive, setConfirmAutoArchive] = useState(false);
   const current =
     board.revision > confirmed.revision
@@ -2065,14 +2745,25 @@ export function SettingsPage({
       : confirmed;
   const settings = current.settings;
   const groups = settings.groups;
+  const daysText =
+    archiveDaysEdit?.base === settings.archiveAfterDays
+      ? archiveDaysEdit.text
+      : String(settings.archiveAfterDays);
+  const validDays =
+    /^\d+$/.test(daysText) && Number(daysText) >= 1 && Number(daysText) <= 365;
   const preview = mappingPreview(board.cards, settings, Date.now());
-  const persist = async (next: Settings) => {
-    const result = await mutate({
-      action: "settings",
-      revision: current.revision,
-      expectedSettings: current.settings,
-      settings: next,
-    });
+  const controlDisabled = (id: string) =>
+    disabled || !!pendingMutationIds?.has(`settings:${id}`);
+  const persist = async (next: Settings, control = "groups") => {
+    const result = await mutate(
+      {
+        action: "settings",
+        revision: current.revision,
+        expectedSettings: current.settings,
+        settings: next,
+      },
+      `settings:${control}`,
+    );
     if (result)
       setConfirmed({ settings: result.settings, revision: result.revision });
     return result;
@@ -2089,32 +2780,173 @@ export function SettingsPage({
                 hint={t.pinInProgressHint}
                 value={settings.pinInProgressWorkspaces}
                 onValueChange={async (value) => {
-                  await persist({
-                    ...settings,
-                    pinInProgressWorkspaces: value,
-                  });
+                  await persist(
+                    {
+                      ...settings,
+                      pinInProgressWorkspaces: value,
+                    },
+                    "pin",
+                  );
                 }}
-                disabled={disabled}
+                disabled={controlDisabled("pin")}
                 testID="workboard-pin-in-progress"
               />
               <SettingsSwitch
                 label={t.autoArchive}
-                hint={t.autoArchiveHint}
+                hint={[
+                  t.autoArchiveHint.replace(
+                    "{days}",
+                    String(settings.archiveAfterDays),
+                  ),
+                  settings.archiveMappingNeedsReview
+                    ? t.autoArchiveMigrationPaused
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n")}
                 value={settings.autoArchive}
                 onValueChange={async (value) => {
                   if (value && preview.due > 0) {
                     setConfirmAutoArchive(true);
                     return;
                   }
-                  await persist({ ...settings, autoArchive: value });
+                  await persist({ ...settings, autoArchive: value }, "archive");
                 }}
-                disabled={disabled}
+                disabled={controlDisabled("archive")}
                 testID="workboard-auto-archive"
+              />
+              <SettingsInput
+                key={settings.archiveAfterDays}
+                label={t.archiveAfterDays}
+                hint={t.archiveAfterDaysHint}
+                initialValue={String(settings.archiveAfterDays)}
+                onChangeText={(text) =>
+                  setArchiveDaysEdit({ base: settings.archiveAfterDays, text })
+                }
+                error={validDays ? null : t.archiveAfterDaysInvalid}
+                disabled={controlDisabled("days")}
+                testID="workboard-archive-days"
+              />
+              <SettingsAction
+                label={t.archiveAfterDays}
+                actionLabel={t.save}
+                onPress={async () => {
+                  if (
+                    validDays &&
+                    (await persist(
+                      {
+                        ...settings,
+                        archiveAfterDays: Number(daysText),
+                      },
+                      "days",
+                    ))
+                  )
+                    setArchiveDaysEdit(null);
+                }}
+                disabled={
+                  controlDisabled("days") ||
+                  !validDays ||
+                  Number(daysText) === settings.archiveAfterDays
+                }
+                testID="workboard-save-archive-days"
+              />
+              <SettingsSelect
+                label={t.defaultDraftGroupSetting}
+                value={
+                  groups.some(
+                    (group) =>
+                      group.id === settings.defaultDraftGroup &&
+                      group.kind === "todo",
+                  )
+                    ? settings.defaultDraftGroup!
+                    : ""
+                }
+                options={[
+                  { value: "", label: t.defaultByKind },
+                  ...groups
+                    .filter((group) => group.kind === "todo")
+                    .map((group) => ({
+                      value: group.id,
+                      label: groupTitle(group, t),
+                    })),
+                ]}
+                onValueChange={async (value) => {
+                  await persist(
+                    {
+                      ...settings,
+                      defaultDraftGroup: value || null,
+                    },
+                    "draft-default",
+                  );
+                }}
+                disabled={controlDisabled("draft-default")}
+                testID="workboard-default-draft"
+              />
+              <SettingsSelect
+                label={t.defaultStartGroupSetting}
+                value={
+                  groups.some(
+                    (group) =>
+                      group.id === settings.defaultStartGroup &&
+                      !isTerminalGroup(group.id, groups),
+                  )
+                    ? settings.defaultStartGroup!
+                    : ""
+                }
+                options={[
+                  { value: "", label: t.defaultByKind },
+                  ...groups
+                    .filter((group) => !isTerminalGroup(group.id, groups))
+                    .map((group) => ({
+                      value: group.id,
+                      label: groupTitle(group, t),
+                    })),
+                ]}
+                onValueChange={async (value) => {
+                  await persist(
+                    {
+                      ...settings,
+                      defaultStartGroup: value || null,
+                    },
+                    "workspace-default",
+                  );
+                }}
+                disabled={controlDisabled("workspace-default")}
+                testID="workboard-default-workspace"
+              />
+              <SettingsSelect
+                label={t.defaultStartWorkGroupSetting}
+                value={
+                  groups.some(
+                    (group) =>
+                      group.id === settings.defaultStartWorkGroup &&
+                      group.kind === "in-progress",
+                  )
+                    ? settings.defaultStartWorkGroup!
+                    : ""
+                }
+                options={[
+                  { value: "", label: t.defaultByKind },
+                  ...groups
+                    .filter((group) => group.kind === "in-progress")
+                    .map((group) => ({
+                      value: group.id,
+                      label: groupTitle(group, t),
+                    })),
+                ]}
+                onValueChange={async (value) => {
+                  await persist(
+                    { ...settings, defaultStartWorkGroup: value || null },
+                    "start-work-default",
+                  );
+                }}
+                disabled={controlDisabled("start-work-default")}
+                testID="workboard-default-start-work"
               />
             </SettingsCard>
           </SettingsSection>
           <GroupSettings
-            board={board}
+            board={{ ...board, settings }}
             groups={groups}
             onChange={async (next) =>
               !!(await persist({ ...settings, groups: next }))
@@ -2164,7 +2996,7 @@ export function SettingsPage({
           theme={theme}
           onClose={() => setConfirmAutoArchive(false)}
           onConfirm={async () =>
-            !!(await persist({ ...settings, autoArchive: true }))
+            !!(await persist({ ...settings, autoArchive: true }, "archive"))
           }
         />
       )}
@@ -2176,6 +3008,14 @@ function issueText(
   t: ReturnType<typeof strings>,
 ): string | null {
   return issue ? ((t.issues as Record<string, string>)[issue] ?? issue) : null;
+}
+function bootErrorText(
+  error: string | null,
+  t: ReturnType<typeof strings>,
+): string | null {
+  return error
+    ? ((t.bootErrors as Record<string, string>)[error] ?? error)
+    : null;
 }
 function activityColor(
   activity: Card["activity"],
@@ -2386,7 +3226,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 6,
-    paddingRight: 20,
   },
   cardTitlePressable: { flex: 1, minWidth: 0 },
   cardTitle: { fontWeight: "600", fontSize: 14, lineHeight: 18 },
@@ -2442,9 +3281,22 @@ const styles = StyleSheet.create({
   },
   cardActions: {
     flexDirection: "row",
-    gap: 0,
+    flexWrap: "wrap",
+    flexShrink: 1,
+    maxWidth: "100%",
+    alignItems: "center",
+    gap: 2,
+  },
+  filterBadge: {
+    minWidth: 18,
+    minHeight: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
   },
   startAction: {
+    maxWidth: "100%",
     minHeight: 36,
     borderRadius: 6,
     paddingHorizontal: 3,
@@ -2487,3 +3339,19 @@ const styles = StyleSheet.create({
   settingsPreview: { gap: 4 },
   hintText: { fontSize: 13, lineHeight: 18 },
 });
+
+export function mutationErrorText(
+  error: unknown,
+  t: ReturnType<typeof strings>,
+): string {
+  if (!(error instanceof Error)) return t.loadError;
+  const messages: Record<string, string> = {
+    ...t.issues,
+    ...t.mutationErrors,
+    ...t.bootErrors,
+    [CANCEL_BINDING_BUSY_ERROR_CODE]: t.cancelBindingBusy,
+  };
+  return Object.hasOwn(messages, error.message)
+    ? messages[error.message]
+    : t.loadError;
+}

@@ -13,7 +13,9 @@ Workboard is a Paseo kanban plugin for workspaces and ideas. Each active workspa
 - Follow Paseo's desktop language for Chinese and English UI text and dates.
 - Review compact PR/MR, CI, and review-decision information supplied by Paseo.
 - Reorder, resize, collapse, color, and locate desktop columns without changing task data. Narrow layouts use a single-group view and status menu.
-- Optionally archive eligible completed or canceled workspaces after 30 days from their last verified conversation.
+- Choose independent defaults for new drafts, unlabeled workspace imports, and Start work (an In progress group).
+- Save card order within each column by dragging; use up/down controls or Alt+Up/Down in narrow layouts. Restore activity order from the group menu.
+- Optionally archive eligible completed or canceled workspaces after a configurable delay from their last verified conversation (30 days by default).
 
 ## Compatibility and trust
 

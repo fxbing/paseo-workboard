@@ -9,6 +9,7 @@ export function ConfirmationModal({
   description,
   confirmLabel,
   disabled,
+  failureText,
   t,
   theme,
   onClose,
@@ -18,6 +19,7 @@ export function ConfirmationModal({
   description: string;
   confirmLabel: string;
   disabled: boolean;
+  failureText?: string;
   t: ReturnType<typeof strings>;
   theme: PluginSurfaceProps["theme"];
   onClose(): void;
@@ -25,12 +27,17 @@ export function ConfirmationModal({
 }) {
   const submitting = useRef(false);
   const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
   const confirm = async () => {
     if (disabled || submitting.current) return;
     submitting.current = true;
     setPending(true);
+    setFailed(false);
     try {
       if (await onConfirm()) onClose();
+      else setFailed(true);
+    } catch {
+      setFailed(true);
     } finally {
       submitting.current = false;
       setPending(false);
@@ -46,6 +53,14 @@ export function ConfirmationModal({
     >
       <Modal.Content>
         <Text style={{ color: theme.colors.foreground }}>{description}</Text>
+        {failed && (
+          <Text
+            accessibilityRole="alert"
+            style={{ color: theme.colors.statusDanger }}
+          >
+            {failureText ?? t.confirmationFailed}
+          </Text>
+        )}
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
@@ -59,7 +74,7 @@ export function ConfirmationModal({
             accessibilityRole="button"
             accessibilityState={{ busy: pending }}
             disabled={disabled || pending}
-            onPress={() => void confirm()}
+            onPress={confirm}
             style={[styles.button, (disabled || pending) && styles.disabled]}
           >
             <Text

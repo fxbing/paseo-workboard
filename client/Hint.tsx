@@ -38,7 +38,7 @@ type Measurable = {
   ): void;
 };
 type HintContextValue = {
-  show(text: string, target: Measurable): void;
+  show(text: string, target: Measurable, autoDismiss?: boolean): void;
   hide(): void;
 };
 type WindowEvents = {
@@ -77,34 +77,42 @@ export function HintProvider({
   const root = useRef<ComponentRef<typeof View>>(null);
   const mounted = useRef(true);
   const generation = useRef(0);
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hide = useCallback(() => {
     generation.current++;
+    if (dismissTimer.current) clearTimeout(dismissTimer.current);
+    dismissTimer.current = null;
     setHint(null);
   }, []);
-  const show = useCallback((text: string, target: Measurable) => {
-    const current = ++generation.current;
-    const rootNode = root.current;
-    if (!rootNode) return;
-    target.measureInWindow((targetX, targetY, targetWidth, targetHeight) => {
-      rootNode.measureInWindow((rootX, rootY, rootWidth, rootHeight) => {
-        if (!mounted.current || current !== generation.current) return;
-        const x = targetX - rootX;
-        const y = targetY - rootY;
-        const below = y + targetHeight + GAP;
-        const width = Math.max(1, Math.min(MAX_WIDTH, rootWidth - 2 * EDGE));
-        setHint({
-          id: current,
-          text,
-          center: x + targetWidth / 2,
-          y,
-          below,
-          width,
-          rootHeight,
-          rootWidth,
+  const show = useCallback(
+    (text: string, target: Measurable, autoDismiss = false) => {
+      const current = ++generation.current;
+      const rootNode = root.current;
+      if (!rootNode) return;
+      target.measureInWindow((targetX, targetY, targetWidth, targetHeight) => {
+        rootNode.measureInWindow((rootX, rootY, rootWidth, rootHeight) => {
+          if (!mounted.current || current !== generation.current) return;
+          const x = targetX - rootX;
+          const y = targetY - rootY;
+          const below = y + targetHeight + GAP;
+          const width = Math.max(1, Math.min(MAX_WIDTH, rootWidth - 2 * EDGE));
+          if (dismissTimer.current) clearTimeout(dismissTimer.current);
+          dismissTimer.current = autoDismiss ? setTimeout(hide, 4000) : null;
+          setHint({
+            id: current,
+            text,
+            center: x + targetWidth / 2,
+            y,
+            below,
+            width,
+            rootHeight,
+            rootWidth,
+          });
         });
       });
-    });
-  }, []);
+    },
+    [hide],
+  );
 
   useEffect(() => {
     mounted.current = true;
@@ -116,6 +124,7 @@ export function HintProvider({
     windowEvents.addEventListener?.("blur", hide);
     return () => {
       mounted.current = false;
+      if (dismissTimer.current) clearTimeout(dismissTimer.current);
       windowEvents.removeEventListener?.("keydown", onKeyDown);
       windowEvents.removeEventListener?.("scroll", hide, true);
       windowEvents.removeEventListener?.("blur", hide);
@@ -201,9 +210,27 @@ export function HintButton({
   const context = useContext(HintContext);
   const target = useRef<ComponentRef<typeof Pressable>>(null);
   const focused = useRef(false);
-  const show = useCallback(() => {
-    if (context && target.current) context.show(hint, target.current);
-  }, [context, hint]);
+  const hovered = useRef(false);
+  const show = useCallback(
+    (autoDismiss = false) => {
+      if (context && target.current)
+        context.show(hint, target.current, autoDismiss);
+    },
+    [context, hint],
+  );
+
+  const showForInput = (
+    event: Parameters<NonNullable<PressableProps["onPress"]>>[0],
+  ) => {
+    const native = event.nativeEvent as typeof event.nativeEvent & {
+      pointerType?: string;
+    };
+    show(
+      native.pointerType === "touch" ||
+        native.touches?.length > 0 ||
+        (!focused.current && !hovered.current),
+    );
+  };
 
   return (
     <Pressable
@@ -214,13 +241,17 @@ export function HintButton({
         if (onPress) {
           context?.hide();
           onPress(event);
-        } else show();
+        } else {
+          showForInput(event);
+        }
       }}
       onHoverIn={(event) => {
+        hovered.current = true;
         show();
         onHoverIn?.(event);
       }}
       onHoverOut={(event) => {
+        hovered.current = false;
         if (!focused.current) context?.hide();
         onHoverOut?.(event);
       }}
@@ -235,7 +266,7 @@ export function HintButton({
         onBlur?.(event);
       }}
       onLongPress={(event) => {
-        show();
+        showForInput(event);
         onLongPress?.(event);
       }}
     >

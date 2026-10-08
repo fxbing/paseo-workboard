@@ -106,6 +106,7 @@ describe("task stages and conversation-based expiry", () => {
       1,
     );
     expect(data.settings).toEqual({
+      ...settingsSchema.parse({}),
       autoArchive: false,
       pinInProgressWorkspaces: true,
       groups: DEFAULT_GROUPS,

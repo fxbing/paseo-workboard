@@ -83,7 +83,12 @@ export function GroupSettings({
           const original =
             board.settings.groups.find((item) => item.id === group.id) ?? group;
           const count = groupTasks(board.cards, original).length;
-          const reason = groupDeleteReason(board.cards, groups, original);
+          const reason = groupDeleteReason(
+            board.cards,
+            groups,
+            original,
+            board.settings,
+          );
           const cannotDelete = disabled || reason !== null;
           return (
             <SettingsRow
@@ -94,8 +99,15 @@ export function GroupSettings({
                   t.stages[group.kind],
                   group.label,
                   t.groupTasks.replace("{count}", String(count)),
-                  group.id === defaultGroup(groups) ? t.defaultGroup : "",
-                  group.id === defaultWorkspaceGroup(groups)
+                  group.id ===
+                  defaultGroup(groups, board.settings.defaultDraftGroup)
+                    ? t.defaultGroup
+                    : "",
+                  group.id ===
+                  defaultWorkspaceGroup(
+                    groups,
+                    board.settings.defaultStartGroup,
+                  )
                     ? t.defaultWorkspaceGroup
                     : "",
                 ]
@@ -160,7 +172,8 @@ export function GroupSettings({
           confirmLabel={t.deleteGroup}
           disabled={
             disabled ||
-            groupDeleteReason(board.cards, groups, deleting) !== null
+            groupDeleteReason(board.cards, groups, deleting, board.settings) !==
+              null
           }
           t={t}
           theme={theme}
@@ -175,7 +188,7 @@ export function GroupSettings({
           board={board}
           groups={groups}
           group={editing}
-          disabled={disabled}
+          disabled={disabled || saving}
           saving={saving}
           t={t}
           theme={theme}
@@ -215,6 +228,8 @@ export function GroupEditor({
       return props.t.groupNeedsTodo;
     if (!next.some((item) => item.kind === "inbox"))
       return props.t.groupNeedsInbox;
+    if (!next.some((item) => item.kind === "canceled"))
+      return props.t.groupNeedsCanceled;
     if (new Set(next.map((item) => labelKey(item.label))).size !== next.length)
       return props.t.groupLabelDuplicate;
     if (
@@ -247,6 +262,7 @@ export function GroupEditor({
         )
       }
       autoArchive={board.settings.autoArchive}
+      archiveAfterDays={board.settings.archiveAfterDays}
     />
   );
 }
@@ -261,12 +277,14 @@ function GroupForm({
   onSave,
   preview,
   autoArchive,
+  archiveAfterDays,
 }: Pick<Props, "disabled" | "saving" | "t" | "theme"> & {
   group: Group;
   onClose(): void;
   onSave(group: Group): Promise<string | null>;
   preview(group: Group): ReturnType<typeof mappingPreview>;
   autoArchive: boolean;
+  archiveAfterDays: number;
 }) {
   const initialName = groupTitle(group, t);
   const [name, setName] = useState(initialName);
@@ -358,7 +376,10 @@ function GroupForm({
           </View>
           <SettingsSelect<StageKind>
             label={t.groupType}
-            hint={t.groupTypeHints[kind]}
+            hint={t.groupTypeHints[kind].replace(
+              "{days}",
+              String(archiveAfterDays),
+            )}
             value={kind}
             options={STAGES.map((value) => ({ value, label: t.stages[value] }))}
             onValueChange={setKind}

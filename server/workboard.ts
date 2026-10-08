@@ -3,9 +3,11 @@ import { isDeepStrictEqual } from "node:util";
 import {
   archiveDueAt,
   archiveGate,
+  cardsForStage,
   conversationStatusFor,
   defaultGroup,
   defaultWorkspaceGroup,
+  defaultStartWorkGroup,
   groupKind,
   isArchiveDue,
   isDraftGroup,
@@ -19,6 +21,7 @@ import {
   STAGE_COLORS,
   type Board,
   type Card,
+  type Data,
   type ConversationAgent,
   type ConversationDisplay,
   type ConversationGate,
@@ -27,7 +30,7 @@ import {
   type Stage,
   type Task,
 } from "../shared/model";
-import type { Mutation } from "../shared/rpc";
+import { CANCEL_BINDING_BUSY_ERROR_CODE, type Mutation } from "../shared/rpc";
 import type {
   Agent,
   ConversationEvidence,
@@ -106,6 +109,17 @@ export class Workboard {
   private connectionGeneration = 0;
   private epoch = 0;
   private workspaceEpochs = new Map<string, number>();
+  private bindingInFlight = new Set<string>();
+  private queuedStarts = new Map<string, number>();
+  private archiveDeferrals = new Map<
+    string,
+    {
+      reason: string;
+      attempts: number;
+      deferredUntil: number;
+      fingerprint: string;
+    }
+  >();
   private connected = false;
   private error: string | null = "Workboard is starting";
   private refreshedAt: string | null = null;
@@ -145,13 +159,18 @@ export class Workboard {
             task.issue = "native-archive-unknown";
           }
       });
-      for (const task of this.store.current.tasks.filter((t) => t.binding)) {
+      const bindings = this.store.current.tasks.filter((t) => t.binding);
+      for (const task of bindings)
+        this.bindingInFlight.add(task.binding!.operationId);
+      for (const task of bindings) {
         try {
           await this.bind(task.id);
         } catch {
           await this.issue(task.id, "label-sync-incomplete");
         }
       }
+      for (const task of bindings)
+        this.bindingInFlight.delete(task.binding!.operationId);
       await this.reconcile();
       await this.scan();
     });
@@ -228,8 +247,7 @@ export class Workboard {
     this.connected = false;
     this.error = reason;
   }
-  snapshot(): Board {
-    const data = this.store.current;
+  snapshot(data: Data = this.store.current): Board {
     return {
       revision: data.revision,
       ...this.host.identity,
@@ -237,6 +255,7 @@ export class Workboard {
       error: this.error,
       refreshedAt: this.refreshedAt,
       settings: data.settings,
+      cardOrderByStage: data.cardOrderByStage,
       projects: this.inventory.projects,
       cards: data.tasks.map((task) => {
         const workspace = this.inventory.workspaces.find(
@@ -254,7 +273,11 @@ export class Workboard {
           ) ?? "idle";
         const stage = task.workspaceId
           ? workspace
-            ? resolveStage(workspace.labels, data.settings.groups)
+            ? resolveStage(
+                workspace.labels,
+                data.settings.groups,
+                data.settings.defaultStartGroup,
+              )
             : task.lastStage
           : task.draftStage;
         return {
@@ -276,7 +299,7 @@ export class Workboard {
                 : "manual",
           dueAt:
             task.workspaceId && isTerminalGroup(stage, data.settings.groups)
-              ? archiveDueAt(archiveGate(task))
+              ? archiveDueAt(archiveGate(task), data.settings.archiveAfterDays)
               : null,
           agents: agents.map((a) => ({
             id: a.id,
@@ -302,10 +325,35 @@ export class Workboard {
         (task) => task.workspaceId === workspace.id,
       );
       if (scope && !scope.has(workspace.id) && previous) continue;
-      observations.set(
-        workspace.id,
-        await this.observe(agents, previous, this.now()),
-      );
+      if (previous && this.archiveDeferred(previous, workspace, agents))
+        continue;
+      const evidence = await this.observe(agents, previous, this.now());
+      if (previous && this.archiveDeferrals.has(previous.id)) {
+        if (evidence.gate === "unknown")
+          await this.deferArchive(
+            previous,
+            "conversation-unknown",
+            workspace,
+            agents,
+          );
+        else if (
+          !isArchiveDue(
+            groupKind(
+              resolveStage(
+                workspace.labels,
+                prior.settings.groups,
+                prior.settings.defaultStartGroup,
+              ),
+              prior.settings.groups,
+            ),
+            evidence.gateAt,
+            this.now(),
+            prior.settings.archiveAfterDays,
+          )
+        )
+          this.archiveDeferrals.delete(previous.id);
+      }
+      observations.set(workspace.id, evidence);
     }
     if (this.stopped) throw new Error("Workboard stopped");
     this.inventory = inventory;
@@ -318,7 +366,10 @@ export class Workboard {
               randomUUID(),
               workspace.name,
               this.stamp(),
-              defaultWorkspaceGroup(data.settings.groups),
+              defaultWorkspaceGroup(
+                data.settings.groups,
+                data.settings.defaultStartGroup,
+              ),
             ),
             workspaceId: workspace.id,
           };
@@ -328,7 +379,11 @@ export class Workboard {
         task.title = workspace.name;
         task.projectId = workspace.projectId;
         task.projectName = workspace.projectDisplayName;
-        task.lastStage = resolveStage(workspace.labels, data.settings.groups);
+        task.lastStage = resolveStage(
+          workspace.labels,
+          data.settings.groups,
+          data.settings.defaultStartGroup,
+        );
         const observation = observations.get(workspace.id);
         if (observation) {
           task.lastConversationAt = observation.displayAt;
@@ -350,14 +405,15 @@ export class Workboard {
                   ? "conversation-unknown"
                   : task.conversationStatus === "none"
                     ? "no-conversation"
-                    : null;
+                    : (this.archiveDeferrals.get(task.id)?.reason ?? null);
       }
       for (const task of data.tasks) {
         if (
           task.workspaceId &&
           !inventory.workspaces.some((w) => w.id === task.workspaceId) &&
           !task.archived &&
-          !task.binding
+          !task.binding &&
+          task.issue !== "archive-restored-workspace-unavailable"
         ) {
           task.archived = {
             operationId: randomUUID(),
@@ -560,7 +616,11 @@ export class Workboard {
         settings.pinInProgressWorkspaces &&
         !workspace.archivingAt &&
         groupKind(
-          resolveStage(workspace.labels, settings.groups),
+          resolveStage(
+            workspace.labels,
+            settings.groups,
+            settings.defaultStartGroup,
+          ),
           settings.groups,
         ) === "in-progress"
       );
@@ -625,6 +685,12 @@ export class Workboard {
     if (!unchanged(previous))
       throw new Error("Settings changed; refresh before saving");
     const next = settingsSchema.parse(settings);
+    if (
+      next.defaultStartGroup &&
+      isTerminalGroup(next.defaultStartGroup, next.groups)
+    )
+      throw new Error("group-default-terminal");
+    if (next.autoArchive) next.archiveMappingNeedsReview = false;
     const previousIds = previous.settings.groups.map((group) => group.id);
     const nextIds = next.groups.map((group) => group.id);
     const retained = nextIds.filter((id) => previousIds.includes(id));
@@ -667,7 +733,9 @@ export class Workboard {
       }
       if (!task.workspaceId && !isDraftGroup(task.draftStage, next.groups))
         throw new Error(
-          "Move the drafts out before deleting this group or changing its type",
+          removed.some((group) => group.id === task.draftStage)
+            ? "group-tasks-in-use"
+            : "Move the drafts out before deleting this group or changing its type",
         );
     }
     if (removed.length) {
@@ -687,27 +755,117 @@ export class Workboard {
         );
         if (
           missingTasks ||
-          inventory.workspaces.some(
-            (workspace) =>
-              workspace.labels.some(
-                (label) => labelKey(label) === labelKey(group.label),
-              ) ||
-              resolveStage(workspace.labels, previous.settings.groups) ===
-                group.id,
+          inventory.workspaces.some((workspace) =>
+            workspace.labels.some(
+              (label) => labelKey(label) === labelKey(group.label),
+            ),
           )
         )
-          throw new Error(
-            "Only empty groups can be deleted; move their tasks first",
-          );
+          throw new Error("group-tasks-in-use");
+        if (
+          group.id ===
+            defaultGroup(previous.settings.groups, next.defaultDraftGroup) ||
+          group.id ===
+            defaultWorkspaceGroup(
+              previous.settings.groups,
+              next.defaultStartGroup,
+            ) ||
+          group.id === next.defaultStartWorkGroup
+        )
+          throw new Error("group-default-in-use");
       }
+    }
+    if (
+      next.defaultStartWorkGroup &&
+      groupKind(next.defaultStartWorkGroup, next.groups) !== "in-progress"
+    ) {
+      if (
+        next.defaultStartWorkGroup ===
+          previous.settings.defaultStartWorkGroup &&
+        groupKind(next.defaultStartWorkGroup, previous.settings.groups) ===
+          "in-progress"
+      )
+        throw new Error("group-default-in-use");
+      throw new Error("group-default-start-work-invalid");
     }
     await this.store.update((data) => {
       if (!unchanged(data))
         throw new Error("Settings changed; refresh before saving");
+      for (const group of removed) delete data.cardOrderByStage[group.id];
       data.settings = next;
     });
   }
+  private checkCardOrder(
+    data: Data,
+    input: Extract<Mutation, { action: "reorder-cards" | "reset-card-order" }>,
+  ): void {
+    if (!data.settings.groups.some((group) => group.id === input.stage))
+      throw new Error("Group no longer exists");
+    const current = cardsForStage(
+      this.snapshot(data).cards,
+      input.stage,
+      data.cardOrderByStage,
+    ).map((card) => card.id);
+    if (!sameOrder(input.expectedOrder, current))
+      throw new Error("card-order-changed");
+    if (input.action === "reorder-cards") {
+      const mover = data.tasks.find((task) => task.id === input.taskId);
+      if (
+        !mover ||
+        !current.includes(input.taskId) ||
+        mover.archived !== null ||
+        mover.binding !== null
+      )
+        throw new Error("card-order-mover-unavailable");
+      if (
+        input.cardOrder.length !== current.length ||
+        new Set(input.cardOrder).size !== current.length ||
+        input.cardOrder.some((id) => !current.includes(id)) ||
+        !sameOrder(
+          input.cardOrder.filter((id) => id !== input.taskId),
+          current.filter((id) => id !== input.taskId),
+        )
+      )
+        throw new Error("card-order-invalid");
+    }
+  }
+  private checkStageExpected(
+    data: Data,
+    input: Extract<Mutation, { action: "stage" }>,
+  ): void {
+    if (input.expectedGroup) {
+      const group = data.settings.groups.find(
+        (group) => group.id === input.stage,
+      );
+      const expected = input.expectedGroup;
+      if (
+        !group ||
+        expected.id !== group.id ||
+        expected.kind !== group.kind ||
+        expected.label !== group.label
+      )
+        throw new Error("stage-group-changed");
+    }
+    if (
+      input.expectedUpdatedAt !== undefined &&
+      data.tasks.find((task) => task.id === input.taskId)?.updatedAt !==
+        input.expectedUpdatedAt
+    )
+      throw new Error("stage-task-changed");
+  }
   async mutate(input: Mutation): Promise<Board> {
+    // Reject before queueing so an active or queued start cannot be canceled after it fails.
+    if (
+      input.action === "cancel-binding" &&
+      (this.bindingInFlight.has(input.operationId) ||
+        this.queuedStarts.has(input.taskId))
+    )
+      throw new Error(CANCEL_BINDING_BUSY_ERROR_CODE);
+    if (input.action === "start")
+      this.queuedStarts.set(
+        input.taskId,
+        (this.queuedStarts.get(input.taskId) ?? 0) + 1,
+      );
     this.epoch++;
     this.pendingMutations++;
     return this.serial(async () => {
@@ -716,7 +874,11 @@ export class Workboard {
       try {
         if (input.action === "create") {
           const stage =
-            input.stage ?? defaultGroup(this.store.current.settings.groups);
+            input.stage ??
+            defaultGroup(
+              this.store.current.settings.groups,
+              this.store.current.settings.defaultDraftGroup,
+            );
           if (groupKind(stage, this.store.current.settings.groups) !== "todo")
             throw new Error("Choose a To do group for a new draft");
           await this.store.update((data) => {
@@ -741,6 +903,17 @@ export class Workboard {
           );
           await this.reconcile();
           this.changed();
+        } else if (
+          input.action === "reorder-cards" ||
+          input.action === "reset-card-order"
+        ) {
+          this.checkCardOrder(this.store.current, input);
+          await this.store.update((data) => {
+            this.checkCardOrder(data, input);
+            if (input.action === "reset-card-order")
+              delete data.cardOrderByStage[input.stage];
+            else data.cardOrderByStage[input.stage] = input.cardOrder;
+          });
         } else if (input.action === "reorder-groups") {
           const current = orderedGroups(this.store.current.settings).map(
             (group) => group.id,
@@ -763,7 +936,12 @@ export class Workboard {
           });
         } else {
           const task = this.task(input.taskId);
-          if (hidden(task)) throw new Error("Task is archived");
+          if (hidden(task) && input.action !== "resolve-archive")
+            throw new Error(
+              input.action === "detach-draft"
+                ? "detach-draft-archived"
+                : "Task is archived",
+            );
           if (input.action === "edit") {
             await this.store.update((data) => {
               const current = data.tasks.find((t) => t.id === task.id)!;
@@ -785,9 +963,10 @@ export class Workboard {
             const stage =
               input.stage ??
               task.binding?.stage ??
-              this.store.current.settings.groups.find(
-                (group) => group.kind === "in-progress",
-              )?.id;
+              defaultStartWorkGroup(
+                this.store.current.settings.groups,
+                this.store.current.settings.defaultStartWorkGroup,
+              );
             if (
               !stage ||
               !this.store.current.settings.groups.some(
@@ -820,6 +999,14 @@ export class Workboard {
             await this.bind(task.id);
             await this.reconcile();
           } else if (input.action === "stage") {
+            const check = () => {
+              if (
+                input.expectedUpdatedAt !== undefined ||
+                input.expectedGroup !== undefined
+              )
+                this.checkStageExpected(this.store.current, input);
+            };
+            check();
             if (
               !this.store.current.settings.groups.some(
                 (group) => group.id === input.stage,
@@ -833,12 +1020,14 @@ export class Workboard {
                 task.workspaceId,
                 input.stage,
                 input.expectedLabels,
+                check,
               );
               this.inventory.workspaces = this.inventory.workspaces.map((w) =>
                 w.id === workspace.id ? workspace : w,
               );
               await this.store.update((data) => {
                 const current = data.tasks.find((t) => t.id === task.id)!;
+                this.checkStageExpected(data, input);
                 current.lastStage = input.stage;
                 current.updatedAt = this.stamp(current.updatedAt);
                 if (current.issue === "labels-conflict") current.issue = null;
@@ -851,6 +1040,7 @@ export class Workboard {
                 throw new Error("Start work and bind a workspace first");
               await this.store.update((data) => {
                 const current = data.tasks.find((t) => t.id === task.id)!;
+                this.checkStageExpected(data, input);
                 current.draftStage = input.stage;
                 current.lastStage = input.stage;
                 current.updatedAt = this.stamp(current.updatedAt);
@@ -882,6 +1072,101 @@ export class Workboard {
                 detail: "Draft archived; no native workspace",
               };
             });
+          } else if (input.action === "detach-draft") {
+            await this.store.update((data) => {
+              const current = data.tasks.find((t) => t.id === task.id)!;
+              if (current.updatedAt !== input.updatedAt)
+                throw new Error("detach-draft-stale");
+              const source = current.mergedDrafts.find(
+                (source) => source.draftId === input.draftId,
+              );
+              if (!source) throw new Error("detach-draft-missing");
+              if (data.tasks.some((t) => t.id === source.draftId))
+                throw new Error("detach-draft-id-in-use");
+              const start = current.description.indexOf(source.appendedText);
+              if (
+                start < 0 ||
+                current.description.indexOf(source.appendedText, start + 1) >= 0
+              )
+                throw new Error("detach-draft-text-changed");
+              const draft = newTask(
+                source.draftId,
+                source.title,
+                this.stamp(),
+                defaultGroup(
+                  data.settings.groups,
+                  data.settings.defaultDraftGroup,
+                ),
+              );
+              draft.description = source.description;
+              current.description =
+                current.description.slice(0, start) +
+                current.description.slice(start + source.appendedText.length);
+              current.mergedDrafts = current.mergedDrafts.filter(
+                (entry) => entry !== source,
+              );
+              current.updatedAt = this.stamp(current.updatedAt);
+              data.tasks.push(draft);
+            });
+          } else if (input.action === "cancel-binding") {
+            if (!task.binding) throw new Error("cancel-binding-missing");
+            if (task.binding.operationId !== input.operationId)
+              throw new Error("cancel-binding-changed");
+            await this.store.update((data) => {
+              const current = data.tasks.find((t) => t.id === task.id)!;
+              current.binding = null;
+              current.issue = null;
+              current.updatedAt = this.stamp(current.updatedAt);
+            });
+          } else if (input.action === "resolve-archive") {
+            await this.store.update((data) => {
+              const current = data.tasks.find((t) => t.id === task.id)!;
+              if (current.updatedAt !== input.updatedAt)
+                throw new Error("archive-resolution-stale");
+              const archive = current.archived;
+              if (
+                !archive ||
+                (!["uncertain", "external"].includes(archive.status) &&
+                  !(
+                    archive.kind === "draft" &&
+                    archive.status === "archived" &&
+                    input.outcome === "restore"
+                  ))
+              )
+                throw new Error("archive-resolution-unavailable");
+              if (archive.operationId !== input.operationId)
+                throw new Error("archive-resolution-stale");
+              if (input.outcome === "confirm") {
+                current.archived = {
+                  ...archive,
+                  status: "archived",
+                  detail: "archive-confirmed-by-user",
+                };
+                current.issue = null;
+              } else {
+                if (
+                  !data.settings.groups.some(
+                    (group) => group.id === archive.stage,
+                  )
+                )
+                  throw new Error("archive-group-unavailable");
+                if (
+                  archive.kind === "draft" &&
+                  !isDraftGroup(archive.stage, data.settings.groups)
+                )
+                  throw new Error("archive-draft-group-unavailable");
+                current.archived = null;
+                if (archive.kind === "draft")
+                  current.draftStage = archive.stage;
+                current.lastStage = archive.stage;
+                // Keep the manual restore until reconciliation confirms native membership.
+                current.issue = current.workspaceId
+                  ? "archive-restored-workspace-unavailable"
+                  : null;
+              }
+              current.updatedAt = this.stamp(current.updatedAt);
+            });
+            this.archiveDeferrals.delete(task.id);
           }
         }
         return this.snapshot();
@@ -895,79 +1180,94 @@ export class Workboard {
       }
     }).finally(() => {
       this.pendingMutations--;
+      if (input.action === "start") {
+        const remaining = this.queuedStarts.get(input.taskId)! - 1;
+        if (remaining) this.queuedStarts.set(input.taskId, remaining);
+        else this.queuedStarts.delete(input.taskId);
+      }
     });
   }
   private async bind(id: string): Promise<void> {
     const draft = this.task(id);
     const binding = draft.binding;
     if (!binding) return;
-    const workspaceId =
-      binding.workspaceId ??
-      (binding.target.kind === "existing"
-        ? binding.target.workspaceId
-        : await this.host.create(
-            binding.target.source,
-            draft.title,
-            `workboard:${binding.operationId}`,
-          ));
-    const workspace = await this.host.workspace(workspaceId);
-    if (!workspace) throw new Error("Binding workspace is unavailable");
-    let survivorId = id;
-    await this.store.update((data) => {
-      const current = data.tasks.find((t) => t.id === id)!;
-      const imported = data.tasks.find(
-        (t) => t.workspaceId === workspaceId && t.id !== id,
-      );
-      if (binding.target.kind === "existing" && imported) {
-        imported.description = [
-          imported.description,
-          `[${current.title}]\n${current.description}`,
-        ]
-          .filter(Boolean)
-          .join("\n\n");
-        imported.binding = { ...binding, workspaceId };
-        imported.updatedAt = this.stamp(imported.updatedAt);
-        survivorId = imported.id;
-        data.tasks = data.tasks.filter((t) => t.id !== id);
-      } else {
-        if (imported) {
-          current.description = [current.description, imported.description]
-            .filter(Boolean)
-            .join("\n\n");
-          data.tasks = data.tasks.filter((t) => t.id !== imported.id);
-        }
-        if (binding.target.kind === "existing" && !binding.workspaceId)
-          current.description = `[${current.title}]\n${current.description}`;
-        current.workspaceId = workspaceId;
-        current.binding = { ...binding, workspaceId };
-        current.updatedAt = this.stamp(current.updatedAt);
-      }
-    });
+    this.bindingInFlight.add(binding.operationId);
     try {
-      await this.transition(
-        workspaceId,
-        binding.stage,
-        statusLabels(workspace.labels, this.store.current.settings.groups),
-      );
+      const workspaceId =
+        binding.workspaceId ??
+        (binding.target.kind === "existing"
+          ? binding.target.workspaceId
+          : await this.host.create(
+              binding.target.source,
+              draft.title,
+              `workboard:${binding.operationId}`,
+            ));
+      const workspace = await this.host.workspace(workspaceId);
+      if (!workspace) throw new Error("Binding workspace is unavailable");
+      let survivorId = id;
       await this.store.update((data) => {
-        const task = data.tasks.find((t) => t.id === survivorId)!;
-        task.binding = null;
-        task.issue = null;
+        const current = data.tasks.find((t) => t.id === id)!;
+        const imported = data.tasks.find(
+          (t) => t.workspaceId === workspaceId && t.id !== id,
+        );
+        if (binding.target.kind === "existing" && imported) {
+          const appendedText = `${imported.description ? "\n\n" : ""}[${current.title}]\n${current.description}`;
+          imported.description += appendedText;
+          imported.mergedDrafts.push({
+            draftId: current.id,
+            title: current.title,
+            description: current.description,
+            mergedAt: this.stamp(),
+            appendedText,
+          });
+          imported.binding = { ...binding, workspaceId };
+          imported.updatedAt = this.stamp(imported.updatedAt);
+          survivorId = imported.id;
+          data.tasks = data.tasks.filter((t) => t.id !== id);
+        } else {
+          if (imported) {
+            current.description = [current.description, imported.description]
+              .filter(Boolean)
+              .join("\n\n");
+            data.tasks = data.tasks.filter((t) => t.id !== imported.id);
+          }
+          if (binding.target.kind === "existing" && !binding.workspaceId)
+            current.description = `[${current.title}]\n${current.description}`;
+          current.workspaceId = workspaceId;
+          current.binding = { ...binding, workspaceId };
+          current.updatedAt = this.stamp(current.updatedAt);
+        }
       });
-    } catch (error) {
-      await this.issue(survivorId, "label-sync-incomplete");
-      throw error;
+      try {
+        await this.transition(
+          workspaceId,
+          binding.stage,
+          statusLabels(workspace.labels, this.store.current.settings.groups),
+        );
+        await this.store.update((data) => {
+          const task = data.tasks.find((t) => t.id === survivorId)!;
+          task.binding = null;
+          task.issue = null;
+        });
+      } catch (error) {
+        await this.issue(survivorId, "label-sync-incomplete");
+        throw error;
+      }
+    } finally {
+      this.bindingInFlight.delete(binding.operationId);
     }
   }
   private async transition(
     id: string,
     stage: Stage,
     expected: string[],
+    check: () => void = () => {},
   ): Promise<Workspace> {
     const mapping = this.store.current.settings.groups;
     const group = mapping.find((group) => group.id === stage);
     if (!group) throw new Error("Group no longer exists");
     let workspace = await this.host.workspace(id);
+    check();
     if (!workspace || workspace.archivingAt)
       throw new Error("Workspace is unavailable or archiving");
     if (!labelsEqual(statusLabels(workspace.labels, mapping), expected))
@@ -984,6 +1284,7 @@ export class Workboard {
         operations.push({ name, assigned: false });
     for (const operation of operations) {
       workspace = await this.host.workspace(id);
+      check();
       if (
         !workspace ||
         !labelsEqual(
@@ -1003,6 +1304,7 @@ export class Workboard {
         STAGE_COLORS[group.kind],
         operation.assigned,
       );
+      check();
       if (
         !labelsEqual(
           statusLabels(observed, mapping),
@@ -1012,7 +1314,15 @@ export class Workboard {
         throw new Error("Workspace labels changed during synchronization");
     }
     workspace = await this.host.workspace(id);
-    if (!workspace || resolveStage(workspace.labels, mapping) !== stage)
+    check();
+    if (
+      !workspace ||
+      resolveStage(
+        workspace.labels,
+        mapping,
+        this.store.current.settings.defaultStartGroup,
+      ) !== stage
+    )
       throw new Error("Label synchronization could not be verified");
     return workspace;
   }
@@ -1022,31 +1332,118 @@ export class Workboard {
       if (task) task.issue = issue;
     });
   }
+  private archiveFingerprint(
+    workspace: Workspace | undefined,
+    agents: readonly Agent[],
+  ): string {
+    return JSON.stringify([
+      workspace && [
+        workspace.id,
+        [...workspace.labels].sort(),
+        workspace.archivingAt,
+        workspace.status,
+        workspace.scripts,
+        workspace.workspaceDirectory,
+        workspace.gitRuntime?.isPaseoOwnedWorktree,
+      ],
+      [...agents]
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((agent) => [
+          agent.id,
+          agent.updatedAt,
+          agent.lastUserMessageAt,
+          agent.activity,
+          agent.archivedAt,
+          agent.childEnumeration,
+          agent.parentAgentId,
+          agent.subagentId,
+        ]),
+    ]);
+  }
+  private archiveDeferred(
+    task: Task,
+    workspace: Workspace | undefined,
+    agents: readonly Agent[],
+  ): boolean {
+    const deferred = this.archiveDeferrals.get(task.id);
+    if (!deferred) return false;
+    if (deferred.fingerprint !== this.archiveFingerprint(workspace, agents)) {
+      this.archiveDeferrals.delete(task.id);
+      return false;
+    }
+    return deferred.deferredUntil > this.now();
+  }
+  private async deferArchive(
+    task: Task,
+    reason: string,
+    workspace: Workspace | undefined,
+    agents: readonly Agent[],
+  ): Promise<void> {
+    const prior = this.archiveDeferrals.get(task.id);
+    const attempts =
+      prior?.reason === reason ? Math.min(prior.attempts + 1, 7) : 1;
+    this.archiveDeferrals.set(task.id, {
+      reason,
+      attempts,
+      deferredUntil:
+        this.now() + Math.min(60_000 * 2 ** (attempts - 1), 3_600_000),
+      fingerprint: this.archiveFingerprint(workspace, agents),
+    });
+    await this.issue(task.id, reason);
+  }
   private async scan(scope?: ReadonlySet<string>): Promise<void> {
     if (!this.connected || !this.store.current.settings.autoArchive) return;
-    for (const candidate of this.store.current.tasks) {
-      if (this.stopped || this.pendingMutations > 0) return;
+    const tasks = this.store.current.tasks;
+    for (const id of this.archiveDeferrals.keys())
       if (
-        !candidate.workspaceId ||
-        (scope && !scope.has(candidate.workspaceId)) ||
-        candidate.archived ||
-        candidate.binding ||
-        archiveGate(candidate) === null ||
-        !isArchiveDue(
-          groupKind(candidate.lastStage, this.store.current.settings.groups),
-          archiveGate(candidate),
-          this.now(),
-        )
+        !tasks.some((task) => task.id === id && !task.archived && !task.binding)
       )
-        continue;
-      const id = candidate.workspaceId;
-      const epoch = this.observation(id);
-      const inventory = await this.host.inventory();
+        this.archiveDeferrals.delete(id);
+    const candidates = tasks.filter((task) => {
+      const id = task.workspaceId;
+      return (
+        id &&
+        (!scope || scope.has(id)) &&
+        !task.archived &&
+        !task.binding &&
+        task.issue !== "archive-restored-workspace-unavailable" &&
+        archiveGate(task) !== null &&
+        isArchiveDue(
+          groupKind(task.lastStage, this.store.current.settings.groups),
+          archiveGate(task),
+          this.now(),
+          this.store.current.settings.archiveAfterDays,
+        ) &&
+        !this.archiveDeferred(
+          task,
+          this.inventory.workspaces.find((w) => w.id === id),
+          this.inventory.agents.filter((a) => a.workspaceId === id),
+        )
+      );
+    });
+    if (!candidates.length || this.stopped || this.pendingMutations > 0) return;
+    const epochs = new Map(
+      candidates.map((task) => [task.id, this.observation(task.workspaceId!)]),
+    );
+    const inventory = await this.host.inventory();
+    for (const candidate of candidates) {
+      if (this.stopped || this.pendingMutations > 0) return;
+      const id = candidate.workspaceId!;
+      const epoch = epochs.get(candidate.id)!;
       const workspace = inventory.workspaces.find((w) => w.id === id);
-      if (!workspace || workspace.archivingAt) continue;
+      if (!workspace || workspace.archivingAt) {
+        await this.deferArchive(
+          candidate,
+          "workspace-unavailable",
+          workspace,
+          inventory.agents.filter((a) => a.workspaceId === id),
+        );
+        continue;
+      }
       const stage = resolveStage(
         workspace.labels,
         this.store.current.settings.groups,
+        this.store.current.settings.defaultStartGroup,
       );
       const agents = inventory.agents.filter(
         (agent) => agent.workspaceId === id,
@@ -1060,12 +1457,17 @@ export class Workboard {
         workspace.status === "running" ||
         workspace.status === "needs_input"
       ) {
-        await this.issue(candidate.id, "agent-busy");
+        await this.deferArchive(candidate, "agent-busy", workspace, agents);
         continue;
       }
       const gate = await this.verifyConversation(candidate, agents);
       if (gate === null) {
-        await this.issue(candidate.id, "conversation-unknown");
+        await this.deferArchive(
+          candidate,
+          "conversation-unknown",
+          workspace,
+          agents,
+        );
         continue;
       }
       if (
@@ -1073,17 +1475,25 @@ export class Workboard {
           groupKind(stage, this.store.current.settings.groups),
           gate,
           this.now(),
+          this.store.current.settings.archiveAfterDays,
         )
-      )
+      ) {
+        this.archiveDeferrals.delete(candidate.id);
         continue;
+      }
       const safety = await this.host.safety(workspace);
       if (safety) {
-        await this.issue(candidate.id, safety);
+        await this.deferArchive(candidate, safety, workspace, agents);
         continue;
       }
       if (this.stopped || epoch !== this.observation(id)) {
         if (!this.stopped)
-          await this.issue(candidate.id, "changed-during-check");
+          await this.deferArchive(
+            candidate,
+            "changed-during-check",
+            workspace,
+            agents,
+          );
         continue;
       }
       const operationId = randomUUID();
@@ -1127,8 +1537,11 @@ export class Workboard {
           current.status === "needs_input" ||
           // A refused child listing for an archived parent keeps the gate on its recorded
           // bounds, so it must not defer the archive forever as a state change would.
-          resolveStage(current.labels, this.store.current.settings.groups) !==
-            stage ||
+          resolveStage(
+            current.labels,
+            this.store.current.settings.groups,
+            this.store.current.settings.defaultStartGroup,
+          ) !== stage ||
           !labelsEqual(current.labels, workspace.labels) ||
           fingerprint(currentAgents) !== fingerprint(agents)
         )
@@ -1145,8 +1558,10 @@ export class Workboard {
           task.archived = null;
           task.issue = finalIssue;
         });
+        await this.deferArchive(candidate, finalIssue, workspace, agents);
         continue;
       }
+      this.archiveDeferrals.delete(candidate.id);
       try {
         const result = await this.host.archive(id);
         if (result.error || !result.archivedAt)

@@ -3,6 +3,20 @@ import type { Group, GroupColor } from "../shared/model";
 export type Language = "zh" | "en";
 
 const zh = {
+  confirmationFailed: "操作未完成，请刷新后重试。",
+  clearSearch: "清除搜索",
+  conflictCount: "{count} 个冲突",
+  mutationPending: "此操作正在提交，请稍后再试。",
+  navigationUnavailable:
+    "当前界面无法打开 workspace，请从 Paseo 的 workspace 列表打开。",
+  groupKeyboardHint: "点击打开分组选项；Alt/Meta+左/右方向键调整顺序。",
+  startNeedsWorkspace: "请选择要关联的 workspace。",
+  startNeedsDirectory: "请输入 workspace 目录。",
+  startNeedsGitProject: "创建 worktree 需要选择 Git 项目。",
+  undoMove: "撤销移动",
+  undoMoveHint: "在 8 秒内放回移动前的分组；任务变化后不可撤销。",
+  undoMoveExpired: "撤销窗口已过期或任务已变化，请刷新后手动调整分组。",
+  moveUndone: "任务已放回原分组。",
   locale: "zh-CN",
   title: "Workboard",
   addTask: "新建任务",
@@ -61,6 +75,12 @@ const zh = {
   groupLocator: "定位分组",
   collapseColumn: "折叠列",
   expandColumn: "展开列",
+  moveCardUp: "上移任务",
+  moveCardDown: "下移任务",
+  cardOrderHint:
+    "在本列排序；可用 Alt+上/下方向键。筛选时只移动当前任务，其它任务相对顺序保持。",
+  resetCardOrder: "恢复活动排序",
+  dropToReorder: "在本列调整任务顺序",
   moveGroupLeft: "向左移动",
   moveGroupRight: "向右移动",
   resizeColumn: "调整列宽",
@@ -128,9 +148,22 @@ const zh = {
   archived: "归档记录",
   back: "返回看板",
   archiveDraft: "归档草稿",
-  archiveDraftConfirm: "归档草稿“{name}”？归档后将移出看板，目前不支持恢复。",
+  archiveDraftConfirm:
+    "归档草稿“{name}”？归档后将移出看板，可在归档页放回原分组。",
   autoArchive: "自动归档",
-  autoArchiveHint: "完成或废弃且最后对话超过 30 天后，自动归档 workspace。",
+  autoArchiveMigrationPaused:
+    "升级时补建了已废弃分组，其标签可能匹配已有 workspace。自动归档已关闭，请核对到期任务后重新开启；存在到期任务时会先要求确认。",
+  archiveAfterDays: "自动归档等待天数",
+  archiveAfterDaysHint: "输入 1–365 的整数，保存后生效。",
+  archiveAfterDaysInvalid: "请输入 1–365 的整数。",
+  defaultDraftGroupSetting: "新草稿默认分组",
+  defaultStartGroupSetting: "未标记 workspace 默认分组",
+  defaultStartWorkGroupSetting: "开始工作默认分组（进行中）",
+  defaultByKind: "自动（按分组类型）",
+  detachDraft: "还原合并草稿",
+  detachDraftConfirm:
+    "将“{name}”还原为独立草稿，并从此任务备注中移除合并时追加的内容？",
+  autoArchiveHint: "完成或废弃且最后对话超过 {days} 天后，自动归档 workspace。",
   enableAutoArchive: "开启自动归档",
   enableAutoArchiveConfirm:
     "当前有 {count} 个任务已到期。开启后会在安全检查通过时自动归档对应 workspace，可能停止 Agent 和 terminal，并移除托管 worktree。",
@@ -164,17 +197,18 @@ const zh = {
     red: "红色",
   } satisfies Record<GroupColor, string>,
   groupsHint:
-    "保存或删除分组立即生效，只能删除空分组。至少各保留一个待归类和待开始类型分组，分别接收未标记 workspace 和新草稿。",
+    "保存或删除分组立即生效，删除前移走任务并更改默认落点。至少各保留一个待归类、待开始和已废弃类型分组。",
   groupSaveFailed: "保存失败，输入已保留。请查看错误提示后重试。",
   groupTypeHints: {
-    inbox: "自动接收没有受管理状态标签的 workspace；导入不会写入标签。",
+    inbox:
+      "未配置默认落点时，首个待归类组接收未标记 workspace；导入不会写入标签。",
     todo: "接收 Todo 草稿；创建草稿不会创建 workspace 或会话。",
     "in-progress":
       "仅在开启“进行中任务在 Paseo 侧边栏自动置顶”时自动置顶；离开分组时仅取消插件添加的置顶。",
     review: "等待人工验收；Agent 结束不会把任务自动标为完成。",
-    done: "开启自动归档后，最后对话超过 30 天且安全检查通过才归档 workspace。",
+    done: "开启自动归档后，最后对话超过 {days} 天且安全检查通过才归档 workspace。",
     canceled:
-      "开启自动归档后，最后对话超过 30 天且安全检查通过才归档 workspace；草稿可手动归档。",
+      "开启自动归档后，最后对话超过 {days} 天且安全检查通过才归档 workspace；草稿可手动归档。",
   },
   groupTasks: "{count} 个任务",
   defaultGroup: "默认接收草稿",
@@ -183,6 +217,8 @@ const zh = {
   groupDeleteNotEmpty: "分组内还有任务，移走后可删除。",
   groupNeedsTodo: "至少保留一个待开始类型分组。",
   groupNeedsInbox: "至少保留一个待归类类型分组。",
+  groupNeedsCanceled: "至少保留一个已废弃类型分组，以便归档草稿。",
+  groupDefaultInUse: "此分组是默认落点，请先在设置中更改对应默认分组。",
   groupLabelDuplicate: "每个分组必须使用不同的标签。",
   groupInvalid: "请填写有效的分组名称和标签。",
   noStartGroup: "请先在设置中添加一个进行中类型的分组。",
@@ -219,6 +255,9 @@ const zh = {
     "native-archive-unknown": "归档结果待人工核实",
     "changed-during-check": "检查期间状态已变化",
     "label-sync-incomplete": "标签同步未完成",
+    "workspace-unavailable": "workspace 不可用或正在归档",
+    "archive-restored-workspace-unavailable":
+      "任务已放回看板，但 workspace 不在宿主活跃清单中；请核实原生状态",
   },
   conversationReasons: {
     "replay-timestamp": "Paseo 回放历史时用水合时刻打戳，已改用记录的上下界",
@@ -227,9 +266,143 @@ const zh = {
     "child-enumeration-unavailable": "无法枚举 provider 子 agent",
     "child-timeline-unreadable": "子 agent 时间线读取失败",
   },
+  archiveConfirmedByUser: "归档结果已由用户确认",
+  mutationErrors: {
+    "card-order-changed": "列内任务顺序或成员已改变，请刷新后重试。",
+    "card-order-invalid":
+      "排序无效；只能移动当前任务并保留其它任务的相对顺序。",
+    "card-order-mover-unavailable":
+      "任务已移列、归档或正在绑定，无法排序；请刷新。",
+    "stage-group-changed":
+      "原分组定义已改变或已删除，撤销未执行；请刷新后重新选择分组。",
+    "stage-task-changed": "任务已被修改，撤销未执行；请刷新后核实当前分组。",
+    "Storage is unavailable": "存储不可用，请重新打开 Workboard 后重试。",
+    "Paseo directory pagination is incomplete":
+      "Paseo 目录清单不完整，请刷新后重试。",
+    "Paseo plugin IPC unavailable":
+      "Paseo 插件通信不可用，请重新打开 Workboard。",
+    "Paseo disconnected": "Paseo 连接中断，请重新连接。",
+    "Paseo request failed": "Paseo 请求失败，请重试。",
+    "Unexpected Paseo response type":
+      "Paseo 返回了无法识别的响应，请刷新后重试。",
+    "Workboard bridge closed": "Workboard 通信已关闭，请重新打开。",
+    "Paseo workspace pin response workspace mismatch":
+      "Paseo 置顶响应对应了其它 workspace，请刷新后核实。",
+    "Paseo workspace pin rejected": "Paseo 拒绝了 workspace 置顶操作，请重试。",
+    "Paseo did not apply the workspace pin":
+      "Paseo 未完成 workspace 置顶，请刷新后核实。",
+    "Paseo did not remove the workspace pin":
+      "Paseo 未取消 workspace 置顶，请刷新后核实。",
+    "Workboard installation mismatch; use the manifest plugin ID":
+      "Workboard 安装标识不匹配，请使用 manifest 中的插件 ID。",
+    "Paseo did not provide its plugin API":
+      "Paseo 未提供插件 API，请重新打开 Workboard。",
+    "Workboard stopped": "Workboard 已停止，请重新打开。",
+    "Task no longer exists": "任务已不存在，请刷新。",
+    "Workboard storage belongs to another Paseo host":
+      "存储数据属于另一个 Paseo host，无法修改。",
+    "Paseo disconnected during refresh": "刷新时 Paseo 连接中断，请重试。",
+    "Settings changed; refresh before saving": "设置已变化，请刷新后再保存。",
+    "Groups cannot be reordered here": "请在看板上调整分组顺序。",
+    "Group order changed; refresh before saving":
+      "分组顺序已变化，请刷新后再保存。",
+    "A workspace binding still uses this group; finish binding first":
+      "绑定操作仍使用此分组，请先完成或取消绑定。",
+    "Move the drafts out before deleting this group or changing its type":
+      "请先移走草稿，再删除分组或改变其类型。",
+    "Workspaces changed; refresh before deleting a group":
+      "workspace 已变化，请刷新后再删除分组。",
+    "Paseo is disconnected": "Paseo 未连接，请重试连接。",
+    "Choose a To do group for a new draft": "新草稿需要待开始类型分组。",
+    "Group order changed; refresh before reordering":
+      "分组顺序已变化，请刷新后再调整。",
+    "Group order is invalid": "分组顺序无效，请刷新后重试。",
+    "Task is archived": "任务已归档，请到归档页处理。",
+    "Task changed; refresh before saving": "任务已变化，请刷新后再保存。",
+    "Task already has a workspace": "任务已绑定 workspace，请刷新。",
+    "Add an In progress group before starting work":
+      "请先添加进行中类型分组，再开始工作。",
+    "Choose a working or completed group for the workspace":
+      "请为 workspace 选择工作中或终态分组。",
+    "A previous binding is pending; retry its original target":
+      "上一次绑定尚未完成，请重试原目标或取消绑定。",
+    "Group no longer exists": "分组已不存在，请刷新。",
+    "Workspace binding is still pending":
+      "workspace 绑定尚未完成，请先完成或取消绑定。",
+    "Start work and bind a workspace first": "请先开始工作并绑定 workspace。",
+    "Only canceled, unbound drafts can be archived here":
+      "这里只能归档已废弃且未绑定的草稿。",
+    "Binding workspace is unavailable":
+      "绑定的 workspace 不可用，请核实后重试或取消绑定。",
+    "Workspace is unavailable or archiving": "workspace 不可用或正在归档。",
+    "Workspace labels changed; refresh before changing stage":
+      "workspace 标签已变化，操作未执行；请刷新后再调整分组。",
+    "Workspace labels changed during synchronization":
+      "同步期间 workspace 标签已变化，请刷新后核实。",
+    "Label synchronization could not be verified":
+      "无法核实标签同步结果，请刷新后核实。",
+    "Native archive returned no timestamp":
+      "无法核实原生归档结果，请到归档页处理。",
+    "Native workspace still active after archive response":
+      "归档响应后 workspace 仍活跃，请核实原生状态。",
+    "archive-draft-group-unavailable":
+      "原分组类型已改变，不再支持草稿；归档记录已保留。",
+    "group-tasks-in-use": "分组内还有任务，请先移走任务。",
+    "group-default-in-use": "此分组是默认落点，请先在设置中更改对应默认分组。",
+    "group-default-start-work-invalid":
+      "开始工作默认分组只能选择现有的进行中类型组，请更换默认分组。",
+    "group-default-terminal":
+      "未标记 workspace 的默认落点不能是已完成或已废弃类型；请先选择非终态默认分组，再修改该组类型。",
+    "detach-draft-stale": "任务已变化，请刷新后再还原草稿。",
+    "detach-draft-missing": "该草稿的合并记录已不存在，请刷新。",
+    "detach-draft-id-in-use":
+      "原草稿 ID 已被其它任务占用，无法还原；合并记录已保留。",
+    "detach-draft-text-changed":
+      "合并时追加的文本已改变或存在多个匹配，无法安全移除；合并记录已保留。",
+    "detach-draft-archived": "已归档任务无法还原合并草稿；合并记录已保留。",
+    "cancel-binding-missing": "任务没有待处理的绑定。",
+    "cancel-binding-changed": "绑定已变化，请刷新后再取消。",
+    "archive-resolution-stale": "任务或归档记录已变化，请刷新后再处理。",
+    "archive-resolution-unavailable": "任务没有待核实的归档结果。",
+    "archive-group-unavailable":
+      "原分组已删除，无法放回该分组。请先恢复分组配置。",
+  },
+  bootErrors: {
+    "invalid-storage-data":
+      "已保存的 Workboard 数据无法解析，自动重试已停止。请联系维护者修复存储数据。",
+    "unsupported-storage-version":
+      "已保存的数据版本无法识别，自动重试已停止。请联系维护者处理存储数据。",
+  },
+  confirmArchived: "确认已归档",
+  confirmArchivedConfirm:
+    "确认“{name}”已经归档？这会保留归档记录，任务仍在归档页。",
+  restoreTask: "放回看板",
+  restoreTaskConfirm:
+    "将“{name}”放回看板？将清除归档记录，任务回到原分组；此操作不会恢复原生 workspace 或目录。",
+  cancelBinding: "取消绑定",
+  cancelBindingConfirm:
+    "取消“{name}”的绑定？之前创建或关联 workspace 的操作未完成，取消后可重新选择操作；已创建或关联的 workspace 会保留。",
+  cancelBindingBusy: "绑定操作仍在进行中，请稍后再试。",
 };
 
 const en: typeof zh = {
+  confirmationFailed: "The operation did not complete. Refresh and retry.",
+  clearSearch: "Clear search",
+  conflictCount: "{count} conflicts",
+  mutationPending: "This control is already submitting. Try again shortly.",
+  navigationUnavailable:
+    "Workspace navigation is unavailable here. Open it from the Paseo workspace list.",
+  groupKeyboardHint:
+    "Press to open group options; Alt/Meta+Left/Right Arrow reorders.",
+  startNeedsWorkspace: "Select a workspace to attach.",
+  startNeedsDirectory: "Enter a workspace directory.",
+  startNeedsGitProject: "Select a Git project to create a worktree.",
+  undoMove: "Undo move",
+  undoMoveHint:
+    "Return to the previous group within 8 seconds; task changes invalidate undo.",
+  undoMoveExpired:
+    "Undo expired or the task changed. Refresh and move it manually.",
+  moveUndone: "The task was returned to its previous group.",
   locale: "en",
   title: "Workboard",
   addTask: "New task",
@@ -293,6 +466,12 @@ const en: typeof zh = {
   groupLocator: "Find group",
   collapseColumn: "Collapse column",
   expandColumn: "Expand column",
+  moveCardUp: "Move task up",
+  moveCardDown: "Move task down",
+  cardOrderHint:
+    "Reorder in this column with Alt+Up/Down Arrow. With filters, only this task moves; other tasks retain relative order.",
+  resetCardOrder: "Restore activity order",
+  dropToReorder: "Reorder tasks in this column",
   moveGroupLeft: "Move left",
   moveGroupRight: "Move right",
   resizeColumn: "Resize column",
@@ -364,10 +543,22 @@ const en: typeof zh = {
   back: "Back to board",
   archiveDraft: "Archive draft",
   archiveDraftConfirm:
-    "Archive draft “{name}”? It will leave the board and cannot currently be restored.",
+    "Archive draft “{name}”? It will leave the board. You can restore it to its original group from Archive.",
   autoArchive: "Automatic archive",
+  autoArchiveMigrationPaused:
+    "An upgrade added a Canceled group whose label may match existing workspaces. Automatic archive was turned off. Review due tasks before re-enabling it; due tasks require confirmation first.",
+  archiveAfterDays: "Days before automatic archive",
+  archiveAfterDaysHint: "Enter an integer from 1 to 365, then save.",
+  archiveAfterDaysInvalid: "Enter an integer from 1 to 365.",
+  defaultDraftGroupSetting: "Default group for new drafts",
+  defaultStartGroupSetting: "Default group for unlabeled workspaces",
+  defaultStartWorkGroupSetting: "Default Start work group (In progress)",
+  defaultByKind: "Automatic (by group type)",
+  detachDraft: "Restore merged draft",
+  detachDraftConfirm:
+    "Restore “{name}” as an independent draft and remove its originally appended text from this task's notes?",
   autoArchiveHint:
-    "Archive a completed or canceled workspace after 30 days since its last conversation.",
+    "Archive a completed or canceled workspace after {days} days since its last conversation.",
   enableAutoArchive: "Enable automatic archive",
   enableAutoArchiveConfirm:
     "{count} task(s) are currently due. Enabling this will archive their workspaces after safety checks, which may stop agents and terminals and remove managed worktrees.",
@@ -402,20 +593,20 @@ const en: typeof zh = {
     red: "Red",
   },
   groupsHint:
-    "Saving or deleting a group takes effect immediately. Only empty groups can be deleted. Keep an Inbox group for unlabeled workspaces and a To do group for new drafts.",
+    "Saving or deleting a group takes effect immediately. Move tasks and change default destinations before deletion. Keep at least one Inbox, To do and Canceled group.",
   groupSaveFailed:
     "Saving failed. Your input is kept; check the error and try again.",
   groupTypeHints: {
     inbox:
-      "Receives workspaces without a managed status label. Importing does not write labels.",
+      "The first Inbox group receives unlabeled workspaces when no default destination is configured. Importing does not write labels.",
     todo: "Receives Todo drafts. Creating a draft creates no workspace or conversation.",
     "in-progress":
       "Pins only when automatic sidebar pinning is enabled. Leaving the group removes only the pin added by this plugin.",
     review:
       "Waits for human acceptance. An agent finishing does not mark the task done.",
-    done: "Archives a workspace only when automatic archive is enabled, its last conversation is over 30 days old, and safety checks pass.",
+    done: "Archives a workspace only when automatic archive is enabled, its last conversation is over {days} days old, and safety checks pass.",
     canceled:
-      "Archives a workspace only when automatic archive is enabled, its last conversation is over 30 days old, and safety checks pass. Drafts can be archived manually.",
+      "Archives a workspace only when automatic archive is enabled, its last conversation is over {days} days old, and safety checks pass. Drafts can be archived manually.",
   },
   groupTasks: "{count} tasks",
   defaultGroup: "Default for drafts",
@@ -425,6 +616,9 @@ const en: typeof zh = {
   groupDeleteNotEmpty: "Move the remaining tasks before deleting this group.",
   groupNeedsTodo: "Keep at least one To do group.",
   groupNeedsInbox: "Keep at least one Inbox group.",
+  groupNeedsCanceled: "Keep at least one Canceled group for archiving drafts.",
+  groupDefaultInUse:
+    "This group is a default destination. Change its default group in settings first.",
   groupLabelDuplicate: "Each group needs a different label.",
   groupInvalid: "Enter a valid group name and label.",
   noStartGroup: "Add an In progress group in settings before starting work.",
@@ -462,6 +656,9 @@ const en: typeof zh = {
     "native-archive-unknown": "Archive result needs manual verification",
     "changed-during-check": "State changed during the check",
     "label-sync-incomplete": "Label sync is incomplete",
+    "workspace-unavailable": "Workspace is unavailable or archiving",
+    "archive-restored-workspace-unavailable":
+      "Task restored to board, but the workspace is absent from the host active list; verify its native state",
   },
   conversationReasons: {
     "replay-timestamp":
@@ -472,6 +669,141 @@ const en: typeof zh = {
     "child-timeline-unreadable":
       "A provider child's timeline could not be read",
   },
+  archiveConfirmedByUser: "Archive outcome confirmed by user",
+  mutationErrors: {
+    "card-order-changed":
+      "Column order or membership changed. Refresh and retry.",
+    "card-order-invalid":
+      "Invalid order. Move only the selected task and retain other tasks' relative order.",
+    "card-order-mover-unavailable":
+      "The task moved, was archived, or is binding. It cannot be reordered; refresh first.",
+    "stage-group-changed":
+      "The original group changed or was deleted. Undo was refused; refresh and choose a group again.",
+    "stage-task-changed":
+      "The task changed. Undo was refused; refresh and verify its current group.",
+    "Storage is unavailable":
+      "Storage is unavailable. Reopen Workboard and retry.",
+    "Paseo directory pagination is incomplete":
+      "The Paseo directory list is incomplete. Refresh and retry.",
+    "Paseo plugin IPC unavailable":
+      "Paseo plugin communication is unavailable. Reopen Workboard.",
+    "Paseo disconnected": "Paseo disconnected. Reconnect before retrying.",
+    "Paseo request failed": "The Paseo request failed. Retry it.",
+    "Unexpected Paseo response type":
+      "Paseo returned an unexpected response. Refresh and retry.",
+    "Workboard bridge closed": "Workboard communication is closed. Reopen it.",
+    "Paseo workspace pin response workspace mismatch":
+      "The Paseo pin response referred to another workspace. Refresh and verify it.",
+    "Paseo workspace pin rejected":
+      "Paseo rejected the workspace pin operation. Retry it.",
+    "Paseo did not apply the workspace pin":
+      "Paseo did not pin the workspace. Refresh and verify it.",
+    "Paseo did not remove the workspace pin":
+      "Paseo did not unpin the workspace. Refresh and verify it.",
+    "Workboard installation mismatch; use the manifest plugin ID":
+      "The Workboard installation ID does not match. Use the manifest plugin ID.",
+    "Paseo did not provide its plugin API":
+      "Paseo did not provide its plugin API. Reopen Workboard.",
+    "Workboard stopped": "Workboard has stopped. Reopen it.",
+    "Task no longer exists": "The task no longer exists. Refresh first.",
+    "Workboard storage belongs to another Paseo host":
+      "Stored data belongs to another Paseo host and cannot be changed here.",
+    "Paseo disconnected during refresh":
+      "Paseo disconnected while refreshing. Retry the connection.",
+    "Settings changed; refresh before saving":
+      "Settings changed. Refresh before saving.",
+    "Groups cannot be reordered here": "Reorder groups on the board.",
+    "Group order changed; refresh before saving":
+      "Group order changed. Refresh before saving.",
+    "A workspace binding still uses this group; finish binding first":
+      "A binding still uses this group. Finish or cancel it first.",
+    "Move the drafts out before deleting this group or changing its type":
+      "Move drafts out before deleting the group or changing its type.",
+    "Workspaces changed; refresh before deleting a group":
+      "Workspaces changed. Refresh before deleting the group.",
+    "Paseo is disconnected": "Paseo is disconnected. Retry the connection.",
+    "Choose a To do group for a new draft":
+      "Choose a To do group for the new draft.",
+    "Group order changed; refresh before reordering":
+      "Group order changed. Refresh before reordering.",
+    "Group order is invalid": "Group order is invalid. Refresh and retry.",
+    "Task is archived": "The task is archived. Open Archive to resolve it.",
+    "Task changed; refresh before saving":
+      "The task changed. Refresh before saving.",
+    "Task already has a workspace":
+      "The task already has a workspace. Refresh first.",
+    "Add an In progress group before starting work":
+      "Add an In progress group before starting.",
+    "Choose a working or completed group for the workspace":
+      "Choose a working or terminal group for the workspace.",
+    "A previous binding is pending; retry its original target":
+      "A previous binding is pending. Retry its original target or cancel it.",
+    "Group no longer exists": "The group no longer exists. Refresh first.",
+    "Workspace binding is still pending":
+      "Workspace binding is pending. Finish or cancel it first.",
+    "Start work and bind a workspace first":
+      "Start work and bind a workspace first.",
+    "Only canceled, unbound drafts can be archived here":
+      "Only unbound Canceled drafts can be archived here.",
+    "Binding workspace is unavailable":
+      "The binding workspace is unavailable. Verify it, then retry or cancel binding.",
+    "Workspace is unavailable or archiving":
+      "The workspace is unavailable or being archived.",
+    "Workspace labels changed; refresh before changing stage":
+      "Workspace labels changed; the operation was not applied. Refresh before moving.",
+    "Workspace labels changed during synchronization":
+      "Workspace labels changed during synchronization. Refresh and verify them.",
+    "Label synchronization could not be verified":
+      "Label synchronization could not be verified. Refresh and check the result.",
+    "Native archive returned no timestamp":
+      "The native archive result could not be verified. Open Archive to resolve it.",
+    "Native workspace still active after archive response":
+      "The workspace remained active after the archive response. Verify its native state.",
+    "archive-draft-group-unavailable":
+      "The original group type no longer accepts drafts. The archive record is kept.",
+    "group-tasks-in-use": "This group still contains tasks. Move them first.",
+    "group-default-in-use":
+      "This group is a default destination. Change its default group in settings first.",
+    "group-default-start-work-invalid":
+      "The default Start work group must be an existing In progress group. Choose a different default.",
+    "group-default-terminal":
+      "The default for unlabeled workspaces cannot be Done or Canceled. Choose a nonterminal default before changing that group's type.",
+    "detach-draft-stale":
+      "The task changed. Refresh before restoring the draft.",
+    "detach-draft-missing":
+      "The draft's merge record is no longer present. Refresh first.",
+    "detach-draft-id-in-use":
+      "Another task uses the original draft ID. Restoration was refused; the merge record is kept.",
+    "detach-draft-text-changed":
+      "The originally appended text changed or matches more than once. It cannot be removed safely; the merge record is kept.",
+    "detach-draft-archived":
+      "An archived task cannot restore merged drafts. The merge record is kept.",
+    "cancel-binding-missing": "The task has no pending binding.",
+    "cancel-binding-changed": "The binding changed. Refresh before canceling.",
+    "archive-resolution-stale":
+      "The task or archive record changed. Refresh before resolving it.",
+    "archive-resolution-unavailable":
+      "The task has no unresolved archive outcome.",
+    "archive-group-unavailable":
+      "The original group was deleted. Restore its configuration before returning the task to it.",
+  },
+  bootErrors: {
+    "invalid-storage-data":
+      "Saved Workboard data cannot be parsed. Contact a maintainer to repair it; automatic retries have stopped.",
+    "unsupported-storage-version":
+      "The saved data version isn't recognized; automatic retries have stopped. Contact a maintainer about the stored data.",
+  },
+  confirmArchived: "Confirm archived",
+  confirmArchivedConfirm:
+    "Confirm “{name}” is actually archived? This keeps the archive record; the task stays on this page.",
+  restoreTask: "Restore to board",
+  restoreTaskConfirm:
+    "Restore “{name}” to the board? This clears the archive record and returns the task to its group. It does not restore the native workspace or directory.",
+  cancelBinding: "Cancel binding",
+  cancelBindingConfirm:
+    "Cancel the binding for “{name}”? The previous create-or-link operation did not finish; canceling lets you choose another action. Any created or linked workspace is kept.",
+  cancelBindingBusy:
+    "The binding operation is still running. Try again shortly.",
 };
 
 export const strings = (language: Language) => (language === "en" ? en : zh);

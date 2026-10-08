@@ -62,16 +62,18 @@ export const groupSchema = z.object({
   color: z.enum(GROUP_COLORS).optional(),
 });
 export type Group = z.infer<typeof groupSchema>;
-const LEGACY_GROUP_COLORS: Record<StageKind, GroupColor> = {
-  inbox: "gray",
-  todo: "gray",
-  "in-progress": "blue",
-  review: "amber",
-  done: "green",
-  canceled: "red",
-};
+// Keep the native named-color contract; visual aliases share its stage mapping.
+const LABEL_GROUP_COLORS: Record<(typeof STAGE_COLORS)[StageKind], GroupColor> =
+  {
+    indigo: "violet",
+    sky: "cyan",
+    blue: "blue",
+    orange: "orange",
+    emerald: "green",
+    red: "red",
+  };
 export const groupColorKey = (group: Group): GroupColor =>
-  group.color ?? LEGACY_GROUP_COLORS[group.kind];
+  group.color ?? LABEL_GROUP_COLORS[STAGE_COLORS[group.kind]];
 export function nextGroupColor(groups: readonly Group[]): GroupColor {
   const counts = new Map<GroupColor, number>(
     GROUP_COLORS.map((color) => [color, 0]),
@@ -117,6 +119,11 @@ export const groupsSchema = z
         code: "custom",
         message: "Keep at least one Inbox group for unlabeled workspaces",
       });
+    if (!groups.some((group) => group.kind === "canceled"))
+      context.addIssue({
+        code: "custom",
+        message: "Keep at least one Canceled group for draft archiving",
+      });
   });
 export const groupOrderSchema = z
   .array(stageSchema)
@@ -129,6 +136,11 @@ export const groupOrderSchema = z
   });
 const preferences = {
   autoArchive: z.boolean().default(false),
+  archiveMappingNeedsReview: z.boolean().default(false),
+  archiveAfterDays: z.number().int().min(1).max(365).default(30),
+  defaultDraftGroup: stageSchema.nullable().default(null),
+  defaultStartGroup: stageSchema.nullable().default(null),
+  defaultStartWorkGroup: stageSchema.nullable().default(null),
   pinInProgressWorkspaces: z.boolean().default(true),
 };
 export const settingsSchema = z.object({
@@ -153,10 +165,28 @@ export function orderedGroups(
     if (remaining.has(group.id)) ordered.push(group);
   return ordered;
 }
-export const defaultGroup = (groups: readonly Group[]): Stage =>
-  groups.find((group) => group.kind === "todo")!.id;
-export const defaultWorkspaceGroup = (groups: readonly Group[]): Stage =>
-  groups.find((group) => group.kind === "inbox")!.id;
+export const defaultGroup = (
+  groups: readonly Group[],
+  configured: Stage | null = null,
+): Stage =>
+  (groups.find((group) => group.id === configured && group.kind === "todo") ??
+    groups.find((group) => group.kind === "todo"))!.id;
+export const defaultWorkspaceGroup = (
+  groups: readonly Group[],
+  configured: Stage | null = null,
+): Stage =>
+  (groups.find(
+    (group) => group.id === configured && !isTerminalGroup(group.id, groups),
+  ) ?? groups.find((group) => group.kind === "inbox"))!.id;
+export const defaultStartWorkGroup = (
+  groups: readonly Group[],
+  configured: Stage | null = null,
+): Stage | undefined =>
+  (
+    groups.find(
+      (group) => group.id === configured && group.kind === "in-progress",
+    ) ?? groups.find((group) => group.kind === "in-progress")
+  )?.id;
 export const groupKind = (
   stage: Stage,
   groups: readonly Group[],
@@ -175,7 +205,7 @@ export const isTerminalGroup = (
   const kind = groupKind(stage, groups);
   return kind === "done" || kind === "canceled";
 };
-export const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 export function statusLabels(
   labels: readonly string[],
   groups: readonly Group[],
@@ -188,25 +218,30 @@ export function statusLabels(
 export function resolveStage(
   labels: readonly string[],
   groups: readonly Group[],
+  configured: Stage | null = null,
 ): BoardStage {
   const present = new Set(labels.map(labelKey));
   const found = groups.filter((group) => present.has(labelKey(group.label)));
   return found.length > 1
     ? "conflict"
-    : (found[0]?.id ?? defaultWorkspaceGroup(groups));
+    : (found[0]?.id ?? defaultWorkspaceGroup(groups, configured));
 }
-export function archiveDueAt(conversation: string | null): string | null {
+export function archiveDueAt(
+  conversation: string | null,
+  days = 30,
+): string | null {
   const time = conversation === null ? NaN : Date.parse(conversation);
   return Number.isFinite(time)
-    ? new Date(time + THIRTY_DAYS).toISOString()
+    ? new Date(time + days * DAY_MS).toISOString()
     : null;
 }
 export function isArchiveDue(
   stage: string | undefined,
   conversation: string | null,
   now: number,
+  days = 30,
 ): boolean {
-  const due = archiveDueAt(conversation);
+  const due = archiveDueAt(conversation, days);
   return (
     (stage === "done" || stage === "canceled") &&
     due !== null &&
@@ -234,7 +269,7 @@ export function conversationStatusFor(
  * The stored settings version. The plugin registers this same value, because the host only
  * migrates stored settings when the registered version differs from what it finds.
  */
-export const DATA_SCHEMA_VERSION = 6;
+export const DATA_SCHEMA_VERSION = 8;
 
 export const sourceSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -322,6 +357,17 @@ export const taskSchema = z.object({
   conversationGateEvidence: conversationGateSchema.default("unknown"),
   conversationReason: conversationReasonSchema.nullable().default(null),
   conversationAgents: z.array(conversationAgentSchema).default([]),
+  mergedDrafts: z
+    .array(
+      z.object({
+        draftId: z.string(),
+        title: z.string().min(1),
+        description: z.string(),
+        mergedAt: z.string(),
+        appendedText: z.string().min(1),
+      }),
+    )
+    .default([]),
   issue: z.string().nullable(),
   archived: archiveSchema.nullable(),
   binding: z
@@ -334,6 +380,10 @@ export const taskSchema = z.object({
     .nullable(),
 });
 export type Task = z.infer<typeof taskSchema>;
+export const cardOrderByStageSchema = z
+  .record(z.string(), z.array(z.string()))
+  .default({});
+export type CardOrderByStage = z.infer<typeof cardOrderByStageSchema>;
 export const dataSchema = z
   .object({
     schemaVersion: z.literal(DATA_SCHEMA_VERSION).default(DATA_SCHEMA_VERSION),
@@ -343,6 +393,7 @@ export const dataSchema = z
     // Timestamp owns a native pin; null respects manual intervention for this stage.
     autoPins: z.record(z.string(), z.string().nullable()).default({}),
     tasks: z.array(taskSchema).default([]),
+    cardOrderByStage: cardOrderByStageSchema,
   })
   .superRefine((data, context) => {
     const ids = new Set<string>();
@@ -421,6 +472,7 @@ export const boardSchema = z.object({
   refreshedAt: z.string().nullable(),
   settings: settingsSchema,
   cards: z.array(cardSchema),
+  cardOrderByStage: cardOrderByStageSchema,
   projects: z.array(
     z.object({
       id: z.string(),
@@ -456,8 +508,37 @@ export function newTask(
     conversationGateEvidence: "unknown",
     conversationReason: null,
     conversationAgents: [],
+    mergedDrafts: [],
     issue: null,
     archived: null,
     binding: null,
   };
+}
+
+/** A saved column order leads; newly discovered cards retain their activity order at the tail. */
+export function cardsForStage(
+  cards: readonly Card[],
+  stage: Stage,
+  orders: CardOrderByStage = {},
+): Card[] {
+  const saved = Object.hasOwn(orders, stage) ? orders[stage] : [];
+  const ranks = new Map(saved.map((id, index) => [id, index]));
+  const activityTime = (card: Card) => {
+    const value =
+      card.workspaceId === null ? card.updatedAt : card.lastConversationAt;
+    return value === null ? -Infinity : Date.parse(value);
+  };
+  return cards
+    .filter(
+      (card) =>
+        card.stage === stage &&
+        card.archived?.status !== "archived" &&
+        card.archived?.status !== "external",
+    )
+    .sort(
+      (left, right) =>
+        (ranks.get(left.id) ?? Infinity) - (ranks.get(right.id) ?? Infinity) ||
+        activityTime(right) - activityTime(left) ||
+        left.id.localeCompare(right.id),
+    );
 }

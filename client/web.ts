@@ -4,6 +4,8 @@ import { DEFAULT_FILTERS, parseFilters, type BoardFilters } from "./filters";
 
 type KeyEvent = {
   key: string;
+  altKey?: boolean;
+  metaKey?: boolean;
   preventDefault(): void;
   stopPropagation(): void;
 };
@@ -96,11 +98,13 @@ export function dragCursor(resize = false): ViewStyle {
     : {};
 }
 
-export function keyboardProps(onKey: (key: string) => boolean) {
+export function keyboardProps(
+  onKey: (key: string, event: KeyEvent) => boolean,
+) {
   if (Platform.OS !== "web") return {};
   return {
     onKeyDown(event: KeyEvent) {
-      if (onKey(event.key)) {
+      if (onKey(event.key, event)) {
         event.preventDefault();
         event.stopPropagation();
       }

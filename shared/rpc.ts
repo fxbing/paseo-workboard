@@ -4,6 +4,7 @@ import {
   boardSchema,
   groupOrderSchema,
   groupsSchema,
+  groupSchema,
   settingsSchema,
   stageSchema,
   startSchema,
@@ -14,6 +15,7 @@ export const snapshotRpc = defineRpc({
   input: z.object({}),
   output: boardSchema,
 });
+export const CANCEL_BINDING_BUSY_ERROR_CODE = "cancel-binding-busy";
 export const mutationSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("create"),
@@ -36,8 +38,42 @@ export const mutationSchema = z.discriminatedUnion("action", [
     taskId: z.string(),
     stage: stageSchema,
     expectedLabels: z.array(z.string()),
+    expectedUpdatedAt: z.string().optional(),
+    expectedGroup: groupSchema
+      .pick({ id: true, kind: true, label: true })
+      .optional(),
+  }),
+  z.object({
+    action: z.literal("reorder-cards"),
+    taskId: z.string(),
+    stage: stageSchema,
+    expectedOrder: z.array(z.string()),
+    cardOrder: z.array(z.string()),
+  }),
+  z.object({
+    action: z.literal("reset-card-order"),
+    stage: stageSchema,
+    expectedOrder: z.array(z.string()),
   }),
   z.object({ action: z.literal("archive-draft"), taskId: z.string() }),
+  z.object({
+    action: z.literal("detach-draft"),
+    taskId: z.string(),
+    draftId: z.string(),
+    updatedAt: z.string(),
+  }),
+  z.object({
+    action: z.literal("cancel-binding"),
+    taskId: z.string(),
+    operationId: z.string(),
+  }),
+  z.object({
+    action: z.literal("resolve-archive"),
+    taskId: z.string(),
+    operationId: z.string(),
+    updatedAt: z.string(),
+    outcome: z.enum(["confirm", "restore"]),
+  }),
   z.object({
     action: z.literal("reorder-groups"),
     expectedGroupOrder: groupOrderSchema,

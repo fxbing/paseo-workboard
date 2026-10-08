@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GROUPS,
+  settingsSchema,
   newTask,
   type Board,
   type Card,
@@ -81,7 +82,7 @@ describe("board card selection", () => {
         [...DEFAULT_GROUPS, { ...todo, id: "later" }],
         todo,
       ),
-    ).toBeNull();
+    ).toBe("groupDefaultInUse");
     expect(
       groupDeleteReason([card({ stage: "review" })], DEFAULT_GROUPS, review),
     ).toBe("groupDeleteNotEmpty");
@@ -432,6 +433,7 @@ describe("board card selection", () => {
   });
   it("previews linked tasks whose stage or archive eligibility changes under a new mapping", () => {
     const settings = {
+      ...settingsSchema.parse({}),
       groupOrder: [],
       autoArchive: true,
       pinInProgressWorkspaces: true,
@@ -462,4 +464,50 @@ describe("board card selection", () => {
       mappingPreview(cards, settings, Date.parse("2026-02-01T00:00:00Z")),
     ).toEqual({ affected: 1, due: 1 });
   });
+});
+
+it("explains an unlabeled workspace's default occupancy separately from an explicit task", () => {
+  const settings = settingsSchema.parse({
+    groups: [
+      ...DEFAULT_GROUPS,
+      { id: "incoming", kind: "inbox", name: null, label: "task:incoming" },
+    ],
+    defaultStartGroup: "incoming",
+  });
+  const group = settings.groups.find((g) => g.id === "incoming")!;
+  expect(
+    groupDeleteReason(
+      [card({ stage: "incoming", labels: [], managedLabels: [] })],
+      settings.groups,
+      group,
+      settings,
+    ),
+  ).toBe("groupDefaultInUse");
+  expect(
+    groupDeleteReason(
+      [
+        card({
+          stage: "incoming",
+          labels: ["task:incoming"],
+          managedLabels: ["task:incoming"],
+        }),
+      ],
+      settings.groups,
+      group,
+      settings,
+    ),
+  ).toBe("groupDeleteNotEmpty");
+  expect(
+    groupDeleteReason([], settings.groups, group, {
+      ...settings,
+      defaultStartGroup: "inbox",
+    }),
+  ).toBeNull();
+  expect(
+    groupDeleteReason(
+      [],
+      DEFAULT_GROUPS,
+      DEFAULT_GROUPS.find((g) => g.kind === "canceled")!,
+    ),
+  ).toBe("groupNeedsCanceled");
 });

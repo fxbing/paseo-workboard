@@ -1,12 +1,30 @@
 import { defineSettings } from "@getpaseo/plugin";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { DATA_SCHEMA_VERSION, dataSchema } from "./shared/model";
-import { migrateData } from "./shared/migrations";
+import {
+  migrateData,
+  InvalidStorageDataError,
+  UNSUPPORTED_STORAGE_VERSION_ERROR_CODE,
+  UnsupportedStorageVersionError,
+} from "./shared/migrations";
 import { mutateRpc, snapshotRpc } from "./shared/rpc";
 import { PaseoCompat } from "./server/paseo-compat";
 import { PaseoHost } from "./server/host";
 import { Store } from "./server/store";
 import { Workboard } from "./server/workboard";
+
+export function classifyBootFailure(failure: unknown): {
+  deterministic: boolean;
+  error: string;
+} {
+  const deterministic =
+    failure instanceof UnsupportedStorageVersionError ||
+    failure instanceof InvalidStorageDataError;
+  return {
+    deterministic,
+    error: failure instanceof Error ? failure.message : String(failure),
+  };
+}
 
 export default function contribute(server: PluginServerContext) {
   const compat = new PaseoCompat();
@@ -21,7 +39,25 @@ export default function contribute(server: PluginServerContext) {
     }),
   );
   const store = new Store({
-    read: () => settings.read(),
+    read: async () => {
+      const result = await settings.read();
+      if (result.status === "invalid") {
+        if (result.error.includes(UNSUPPORTED_STORAGE_VERSION_ERROR_CODE))
+          throw new UnsupportedStorageVersionError();
+        throw new InvalidStorageDataError();
+      }
+      const version =
+        result.values &&
+        typeof result.values === "object" &&
+        "schemaVersion" in result.values
+          ? result.values.schemaVersion
+          : undefined;
+      if (typeof version === "number" && version !== DATA_SCHEMA_VERSION)
+        throw new UnsupportedStorageVersionError();
+      if (!dataSchema.safeParse(result.values).success)
+        throw new InvalidStorageDataError();
+      return result;
+    },
     write: (revision, values) =>
       compat.invoke("settings.workboard-data.write", { revision, values }),
   });
@@ -52,10 +88,18 @@ export default function contribute(server: PluginServerContext) {
       board = new Workboard(host, store);
       await board.start();
     } catch (failure) {
-      error = failure instanceof Error ? failure.message : String(failure);
+      const classified = classifyBootFailure(failure);
+      error = classified.error;
       board?.disconnected(error);
-      console.error("Workboard startup failed:", error);
-      if (!disposed)
+      if (classified.deterministic) {
+        stopChange();
+        board?.dispose();
+      }
+      console.error(
+        "Workboard startup failed:",
+        failure instanceof Error ? failure.message : String(failure),
+      );
+      if (!disposed && !classified.deterministic)
         retry = setTimeout(() => {
           void boot();
         }, 10000);

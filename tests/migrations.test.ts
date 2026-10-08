@@ -1,5 +1,10 @@
 import { expect, it } from "vitest";
-import { migrateData } from "../shared/migrations";
+import {
+  migrateData,
+  InvalidStorageDataError,
+  UNSUPPORTED_STORAGE_VERSION_ERROR_CODE,
+  UnsupportedStorageVersionError,
+} from "../shared/migrations";
 import {
   DATA_SCHEMA_VERSION,
   DEFAULT_GROUPS,
@@ -44,6 +49,7 @@ it.each(["zh", "en"])(
       ...previous,
       schemaVersion: DATA_SCHEMA_VERSION,
       settings,
+      cardOrderByStage: {},
     });
     expect(migrated.settings).not.toHaveProperty("language");
   },
@@ -198,7 +204,9 @@ it("migrates v1 settings, task identities, pending binding and archived history 
 });
 
 it("rejects unsupported storage and ambiguous legacy mappings instead of replacing data", () => {
-  expect(() => migrateData({}, 6)).toThrow("Unsupported");
+  expect(() => migrateData({}, DATA_SCHEMA_VERSION)).toThrow(
+    "unsupported-storage-version",
+  );
   expect(() => migrateData({ schemaVersion: 2 }, 1)).toThrow();
   expect(() =>
     migrateData(
@@ -206,6 +214,41 @@ it("rejects unsupported storage and ambiguous legacy mappings instead of replaci
       1,
     ),
   ).toThrow();
+});
+
+it("classifies unsupported versions and unparseable data as deterministic, not transient", () => {
+  for (const [values, fromVersion] of [
+    [{}, DATA_SCHEMA_VERSION],
+    [{ schemaVersion: 2 }, 1],
+    [{ settings: { labels: { ...DEFAULT_LABELS, done: "task:todo" } } }, 1],
+  ] as const) {
+    let caught: unknown;
+    try {
+      migrateData(values, fromVersion);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(
+      fromVersion === DATA_SCHEMA_VERSION
+        ? UnsupportedStorageVersionError
+        : InvalidStorageDataError,
+    );
+  }
+});
+
+it("preserves the unsupported-version message and stable error code through the wrapper", () => {
+  expect(() => migrateData({}, DATA_SCHEMA_VERSION)).toThrow(
+    "unsupported-storage-version",
+  );
+  try {
+    migrateData({}, DATA_SCHEMA_VERSION);
+    expect.unreachable();
+  } catch (error) {
+    expect(error).toBeInstanceOf(UnsupportedStorageVersionError);
+    expect(UNSUPPORTED_STORAGE_VERSION_ERROR_CODE).toBe(
+      "unsupported-storage-version",
+    );
+  }
 });
 
 it("splits the v5 conversation status into display and gate evidence", () => {
@@ -243,14 +286,9 @@ it("splits the v5 conversation status into display and gate evidence", () => {
     conversationDisplayEvidence: "exact",
     conversationGateAt: "2026-08-01T00:00:00Z",
     conversationGateEvidence: "exact",
-    conversationAgents: [
-      { id: "a1", lastObservedAt: null, seenWhileLive: true },
-      {
-        id: "a1/provider/c1",
-        lastObservedAt: null,
-        seenWhileLive: true,
-      },
-    ],
+    // Pre-v6 storage never recorded an observation time for these ids; migration drops them
+    // rather than fabricating unverifiable entries that would permanently block the gate.
+    conversationAgents: [],
   });
   // A once exact observation stays a lower bound: the real last message may be newer, so it
   // must never gate archiving.
@@ -292,4 +330,114 @@ it("rejects ambiguous labels or identities and missing default destinations", ()
       settings: { language: "en", labels: DEFAULT_LABELS },
     }).success,
   ).toBe(false);
+});
+
+it("migrates v6 through v7 to v8 without discarding observed agents, notes or preferences", () => {
+  const task = {
+    ...newTask("t", "Task", "2026-09-01T00:00:00Z"),
+    description: "Keep notes",
+    conversationAgents: [
+      { id: "null-time", lastObservedAt: null },
+      { id: "missing-time" },
+      {
+        id: "observed",
+        lastObservedAt: "2026-08-01T00:00:00Z",
+        seenWhileLive: true,
+      },
+    ],
+  };
+  const result = migrateData(
+    {
+      schemaVersion: 6,
+      revision: 12,
+      settings: { autoArchive: true, pinInProgressWorkspaces: false },
+      tasks: [task],
+    },
+    6,
+  );
+  expect(result).toMatchObject({
+    schemaVersion: DATA_SCHEMA_VERSION,
+    revision: 12,
+    settings: {
+      autoArchive: true,
+      pinInProgressWorkspaces: false,
+      archiveAfterDays: 30,
+      defaultDraftGroup: null,
+      defaultStartGroup: null,
+    },
+    tasks: [
+      {
+        id: "t",
+        description: "Keep notes",
+        mergedDrafts: [],
+        conversationAgents: [
+          {
+            id: "observed",
+            lastObservedAt: "2026-08-01T00:00:00Z",
+            seenWhileLive: true,
+          },
+        ],
+      },
+    ],
+  });
+});
+
+it("adds a noncolliding canceled group for valid legacy settings that removed all canceled groups", () => {
+  const groups = [
+    ...DEFAULT_GROUPS.filter((g) => g.kind !== "canceled"),
+    {
+      id: "canceled",
+      kind: "review",
+      name: "Custom",
+      label: " TASK:CANCELED ",
+    },
+  ];
+  for (const version of [3, 4, 5, 6]) {
+    const result = migrateData(
+      {
+        schemaVersion: version,
+        settings: { groups, groupOrder: ["canceled", "todo"] },
+      },
+      version,
+    );
+    expect(result.settings.groups.find((g) => g.kind === "canceled")).toEqual({
+      id: "canceled-2",
+      kind: "canceled",
+      name: null,
+      label: "task:canceled-2",
+    });
+    expect(orderedGroups(result.settings).map((g) => g.id)).toEqual([
+      "canceled",
+      "todo",
+      "inbox",
+      "in-progress",
+      "review",
+      "done",
+      "canceled-2",
+    ]);
+    expect(result.settings.groups.find((g) => g.id === "canceled")?.name).toBe(
+      "Custom",
+    );
+  }
+});
+
+it("runs the complete v1 to v8 chain with new settings and empty merge records", () => {
+  const result = migrateData(
+    {
+      schemaVersion: 1,
+      settings: { autoArchive: true, pinRunningWorkspaces: false },
+      tasks: [newTask("legacy", "Legacy", "2026-09-01T00:00:00Z")],
+    },
+    1,
+  );
+  expect(result.schemaVersion).toBe(DATA_SCHEMA_VERSION);
+  expect(result.settings).toMatchObject({
+    archiveAfterDays: 30,
+    defaultDraftGroup: null,
+    defaultStartGroup: null,
+    autoArchive: true,
+    pinInProgressWorkspaces: false,
+  });
+  expect(result.tasks[0]).toMatchObject({ id: "legacy", mergedDrafts: [] });
+  expect(result.settings.groups).toEqual(DEFAULT_GROUPS);
 });

@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import {
   defaultGroup,
+  cardsForStage,
   orderedGroups,
   type Board,
   type Group,
@@ -216,7 +217,7 @@ describe("isolated Paseo workboard", () => {
     const card = board.cards.find((item) => item.workspaceId === workspaceId)!;
     await expect(
       updateSettings({ groups: initial.settings.groups }),
-    ).rejects.toThrow("Only empty groups");
+    ).rejects.toThrow("group-tasks-in-use");
     await updateSettings({
       groups: [...initial.settings.groups, { ...group, name: "联调中" }],
     });
@@ -890,7 +891,90 @@ describe("isolated Paseo workboard", () => {
     ).toBe("archived");
   });
 
-  test("keeps an archived parent's readable native history unknown and does not autoarchive it", async () => {
+  test("persists column order through native storage and plugin reload, rejects stale CAS and resets activity order", async () => {
+    const initial = await readyBoard();
+    const stage = defaultGroup(
+      initial.settings.groups,
+      initial.settings.defaultDraftGroup,
+    );
+    const created = await rpc<Board>("workboard.mutate", {
+      action: "create",
+      title: "integration ordered draft",
+      description: "fixture order",
+      projectId: null,
+      stage,
+    });
+    const draft = created.cards.find(
+      (card) =>
+        card.title === "integration ordered draft" && card.workspaceId === null,
+    )!;
+    const second = await rpc<Board>("workboard.mutate", {
+      action: "create",
+      title: "integration order neighbor",
+      description: "",
+      projectId: null,
+      stage,
+    });
+    const expectedOrder = cardsForStage(
+      second.cards,
+      stage,
+      second.cardOrderByStage,
+    ).map((card) => card.id);
+    const mover =
+      expectedOrder[0] !== draft.id
+        ? draft
+        : second.cards.find(
+            (card) =>
+              card.workspaceId === null &&
+              card.title === "integration order neighbor",
+          )!;
+    const cardOrder = [
+      mover.id,
+      ...expectedOrder.filter((id) => id !== mover.id),
+    ];
+    expect(cardOrder).not.toEqual(expectedOrder);
+    const ordered = await rpc<Board>("workboard.mutate", {
+      action: "reorder-cards",
+      taskId: mover.id,
+      stage,
+      expectedOrder,
+      cardOrder,
+    });
+    expect(ordered.cardOrderByStage[stage]).toEqual(cardOrder);
+    await client.reloadPlugin(pluginId);
+    const restored = await readyBoard();
+    expect(restored.cardOrderByStage[stage]).toEqual(cardOrder);
+    expect(
+      cardsForStage(restored.cards, stage, restored.cardOrderByStage).map(
+        (card) => card.id,
+      ),
+    ).toEqual(cardOrder);
+    await expect(
+      rpc("workboard.mutate", {
+        action: "reorder-cards",
+        taskId: mover.id,
+        stage,
+        expectedOrder,
+        cardOrder,
+      }),
+    ).rejects.toThrow("card-order-changed");
+    const reset = await rpc<Board>("workboard.mutate", {
+      action: "reset-card-order",
+      stage,
+      expectedOrder: cardOrder,
+    });
+    expect(Object.hasOwn(reset.cardOrderByStage, stage)).toBe(false);
+    expect(
+      cardsForStage(reset.cards, stage, reset.cardOrderByStage).map(
+        (card) => card.id,
+      ),
+    ).toEqual(cardsForStage(reset.cards, stage).map((card) => card.id));
+    expect(reset.cards.find((card) => card.id === draft.id)).toEqual(
+      restored.cards.find((card) => card.id === draft.id),
+    );
+  });
+
+  test("keeps an archived parent's readable old history out of the upper-bound archive gate", async () => {
     const directory = path.join(
       home,
       "integration-archived-parent",
@@ -911,6 +995,11 @@ describe("isolated Paseo workboard", () => {
       workspaceId,
     });
     await client.archiveAgent(agent.id);
+    const recorded = (
+      await client.fetchAgents({ filter: { includeArchived: true } })
+    ).entries.find((item) => item.agent.id === agent.id)!.agent;
+    const recordedAt = new Date(recorded.updatedAt).toISOString();
+
     const history = await client.fetchAgentTimeline(agent.id, {
       direction: "tail",
       limit: 20,
@@ -936,17 +1025,28 @@ describe("isolated Paseo workboard", () => {
         board.cards.some(
           (card) =>
             card.workspaceId === workspaceId &&
-            card.conversationStatus === "unknown",
+            card.conversationStatus === "known" &&
+            card.conversationDisplayEvidence === "upper-bound" &&
+            card.conversationGateEvidence === "upper-bound" &&
+            card.conversationGateAt === recordedAt,
         ),
-      "archived parent was not treated as unknown",
+      "archived parent did not retain its recorded activity upper bound",
     );
     const card = observed.cards.find(
       (item) => item.workspaceId === workspaceId,
     )!;
+    expect(card.conversationStatus).toBe("known");
+    expect(card.conversationDisplayEvidence).toBe("upper-bound");
+    expect(card.lastConversationAt).toBe(recordedAt);
+    expect(card.conversationGateEvidence).toBe("upper-bound");
+    expect(card.conversationGateAt).toBe(recordedAt);
+    expect(card.conversationReason).toBe("child-enumeration-unavailable");
+    expect(Date.parse(card.dueAt!)).toBeGreaterThan(Date.now());
     expect(card.archived).toBeNull();
   });
 
   test("automatically archives a clean, upstreamed Paseo managed worktree", async () => {
+    await updateSettings({ autoArchive: false });
     const root = path.join(
       home,
       "integration-managed-worktree",
@@ -1015,6 +1115,20 @@ describe("isolated Paseo workboard", () => {
         )
         .map((entry) => entry.timestamp),
     ).toEqual(["2025-01-02T03:04:05.000Z", "2025-01-02T03:04:06.000Z"]);
+    const fresh = await eventually(
+      () => client.fetchWorkspaces({ filter: { idPrefix: workspace.id } }),
+      (result) =>
+        result.entries.some(
+          (item) =>
+            item.id === workspace.id &&
+            item.gitRuntime?.isPaseoOwnedWorktree === true,
+        ),
+      "managed worktree ownership was not present in a fresh native inventory",
+    );
+    expect(
+      fresh.entries.find((item) => item.id === workspace.id)?.gitRuntime
+        ?.isPaseoOwnedWorktree,
+    ).toBe(true);
     await client.setWorkspaceLabel({
       workspaceId: workspace.id,
       label: { name: "task:done", color: "emerald" },

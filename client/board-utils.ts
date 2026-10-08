@@ -1,6 +1,8 @@
 import {
   archiveGate,
   isArchiveDue,
+  defaultGroup,
+  defaultWorkspaceGroup,
   groupKind,
   labelKey,
   type Group,
@@ -76,20 +78,7 @@ export function visibleCards(
   );
 }
 
-export function cardsForStage(cards: readonly Card[], stage: Stage): Card[] {
-  const activityTime = (card: Card) => {
-    const value =
-      card.workspaceId === null ? card.updatedAt : card.lastConversationAt;
-    return value === null ? -Infinity : Date.parse(value);
-  };
-  return cards
-    .filter((card) => card.stage === stage)
-    .sort(
-      (left, right) =>
-        activityTime(right) - activityTime(left) ||
-        left.id.localeCompare(right.id),
-    );
-}
+export { cardsForStage } from "../shared/model";
 
 /**
  * Keep a requested move visible while the daemon verifies the label mutation.
@@ -181,13 +170,22 @@ export function mappingPreview(
         card.archived?.status === "external"
       )
         return result;
-      const stage = resolveStage(card.labels, settings.groups);
+      const stage = resolveStage(
+        card.labels,
+        settings.groups,
+        settings.defaultStartGroup,
+      );
       if (stage !== card.stage) result.affected += 1;
       if (
         archiveGate(card) !== null &&
         !card.archived &&
         !card.binding &&
-        isArchiveDue(groupKind(stage, settings.groups), archiveGate(card), now)
+        isArchiveDue(
+          groupKind(stage, settings.groups),
+          archiveGate(card),
+          now,
+          settings.archiveAfterDays,
+        )
       )
         result.due += 1;
       return result;
@@ -211,11 +209,60 @@ export function groupDeleteReason(
   cards: readonly Card[],
   groups: readonly Group[],
   group: Group,
-): "groupDeleteNotEmpty" | "groupNeedsTodo" | "groupNeedsInbox" | null {
-  if (groupTasks(cards, group).length) return "groupDeleteNotEmpty";
+  defaults?: Partial<
+    Pick<
+      Settings,
+      "defaultDraftGroup" | "defaultStartGroup" | "defaultStartWorkGroup"
+    >
+  >,
+):
+  | "groupDeleteNotEmpty"
+  | "groupDefaultInUse"
+  | "groupNeedsTodo"
+  | "groupNeedsInbox"
+  | "groupNeedsCanceled"
+  | null {
+  const workspaceDefault = defaultWorkspaceGroup(
+    groups,
+    defaults?.defaultStartGroup,
+  );
+  if (
+    groupTasks(cards, group).some(
+      (card) =>
+        !card.workspaceId ||
+        card.stage !== workspaceDefault ||
+        card.labels.some(
+          (label) => labelKey(label) === labelKey(group.label),
+        ) ||
+        card.binding?.stage === group.id ||
+        card.issue === "archive-restored-workspace-unavailable",
+    )
+  )
+    return "groupDeleteNotEmpty";
   if (groups.filter((item) => item.kind === group.kind).length === 1) {
     if (group.kind === "todo") return "groupNeedsTodo";
     if (group.kind === "inbox") return "groupNeedsInbox";
+    if (group.kind === "canceled") return "groupNeedsCanceled";
   }
+  if (
+    group.id === defaultGroup(groups, defaults?.defaultDraftGroup) ||
+    group.id === workspaceDefault ||
+    group.id === defaults?.defaultStartWorkGroup
+  )
+    return "groupDefaultInUse";
   return null;
+}
+
+/** Move only the selected card around a visible anchor; hidden neighbors keep relative order. */
+export function moveCardToAnchor(
+  order: readonly string[],
+  moving: string,
+  anchor: string,
+  side: "before" | "after",
+): string[] {
+  if (moving === anchor || !order.includes(moving) || !order.includes(anchor))
+    return [...order];
+  const next = order.filter((id) => id !== moving);
+  next.splice(next.indexOf(anchor) + (side === "after" ? 1 : 0), 0, moving);
+  return next;
 }
