@@ -2,7 +2,7 @@
 
 [English](../releasing.md) · [README](../../README.zh-CN.md)
 
-已发布的 `paseo-workboard@0.1.0` 面向 Paseo **0.9.1**。当前 checkout 含尚未发布的兼容性改动；最低版本以 manifest 为准，已验证宿主见[验证说明](verification.md)。准备新候选版本不等于发布到 npm 或提交 Paseo Cafe。
+0.2.0 使用 manifest 声明的最低版本；已验证宿主和客户端检查边界见[验证说明](verification.md)。准备候选包不等于发布到 npm；Paseo Cafe 是独立的社区目录。
 
 ## 发布包约定
 
@@ -32,7 +32,7 @@ npm 包包含 manifest、入口、`client/`、`server/`、`shared/`、中英文 
 
    ```sh
    WORKBOARD_PACKAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/workboard-package.XXXXXX")"
-   tar -xzf "$WORKBOARD_RELEASE_DIR/paseo-workboard-0.1.0.tgz" -C "$WORKBOARD_PACKAGE_DIR"
+   tar -xzf "$WORKBOARD_RELEASE_DIR/paseo-workboard-0.2.0.tgz" -C "$WORKBOARD_PACKAGE_DIR"
    paseo plugin install "$WORKBOARD_PACKAGE_DIR/package" --home "$WORKBOARD_INTEGRATION_HOME"
    paseo plugin ls --home "$WORKBOARD_INTEGRATION_HOME" --json
    mise exec -- npm run test:integration
@@ -46,17 +46,17 @@ npm 包包含 manifest、入口、`client/`、`server/`、`shared/`、中英文 
 
 发布需要目标 GitHub 仓库权限和 npm 包名发布权限。查到名称尚未使用不代表当前账号具备权限；真正发布时完成账号检查，仓库不保存发布凭证。
 
-生成最终发布包前，核对 README 安装说明并为更新日志填写发布日期，再重复上述验证。将该源码放到公开 GitHub 仓库默认分支，并为同一版本创建 tag，例如 `v0.1.0`。Cafe 检查默认分支的包与 manifest，只有 tag 不能让未发布的功能分支成为目录来源。将已经验证的 tarball 发布到公开 npm registry：
+生成最终发布包前，核对 README 安装说明并为更新日志填写发布日期，再重复上述验证。将该源码放到公开 GitHub 仓库默认分支，并为同一版本创建 tag，例如 `v0.2.0`。Cafe 检查默认分支的包与 manifest，只有 tag 不能让未发布的功能分支成为目录来源。将已经验证的 tarball 发布到公开 npm registry：
 
 ```sh
-npm publish "$WORKBOARD_RELEASE_DIR/paseo-workboard-0.1.0.tgz" --access public --registry https://registry.npmjs.org/
-npm view paseo-workboard@0.1.0 version dist.integrity --registry https://registry.npmjs.org/
+npm publish "$WORKBOARD_RELEASE_DIR/paseo-workboard-0.2.0.tgz" --access public --registry https://registry.npmjs.org/
+npm view paseo-workboard@0.2.0 version dist.integrity --registry https://registry.npmjs.org/
 ```
 
 随后在隔离 daemon 验证 registry 安装：
 
 ```sh
-paseo plugin install npm:paseo-workboard@0.1.0 --home "$WORKBOARD_INTEGRATION_HOME"
+paseo plugin install npm:paseo-workboard@0.2.0 --home "$WORKBOARD_INTEGRATION_HOME"
 paseo plugin ls --home "$WORKBOARD_INTEGRATION_HOME" --json
 mise exec -- npm run test:integration
 ```
@@ -64,6 +64,8 @@ mise exec -- npm run test:integration
 不要复用已发布 npm 版本；发布说明更新也应保持 GitHub 与 npm 的版本及插件 ID 一致。
 
 ## 提交 Paseo Cafe
+
+已收录的插件发布新 npm 版本并同步默认分支版本即可，版本更新无需另开 Cafe PR。[定时扫描器](https://github.com/paseo-cafe/paseo-cafe#how-it-works)每 15 分钟检查 npm 新版本，候选检查通过后才更新目录；npm 发布成功不代表 Cafe 已刷新。通过 `https://paseo.cafe/api/plugin/paseo-workboard.json` 核对目录版本。
 
 Cafe 是社区目录。当前[提交要求](https://paseo.cafe/submit/)包含公开 GitHub 仓库，以及插件 ID 和版本匹配的公开 npmjs 包；仅本地打包或建立 GitHub 仓库不够。
 

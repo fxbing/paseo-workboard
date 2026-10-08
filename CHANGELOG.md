@@ -4,7 +4,14 @@
 
 All notable changes are documented here.
 
-## Unreleased
+## 0.2.0 — 2026-10-08
+
+- Add independent defaults for new drafts, unlabeled workspace imports and Start work, plus a configurable automatic archive delay.
+- Persist card order within columns, including filtered drag placement, compact and keyboard controls, conflict detection and reset to activity order.
+- Recover uncertain archive records, restore archived drafts, cancel failed bindings and detach merged drafts without restoring deleted worktrees.
+- Guard move undo against concurrent task or group changes; retain conversation and Git safety checks while backing off deferred archive scans.
+- Improve local mutation feedback, filters, touch hints, keyboard focus, card actions and independent group colors.
+- Migrate stored data to schema v8 and stop automatic retries for invalid or unsupported storage. Verify 356 unit tests and 13 isolated host tests on Paseo 0.11.1; current visual interactions remain unverified.
 
 - Save general setting switches immediately so their values survive leaving and reopening Settings, while confirming automatic archive when workspaces are already due.
 - Accept Paseo `>=0.9.1` and validate the internal host bridge on 0.10.0-beta.1.

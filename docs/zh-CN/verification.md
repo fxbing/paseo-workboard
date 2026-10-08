@@ -34,13 +34,13 @@ mise exec -- npm run check
 
 ## 发布包检查
 
-2026-10-08，最终源码通过 `format:check` 和 `check:package`：32 个批准文件，92,313 bytes。本次包未发布。
+2026-10-08，0.2.0 候选通过 `check`、`format:check` 和 `check:package`：356 项单测、32 个批准的包文件、92,969 bytes。包内文件逐一匹配已审查源码。实际 tarball 解压后不安装开发依赖，在全新 marker home 的 Paseo 0.11.1 上通过 13 项集成测试（29.22s），随后停止 daemon。发布状态及 registry 安装需要单独核验。
 
 2026-09-24 的 `0.1.0` npm tarball 包含 31 个批准的运行源码与公开文档文件。解压包不带 `node_modules`，已安装到全新、带标记且仅监听 loopback 的 Paseo 0.9.1 daemon。插件达到 `running`，针对该包的 12 个集成测试全部通过，测试后已停止临时 daemon。
 
 同一次真实插件安装还将预置的 v4 配置迁移至 v5：移除了旧语言字段，保留了 fixture 任务、自定义分组和其它偏好。
 
-`npm run check:package` 对当时的发布候选验证通过。另用一次性副本验证了漏装运行模块、额外文件混入包时均被拒绝。格式及本地文档链接检查通过。0.1.0 随后已发布到 npm。本次设计修复尚未发布或经过 GitHub Actions 检查；Cafe 准入与 npm 发布是独立状态。
+`npm run check:package` 对当时的发布候选验证通过。另用一次性副本验证了漏装运行模块、额外文件混入包时均被拒绝。格式及本地文档链接检查通过。0.1.0 随后已发布到 npm。这些本地检查不证明当前 npm 或 GitHub Actions 状态；Cafe 目录更新与 npm 发布是独立状态。
 
 ## 未验证边界
 

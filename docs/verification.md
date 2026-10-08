@@ -68,8 +68,12 @@ names and task titles were preserved.
 
 ## Release package checks
 
-On 2026-10-08, the final source passed `format:check` and `check:package`: 32
-approved files, 92,313 bytes. This package was not published.
+On 2026-10-08, the 0.2.0 candidate passed `check`, `format:check` and
+`check:package`: 356 unit tests and 32 approved package files, 92,969 bytes.
+All packaged files matched the reviewed source. The actual tarball was
+unpacked without development dependencies and installed in a new marked
+Paseo 0.11.1 home: all 13 integration tests passed in 29.22s, and the daemon
+was stopped. Publication and registry installation require separate checks.
 
 On 2026-09-24, the `0.1.0` npm tarball contained 31 approved runtime and public
 documentation files. The unpacked package was installed without `node_modules`
@@ -84,9 +88,8 @@ custom group, and remaining preferences were preserved.
 `npm run check:package` passed for the release candidate. Separate disposable
 copies confirmed that it rejects an omitted runtime module and an unexpected
 file added to the package. Formatting and local documentation links also
-passed. The 0.1.0 package was later published to npm. The current design-fix
-changes have not been published or checked by GitHub Actions; Cafe admission
-remains separate from npm publication.
+passed. The 0.1.0 package was later published to npm. These local checks do not establish the current npm or GitHub Actions status;
+Cafe catalog promotion remains separate from npm publication.
 
 ## Unverified boundaries
 

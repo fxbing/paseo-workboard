@@ -2,7 +2,7 @@
 
 [中文](zh-CN/releasing.md) · [README](../README.md)
 
-The published `paseo-workboard@0.1.0` targets Paseo **0.9.1**. This checkout has newer compatibility changes that are not published; use the manifest for the minimum version and [verification](verification.md) for tested hosts. Preparing a new candidate does not publish it or submit a Paseo Cafe listing.
+Release 0.2.0 uses the minimum version declared in the manifest. See [verification](verification.md) for tested hosts and remaining client checks. Preparing a candidate does not publish it to npm; Paseo Cafe is a separate community directory.
 
 ## Package contract
 
@@ -32,7 +32,7 @@ The npm package includes the manifest, entries, `client/`, `server/`, `shared/`,
 
    ```sh
    WORKBOARD_PACKAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/workboard-package.XXXXXX")"
-   tar -xzf "$WORKBOARD_RELEASE_DIR/paseo-workboard-0.1.0.tgz" -C "$WORKBOARD_PACKAGE_DIR"
+   tar -xzf "$WORKBOARD_RELEASE_DIR/paseo-workboard-0.2.0.tgz" -C "$WORKBOARD_PACKAGE_DIR"
    paseo plugin install "$WORKBOARD_PACKAGE_DIR/package" --home "$WORKBOARD_INTEGRATION_HOME"
    paseo plugin ls --home "$WORKBOARD_INTEGRATION_HOME" --json
    mise exec -- npm run test:integration
@@ -46,17 +46,17 @@ The npm package includes the manifest, entries, `client/`, `server/`, `shared/`,
 
 Publishing requires access to the target GitHub repository and ownership of the npm package name. A name appearing unused is not proof of publishing permission. Complete those account checks when performing a release; this repository contains no publishing credentials.
 
-Before building the final release tarball, check the README's installation instructions and date the changelog entry, then repeat the validation above. Make that reviewed source available on the public GitHub repository's default branch, and tag the same version, for example `v0.1.0`. Cafe checks the default-branch package and manifest, so a tag alone does not make an unpublished feature branch the catalog source. Publish the validated tarball to the public npm registry:
+Before building the final release tarball, check the README's installation instructions and date the changelog entry, then repeat the validation above. Make that reviewed source available on the public GitHub repository's default branch, and tag the same version, for example `v0.2.0`. Cafe checks the default-branch package and manifest, so a tag alone does not make an unpublished feature branch the catalog source. Publish the validated tarball to the public npm registry:
 
 ```sh
-npm publish "$WORKBOARD_RELEASE_DIR/paseo-workboard-0.1.0.tgz" --access public --registry https://registry.npmjs.org/
-npm view paseo-workboard@0.1.0 version dist.integrity --registry https://registry.npmjs.org/
+npm publish "$WORKBOARD_RELEASE_DIR/paseo-workboard-0.2.0.tgz" --access public --registry https://registry.npmjs.org/
+npm view paseo-workboard@0.2.0 version dist.integrity --registry https://registry.npmjs.org/
 ```
 
 Then verify the registry installation in the isolated daemon:
 
 ```sh
-paseo plugin install npm:paseo-workboard@0.1.0 --home "$WORKBOARD_INTEGRATION_HOME"
+paseo plugin install npm:paseo-workboard@0.2.0 --home "$WORKBOARD_INTEGRATION_HOME"
 paseo plugin ls --home "$WORKBOARD_INTEGRATION_HOME" --json
 mise exec -- npm run test:integration
 ```
@@ -64,6 +64,13 @@ mise exec -- npm run test:integration
 Do not reuse an existing npm version. Release metadata updates must not leave GitHub and npm versions or plugin IDs out of sync.
 
 ## Submit to Paseo Cafe
+
+For an existing listing, publish a new npm version and keep the default-branch
+package version in sync. A version update does not require a Cafe PR. The
+[scheduled scanner](https://github.com/paseo-cafe/paseo-cafe#how-it-works) checks
+npm releases every 15 minutes and promotes a candidate only after its checks
+pass; publishing to npm does not prove that Cafe has refreshed. Verify the
+version at `https://paseo.cafe/api/plugin/paseo-workboard.json`.
 
 Cafe is a community directory. Its [submission requirements](https://paseo.cafe/submit/) currently require a public GitHub repository and a public npmjs package with matching plugin ID and version. A local package or GitHub repository alone is insufficient.
 

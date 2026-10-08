@@ -19,7 +19,7 @@ Workboard is a Paseo kanban plugin for workspaces and ideas. Each active workspa
 
 ## Compatibility and trust
 
-The published `paseo-workboard@0.1.0` was verified with Paseo app and daemon 0.9.1. This checkout uses the minimum Paseo version in `paseo-plugin.json` and has newer host integration coverage; see [verification](docs/verification.md) for tested versions and remaining client checks.
+The minimum Paseo version is declared in `paseo-plugin.json`. Version 0.2.0 has isolated host integration coverage on Paseo 0.11.1; see [verification](docs/verification.md) for tested versions and remaining client checks.
 
 The public plugin SDK does not expose all of Workboard's label and workspace operations. Workboard uses an internal bridge that reuses the host session. The manifest sets the minimum version; bridge responses are checked at runtime. New Paseo versions may require another compatibility update.
 

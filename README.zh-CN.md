@@ -19,7 +19,7 @@ Workboard 是一个用于管理 Paseo workspace 与工作想法的看板插件�
 
 ## 兼容性与信任边界
 
-已发布的 `paseo-workboard@0.1.0` 在 Paseo app 与 daemon 0.9.1 上通过验证。当前 checkout 以 `paseo-plugin.json` 中的最低版本为准，并已覆盖更新宿主的集成测试；实际验证版本及客户端检查边界见[验证记录](docs/zh-CN/verification.md)。
+最低 Paseo 版本由 `paseo-plugin.json` 声明。0.2.0 已在 Paseo 0.11.1 上完成隔离宿主集成验证；实际验证版本及客户端检查边界见[验证记录](docs/zh-CN/verification.md)。
 
 公开插件 SDK 尚未覆盖 Workboard 所需的全部标签和 workspace 操作，因此插件使用复用宿主会话的内部桥接。manifest 设置最低版本，桥接在运行时校验响应；新的 Paseo 版本可能还需要适配。
 

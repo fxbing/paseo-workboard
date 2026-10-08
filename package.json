@@ -1,6 +1,6 @@
 {
   "name": "paseo-workboard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Workspace tasks, draft todos and a label-linked kanban for Paseo",
   "license": "MIT",
   "author": "fxbing",
