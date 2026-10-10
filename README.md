@@ -4,6 +4,8 @@
 
 Workboard is a Paseo kanban plugin for workspaces and ideas. Each active workspace becomes one task. You can also capture a title-only draft first, then create or attach its workspace when you are ready to start.
 
+![Workboard with sample tasks in English](images/workboard-en.png)
+
 ## Highlights
 
 - Import existing workspaces automatically, with one workspace represented by one task.

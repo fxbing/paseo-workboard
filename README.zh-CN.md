@@ -4,6 +4,8 @@
 
 Workboard 是一个用于管理 Paseo workspace 与工作想法的看板插件。每个活跃 workspace 对应一个任务；也可以先记录只有标题的草稿，准备开始时再创建或关联 workspace。
 
+![Workboard 中文界面与虚构示例任务](images/workboard-zh-CN.png)
+
 ## 关键能力
 
 - 自动导入已有 workspace，每个 workspace 对应一个任务。
