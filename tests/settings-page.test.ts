@@ -147,6 +147,12 @@ it.each([
     "pinInProgressWorkspaces",
     false,
   ],
+  [
+    "exclusive status labels",
+    "workboard-exclusive-status-labels",
+    "exclusiveStatusLabels",
+    true,
+  ],
 ] as const)(
   "persists %s when its switch changes and keeps it after reopening",
   async (_, testID, key, value) => {
@@ -175,7 +181,11 @@ it.each([
         expectedSettings: settings,
         settings: { ...settings, [key]: value },
       },
-      key === "autoArchive" ? "settings:archive" : "settings:pin",
+      key === "autoArchive"
+        ? "settings:archive"
+        : key === "exclusiveStatusLabels"
+          ? "settings:exclusive"
+          : "settings:pin",
     );
     expect(
       findByTestId(renderSettings(initial, mutate), testID).props.value,

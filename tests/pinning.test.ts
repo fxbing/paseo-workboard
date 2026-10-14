@@ -101,10 +101,13 @@ it("supports custom In progress groups, releases owned pins on disable, and igno
   try {
     expect(host.setPinned).toHaveBeenCalledExactlyOnceWith("custom", true);
     await enabled(board, false);
+    // The debounced refresh following a preference-only save releases owned pins.
+    await board.refresh();
     expect(inventory.workspaces[0].pinnedAt).toBeNull();
     await board.refresh();
     expect(host.setPinned).toHaveBeenCalledTimes(2);
     await enabled(board, true);
+    await board.refresh();
     expect(host.setPinned).toHaveBeenCalledTimes(3);
     inventory.workspaces[0].labels.push("task:done");
     await board.refresh();

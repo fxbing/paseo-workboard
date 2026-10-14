@@ -11,6 +11,7 @@ import {
   conversationStatusFor,
   isArchiveDue,
   newTask,
+  newestConflictStage,
   settingsSchema,
 } from "../shared/model";
 
@@ -85,6 +86,7 @@ describe("task stages and conversation-based expiry", () => {
   });
   it("rejects ambiguous mappings and keeps autoarchive opt-in", () => {
     expect(settingsSchema.parse({}).autoArchive).toBe(false);
+    expect(settingsSchema.parse({}).exclusiveStatusLabels).toBe(false);
     expect(
       settingsSchema.safeParse({
         groups: DEFAULT_GROUPS.map((group) =>
@@ -92,6 +94,28 @@ describe("task stages and conversation-based expiry", () => {
         ),
       }).success,
     ).toBe(false);
+  });
+  it("attributes a conflict to the one label that differs from the previous stage", () => {
+    const groups = settingsSchema.parse({}).groups;
+    expect(
+      newestConflictStage("todo", ["task:todo", "task:done"], groups),
+    ).toBe("done");
+    expect(
+      newestConflictStage("done", ["task:in-progress", "task:done"], groups),
+    ).toBe("in-progress");
+    expect(
+      newestConflictStage("todo", ["task:review", "task:done"], groups),
+    ).toBe(undefined);
+    expect(
+      newestConflictStage(
+        "todo",
+        ["task:todo", "task:review", "task:done"],
+        groups,
+      ),
+    ).toBe(undefined);
+    expect(
+      newestConflictStage("conflict" as never, ["task:todo"], groups),
+    ).toBe(undefined);
   });
   it("enables sidebar In progress pinning for older settings without changing other preferences", () => {
     const data = migrateData(

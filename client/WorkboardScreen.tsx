@@ -2360,6 +2360,22 @@ export function SettingsPage({
                 testID="workboard-pin-in-progress"
               />
               <SettingsSwitch
+                label={t.exclusiveStatusLabels}
+                hint={t.exclusiveStatusHint}
+                value={settings.exclusiveStatusLabels}
+                onValueChange={async (value) => {
+                  await persist(
+                    {
+                      ...settings,
+                      exclusiveStatusLabels: value,
+                    },
+                    "exclusive",
+                  );
+                }}
+                disabled={controlDisabled("exclusive")}
+                testID="workboard-exclusive-status-labels"
+              />
+              <SettingsSwitch
                 label={t.autoArchive}
                 hint={[
                   t.autoArchiveHint.replace(
