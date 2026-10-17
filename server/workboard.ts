@@ -6,6 +6,7 @@ import {
   cardsForStage,
   conversationStatusFor,
   defaultGroup,
+  defaultReviewGroup,
   defaultWorkspaceGroup,
   defaultStartWorkGroup,
   groupKind,
@@ -120,6 +121,7 @@ export class Workboard {
       fingerprint: string;
     }
   >();
+  private pendingReviewTurns = new Set<string>();
   private connected = false;
   private error: string | null = "Workboard is starting";
   private refreshedAt: string | null = null;
@@ -172,6 +174,9 @@ export class Workboard {
       for (const task of bindings)
         this.bindingInFlight.delete(task.binding!.operationId);
       await this.reconcile();
+      for (const id of this.host.takeTurnCompletions())
+        this.pendingReviewTurns.add(id);
+      await this.autoReviewCompletedTurns();
       await this.scan();
     });
     if (!this.stopped)
@@ -201,6 +206,9 @@ export class Workboard {
       try {
         if (!this.connected) await this.load();
         await this.reconcile(scope);
+        for (const id of this.host.takeTurnCompletions())
+          this.pendingReviewTurns.add(id);
+        await this.autoReviewCompletedTurns();
         await this.scan(scope);
       } catch (error) {
         this.connected = false;
@@ -770,7 +778,8 @@ export class Workboard {
               previous.settings.groups,
               next.defaultStartGroup,
             ) ||
-          group.id === next.defaultStartWorkGroup
+          group.id === next.defaultStartWorkGroup ||
+          group.id === next.defaultReviewGroup
         )
           throw new Error("group-default-in-use");
       }
@@ -787,6 +796,18 @@ export class Workboard {
       )
         throw new Error("group-default-in-use");
       throw new Error("group-default-start-work-invalid");
+    }
+    if (
+      next.defaultReviewGroup &&
+      groupKind(next.defaultReviewGroup, next.groups) !== "review"
+    ) {
+      if (
+        next.defaultReviewGroup === previous.settings.defaultReviewGroup &&
+        groupKind(next.defaultReviewGroup, previous.settings.groups) ===
+          "review"
+      )
+        throw new Error("group-default-in-use");
+      throw new Error("group-default-review-invalid");
     }
     await this.store.update((data) => {
       if (!unchanged(data))
@@ -1331,6 +1352,91 @@ export class Workboard {
       const task = data.tasks.find((t) => t.id === id);
       if (task) task.issue = issue;
     });
+  }
+  private async autoReviewCompletedTurns(): Promise<void> {
+    const settings = this.store.current.settings;
+    if (!this.pendingReviewTurns.size) return;
+    if (!settings.autoMoveInProgressToReview) {
+      this.pendingReviewTurns.clear();
+      return;
+    }
+    const target = defaultReviewGroup(
+      settings.groups,
+      settings.defaultReviewGroup,
+    );
+    if (!target) {
+      this.pendingReviewTurns.clear();
+      return;
+    }
+    for (const workspaceId of [...this.pendingReviewTurns]) {
+      const workspace = this.inventory.workspaces.find(
+        (candidate) => candidate.id === workspaceId,
+      );
+      const task = this.store.current.tasks.find(
+        (candidate) => candidate.workspaceId === workspaceId,
+      );
+      if (
+        !workspace ||
+        !task ||
+        workspace.archivingAt ||
+        task.archived ||
+        task.binding ||
+        task.issue === "labels-conflict"
+      ) {
+        this.pendingReviewTurns.delete(workspaceId);
+        continue;
+      }
+      const stage = resolveStage(
+        workspace.labels,
+        settings.groups,
+        settings.defaultStartGroup,
+      );
+      if (groupKind(stage, settings.groups) !== "in-progress") {
+        this.pendingReviewTurns.delete(workspaceId);
+        continue;
+      }
+      const agents = this.inventory.agents.filter(
+        (agent) => agent.workspaceId === workspaceId && !agent.archivedAt,
+      );
+      if (agents.length === 0) {
+        this.pendingReviewTurns.delete(workspaceId);
+        continue;
+      }
+      if (agents.some((agent) => agent.activity === "error")) {
+        this.pendingReviewTurns.delete(workspaceId);
+        continue;
+      }
+      if (
+        agents.some(
+          (agent) =>
+            agent.activity === "running" || agent.activity === "waiting",
+        )
+      )
+        continue;
+      try {
+        const next = await this.transition(
+          workspaceId,
+          target,
+          statusLabels(workspace.labels, settings.groups),
+        );
+        this.inventory.workspaces = this.inventory.workspaces.map(
+          (candidate) => (candidate.id === workspaceId ? next : candidate),
+        );
+        await this.store.update((data) => {
+          const current = data.tasks.find(
+            (candidate) => candidate.id === task.id,
+          );
+          if (!current) return;
+          current.lastStage = target;
+          current.updatedAt = this.stamp(current.updatedAt);
+          if (current.issue === "auto-review-failed") current.issue = null;
+        });
+        this.changed(workspaceId);
+      } catch {
+        await this.issue(task.id, "auto-review-failed");
+      }
+      this.pendingReviewTurns.delete(workspaceId);
+    }
   }
   private archiveFingerprint(
     workspace: Workspace | undefined,

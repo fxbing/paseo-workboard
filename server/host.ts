@@ -111,6 +111,7 @@ export interface Host {
   archive(
     id: string,
   ): Promise<{ archivedAt: string | null; error: string | null }>;
+  takeTurnCompletions(): ReadonlySet<string>;
   dispose(): void;
 }
 interface Page<T> {
@@ -164,6 +165,7 @@ export class PaseoHost implements Host {
   private workspaceUpdates = new Map<string, Workspace | null>();
   private agentUpdates = new Map<string, Agent | null>();
   private agentWorkspaces = new Map<string, string | undefined>();
+  private turnCompletions = new Set<string>();
   /** Provider children per parent, keyed by the parent activity Paseo last reported. */
   private childRecords = new Map<string, ChildRecord>();
   constructor(
@@ -211,6 +213,15 @@ export class PaseoHost implements Host {
         this.agentWorkspaces.delete(change.agentId);
         this.changed(workspaceId);
       }
+    } else if (message.type === "agent_stream") {
+      const { agentId, event } = message.payload;
+      const workspaceId =
+        this.agentWorkspaces.get(agentId) ??
+        this.agentUpdates.get(agentId)?.workspaceId;
+      if (event.type === "turn_completed" && workspaceId) {
+        this.turnCompletions.add(workspaceId);
+        this.changed(workspaceId);
+      }
     } else if (message.type === "agent.provider_subagents.update") {
       const change = message.payload;
       const parentAgentId =
@@ -222,6 +233,11 @@ export class PaseoHost implements Host {
       this.childRecords.delete(parentAgentId);
       this.changed(this.agentWorkspaces.get(parentAgentId));
     }
+  }
+  takeTurnCompletions(): ReadonlySet<string> {
+    const completed = new Set(this.turnCompletions);
+    this.turnCompletions.clear();
+    return completed;
   }
   async inventory(): Promise<Inventory> {
     if (this.disposed) throw new Error("Workboard stopped");

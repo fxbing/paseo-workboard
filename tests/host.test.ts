@@ -245,6 +245,43 @@ it("keeps an agent removal scoped to its last known workspace", async () => {
   }
 });
 
+it("queues only successful turn completions for their workspace", async () => {
+  const changed = vi.fn();
+  const observers: SubscriptionObserver<unknown>[] = [];
+  const host = providerHost(
+    parentAgent,
+    { subagents: async () => [] } as unknown as PaseoCompat,
+    changed,
+    observers,
+  );
+  try {
+    await host.inventory();
+    const stream = (type: "turn_completed" | "turn_failed" | "turn_canceled") =>
+      observers[0].update({
+        type: "agent_stream",
+        payload: {
+          agentId: "parent",
+          event: {
+            type,
+            provider: "fixture",
+            ...(type === "turn_failed" ? { error: "failed" } : {}),
+            ...(type === "turn_canceled" ? { reason: "canceled" } : {}),
+          },
+        },
+      } as Parameters<SubscriptionObserver<unknown>["update"]>[0]);
+
+    stream("turn_failed");
+    stream("turn_canceled");
+    expect(host.takeTurnCompletions()).toEqual(new Set());
+    stream("turn_completed");
+    expect(changed).toHaveBeenLastCalledWith("w1");
+    expect(host.takeTurnCompletions()).toEqual(new Set(["w1"]));
+    expect(host.takeTurnCompletions()).toEqual(new Set());
+  } finally {
+    host.dispose();
+  }
+});
+
 it("merges provider-managed subagents and reads their projected conversation time", async () => {
   const read = vi.fn(async () => ({
     epoch: "epoch-1",

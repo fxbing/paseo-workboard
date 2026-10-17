@@ -169,12 +169,16 @@ const zh = {
   archiveDraftConfirm:
     "归档草稿“{name}”？归档后将移出看板，可在归档页放回原分组。",
   autoArchive: "自动归档",
+  autoMoveInProgressToReview: "Agent 完成回合后自动移入待验收",
+  autoMoveInProgressToReviewHint:
+    "仅当任务位于进行中类型分组，且没有 Agent 仍在运行、等待权限或报错时移动。只进入待验收，不会标记为已完成。",
   autoArchiveMigrationPaused:
     "升级时补建了已废弃分组，其标签可能匹配已有 workspace。自动归档已关闭，请核对到期任务后重新开启；存在到期任务时会先要求确认。",
   archiveAfterDays: "自动归档等待天数",
   archiveAfterDaysHint: "输入 1–365 的整数，保存后生效。",
   archiveAfterDaysInvalid: "请输入 1–365 的整数。",
   defaultDraftGroupSetting: "新草稿默认分组",
+  defaultReviewGroupSetting: "自动移入的待验收分组",
   defaultStartGroupSetting: "未标记 workspace 默认分组",
   defaultStartWorkGroupSetting: "开始工作默认分组（进行中）",
   defaultByKind: "自动（按分组类型）",
@@ -273,6 +277,7 @@ const zh = {
     "native-archive-unknown": "归档结果待人工核实",
     "changed-during-check": "检查期间状态已变化",
     "label-sync-incomplete": "标签同步未完成",
+    "auto-review-failed": "自动移入待验收失败，请检查 workspace 标签",
     "workspace-unavailable": "workspace 不可用或正在归档",
     "archive-restored-workspace-unavailable":
       "任务已放回看板，但 workspace 不在宿主活跃清单中；请核实原生状态",
@@ -369,6 +374,8 @@ const zh = {
     "group-default-in-use": "此分组是默认落点，请先在设置中更改对应默认分组。",
     "group-default-start-work-invalid":
       "开始工作默认分组只能选择现有的进行中类型组，请更换默认分组。",
+    "group-default-review-invalid":
+      "自动移入默认分组只能选择现有的待验收类型组，请更换默认分组。",
     "group-default-terminal":
       "未标记 workspace 的默认落点不能是已完成或已废弃类型；请先选择非终态默认分组，再修改该组类型。",
     "detach-draft-stale": "任务已变化，请刷新后再还原草稿。",
@@ -583,12 +590,17 @@ const en: typeof zh = {
   archiveDraftConfirm:
     "Archive draft “{name}”? It will leave the board. You can restore it to its original group from Archive.",
   autoArchive: "Automatic archive",
+  autoMoveInProgressToReview:
+    "Move In progress tasks to Review after an Agent turn completes",
+  autoMoveInProgressToReviewHint:
+    "Moves only when the task is in an In progress group and no Agent is still running, waiting for permission, or failed. It moves to Review, never directly to Done.",
   autoArchiveMigrationPaused:
     "An upgrade added a Canceled group whose label may match existing workspaces. Automatic archive was turned off. Review due tasks before re-enabling it; due tasks require confirmation first.",
   archiveAfterDays: "Days before automatic archive",
   archiveAfterDaysHint: "Enter an integer from 1 to 365, then save.",
   archiveAfterDaysInvalid: "Enter an integer from 1 to 365.",
   defaultDraftGroupSetting: "Default group for new drafts",
+  defaultReviewGroupSetting: "Default Review group for automatic moves",
   defaultStartGroupSetting: "Default group for unlabeled workspaces",
   defaultStartWorkGroupSetting: "Default Start work group (In progress)",
   defaultByKind: "Automatic (by group type)",
@@ -694,6 +706,8 @@ const en: typeof zh = {
     "native-archive-unknown": "Archive result needs manual verification",
     "changed-during-check": "State changed during the check",
     "label-sync-incomplete": "Label sync is incomplete",
+    "auto-review-failed":
+      "Automatic Review failed; verify the workspace labels",
     "workspace-unavailable": "Workspace is unavailable or archiving",
     "archive-restored-workspace-unavailable":
       "Task restored to board, but the workspace is absent from the host active list; verify its native state",
@@ -804,6 +818,8 @@ const en: typeof zh = {
       "This group is a default destination. Change its default group in settings first.",
     "group-default-start-work-invalid":
       "The default Start work group must be an existing In progress group. Choose a different default.",
+    "group-default-review-invalid":
+      "The automatic Review destination must be an existing Review group. Choose a different default.",
     "group-default-terminal":
       "The default for unlabeled workspaces cannot be Done or Canceled. Choose a nonterminal default before changing that group's type.",
     "detach-draft-stale":

@@ -55,6 +55,7 @@ export function fixture(initial: Partial<Data> = {}) {
   };
   const inventory: Inventory = { workspaces: [], agents: [], projects: [] };
   const created = new Map<string, string>();
+  const turnCompletions = new Set<string>();
   let pinWrites = 0;
   const host: Host = {
     identity: { serverId: "fixture-host", version: "0.9.1" },
@@ -85,12 +86,25 @@ export function fixture(initial: Partial<Data> = {}) {
       return { archivedAt: new Date(now()).toISOString(), error: null };
     }),
     safety: async () => null,
+    takeTurnCompletions: () => {
+      const completed = new Set(turnCompletions);
+      turnCompletions.clear();
+      return completed;
+    },
     dispose: vi.fn(),
   };
   const now = () => Date.parse("2026-09-23T00:00:00Z");
   const store = new Store(backing);
   const board = new Workboard(host, store, now);
-  return { board, host, store, inventory, backing, now };
+  return {
+    board,
+    host,
+    store,
+    inventory,
+    backing,
+    now,
+    turnCompletions,
+  };
 }
 export function workspace(
   id: string,

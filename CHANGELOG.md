@@ -4,6 +4,10 @@
 
 All notable changes are documented here.
 
+## Unreleased
+
+- Add an opt-in automatic transition from In progress to Review after Paseo reports a successful Agent turn completion, with a configurable Review destination.
+
 ## 0.3.0 — 2026-10-13
 
 - Add a grouped List view alongside Board, sharing task data, filters and saved order while remembering the selected view and separate collapse preferences per host.

@@ -140,16 +140,30 @@ function board(
 }
 
 it.each([
-  ["automatic archive", "workboard-auto-archive", "autoArchive", true],
+  [
+    "automatic archive",
+    "workboard-auto-archive",
+    "autoArchive",
+    true,
+    "settings:archive",
+  ],
   [
     "In progress sidebar pinning",
     "workboard-pin-in-progress",
     "pinInProgressWorkspaces",
     false,
+    "settings:pin",
+  ],
+  [
+    "automatic Review moves",
+    "workboard-auto-review",
+    "autoMoveInProgressToReview",
+    true,
+    "settings:auto-review",
   ],
 ] as const)(
   "persists %s when its switch changes and keeps it after reopening",
-  async (_, testID, key, value) => {
+  async (_, testID, key, value, control) => {
     const settings = settingsSchema.parse({
       autoArchive: false,
       pinInProgressWorkspaces: true,
@@ -175,7 +189,7 @@ it.each([
         expectedSettings: settings,
         settings: { ...settings, [key]: value },
       },
-      key === "autoArchive" ? "settings:archive" : "settings:pin",
+      control,
     );
     expect(
       findByTestId(renderSettings(initial, mutate), testID).props.value,
@@ -476,9 +490,20 @@ it.each(["zh", "en"] as const)(
       },
       "settings:days",
     );
-    for (const [testID, key, value] of [
-      ["workboard-default-draft", "defaultDraftGroup", "todo"],
-      ["workboard-default-workspace", "defaultStartGroup", "review"],
+    for (const [testID, key, value, control] of [
+      ["workboard-default-draft", "defaultDraftGroup", "todo", "draft-default"],
+      [
+        "workboard-default-workspace",
+        "defaultStartGroup",
+        "review",
+        "workspace-default",
+      ],
+      [
+        "workboard-default-review",
+        "defaultReviewGroup",
+        "review",
+        "review-default",
+      ],
     ] as const) {
       const before = mutate.mock.results.at(-1)
         ? (await mutate.mock.results.at(-1)!.value).settings
@@ -495,9 +520,7 @@ it.each(["zh", "en"] as const)(
           expectedSettings: before,
           settings: { ...before, [key]: value },
         },
-        key === "defaultDraftGroup"
-          ? "settings:draft-default"
-          : "settings:workspace-default",
+        `settings:${control}`,
       );
     }
     for (const kind of ["done", "canceled"] as const) {

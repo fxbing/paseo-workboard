@@ -2360,6 +2360,19 @@ export function SettingsPage({
                 testID="workboard-pin-in-progress"
               />
               <SettingsSwitch
+                label={t.autoMoveInProgressToReview}
+                hint={t.autoMoveInProgressToReviewHint}
+                value={settings.autoMoveInProgressToReview}
+                onValueChange={async (value) => {
+                  await persist(
+                    { ...settings, autoMoveInProgressToReview: value },
+                    "auto-review",
+                  );
+                }}
+                disabled={controlDisabled("auto-review")}
+                testID="workboard-auto-review"
+              />
+              <SettingsSwitch
                 label={t.autoArchive}
                 hint={[
                   t.autoArchiveHint.replace(
@@ -2510,6 +2523,35 @@ export function SettingsPage({
                 }}
                 disabled={controlDisabled("start-work-default")}
                 testID="workboard-default-start-work"
+              />
+              <SettingsSelect
+                label={t.defaultReviewGroupSetting}
+                value={
+                  groups.some(
+                    (group) =>
+                      group.id === settings.defaultReviewGroup &&
+                      group.kind === "review",
+                  )
+                    ? settings.defaultReviewGroup!
+                    : ""
+                }
+                options={[
+                  { value: "", label: t.defaultByKind },
+                  ...groups
+                    .filter((group) => group.kind === "review")
+                    .map((group) => ({
+                      value: group.id,
+                      label: groupTitle(group, t),
+                    })),
+                ]}
+                onValueChange={async (value) => {
+                  await persist(
+                    { ...settings, defaultReviewGroup: value || null },
+                    "review-default",
+                  );
+                }}
+                disabled={controlDisabled("review-default")}
+                testID="workboard-default-review"
               />
             </SettingsCard>
           </SettingsSection>
