@@ -134,10 +134,16 @@ export const groupOrderSchema = z
         message: "Group order cannot contain duplicates",
       });
   });
+const archiveDaysSchema = z.number().int().min(1).max(365);
 const preferences = {
   autoArchive: z.boolean().default(false),
   archiveMappingNeedsReview: z.boolean().default(false),
-  archiveAfterDays: z.number().int().min(1).max(365).default(30),
+  // Retained as the fallback for settings created before terminal rules were independent.
+  archiveAfterDays: archiveDaysSchema.default(30),
+  archiveCanceledEnabled: z.boolean().default(true),
+  archiveDoneEnabled: z.boolean().default(true),
+  archiveCanceledAfterDays: archiveDaysSchema.nullable().default(null),
+  archiveDoneAfterDays: archiveDaysSchema.nullable().default(null),
   defaultDraftGroup: stageSchema.nullable().default(null),
   defaultStartGroup: stageSchema.nullable().default(null),
   defaultStartWorkGroup: stageSchema.nullable().default(null),
@@ -226,10 +232,33 @@ export function resolveStage(
     ? "conflict"
     : (found[0]?.id ?? defaultWorkspaceGroup(groups, configured));
 }
+/** The enabled delay for a terminal group kind, or null when its rule is off. */
+export function archiveDelayFor(
+  settings: Pick<
+    Settings,
+    | "archiveAfterDays"
+    | "archiveCanceledEnabled"
+    | "archiveCanceledAfterDays"
+    | "archiveDoneEnabled"
+    | "archiveDoneAfterDays"
+  >,
+  stage: string | undefined,
+): number | null {
+  if (stage === "canceled")
+    return settings.archiveCanceledEnabled
+      ? (settings.archiveCanceledAfterDays ?? settings.archiveAfterDays)
+      : null;
+  if (stage === "done")
+    return settings.archiveDoneEnabled
+      ? (settings.archiveDoneAfterDays ?? settings.archiveAfterDays)
+      : null;
+  return null;
+}
 export function archiveDueAt(
   conversation: string | null,
-  days = 30,
+  days: number | null = 30,
 ): string | null {
+  if (days === null) return null;
   const time = conversation === null ? NaN : Date.parse(conversation);
   return Number.isFinite(time)
     ? new Date(time + days * DAY_MS).toISOString()
@@ -239,7 +268,7 @@ export function isArchiveDue(
   stage: string | undefined,
   conversation: string | null,
   now: number,
-  days = 30,
+  days: number | null = 30,
 ): boolean {
   const due = archiveDueAt(conversation, days);
   return (

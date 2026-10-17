@@ -17,7 +17,7 @@ Workboard is a Paseo plugin with board and grouped-list views for workspaces and
 - Switch between a board and a grouped list. Both views share tasks, group order, task order, and filters; each remembers its own collapsed groups. The board also supports column width and a single-group narrow layout.
 - Choose independent defaults for new drafts, unlabeled workspace imports, and Start work (an In progress group).
 - Reorder tasks and groups by dragging or keyboard controls. The list shows all groups vertically, including empty and collapsed drop targets; restore activity order from the group menu.
-- Optionally archive eligible completed or canceled workspaces after a configurable delay from their last verified conversation (30 days by default).
+- Configure automatic archive separately for Done and Canceled workspaces, including independent delays from their last verified conversation.
 
 ## Compatibility and trust
 

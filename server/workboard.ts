@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
+  archiveDelayFor,
   archiveDueAt,
   archiveGate,
   cardsForStage,
@@ -280,6 +281,10 @@ export class Workboard {
               )
             : task.lastStage
           : task.draftStage;
+        const archiveDelay = archiveDelayFor(
+          data.settings,
+          groupKind(stage, data.settings.groups),
+        );
         return {
           ...task,
           stage,
@@ -298,8 +303,8 @@ export class Workboard {
                 ? "automatic"
                 : "manual",
           dueAt:
-            task.workspaceId && isTerminalGroup(stage, data.settings.groups)
-              ? archiveDueAt(archiveGate(task), data.settings.archiveAfterDays)
+            task.workspaceId && archiveDelay !== null
+              ? archiveDueAt(archiveGate(task), archiveDelay)
               : null,
           agents: agents.map((a) => ({
             id: a.id,
@@ -336,22 +341,25 @@ export class Workboard {
             workspace,
             agents,
           );
-        else if (
-          !isArchiveDue(
-            groupKind(
-              resolveStage(
-                workspace.labels,
-                prior.settings.groups,
-                prior.settings.defaultStartGroup,
-              ),
+        else {
+          const kind = groupKind(
+            resolveStage(
+              workspace.labels,
               prior.settings.groups,
+              prior.settings.defaultStartGroup,
             ),
-            evidence.gateAt,
-            this.now(),
-            prior.settings.archiveAfterDays,
+            prior.settings.groups,
+          );
+          if (
+            !isArchiveDue(
+              kind,
+              evidence.gateAt,
+              this.now(),
+              archiveDelayFor(prior.settings, kind),
+            )
           )
-        )
-          this.archiveDeferrals.delete(previous.id);
+            this.archiveDeferrals.delete(previous.id);
+        }
       }
       observations.set(workspace.id, evidence);
     }
@@ -1399,8 +1407,10 @@ export class Workboard {
         !tasks.some((task) => task.id === id && !task.archived && !task.binding)
       )
         this.archiveDeferrals.delete(id);
+    const settings = this.store.current.settings;
     const candidates = tasks.filter((task) => {
       const id = task.workspaceId;
+      const kind = groupKind(task.lastStage, settings.groups);
       return (
         id &&
         (!scope || scope.has(id)) &&
@@ -1409,10 +1419,10 @@ export class Workboard {
         task.issue !== "archive-restored-workspace-unavailable" &&
         archiveGate(task) !== null &&
         isArchiveDue(
-          groupKind(task.lastStage, this.store.current.settings.groups),
+          kind,
           archiveGate(task),
           this.now(),
-          this.store.current.settings.archiveAfterDays,
+          archiveDelayFor(settings, kind),
         ) &&
         !this.archiveDeferred(
           task,
@@ -1475,7 +1485,10 @@ export class Workboard {
           groupKind(stage, this.store.current.settings.groups),
           gate,
           this.now(),
-          this.store.current.settings.archiveAfterDays,
+          archiveDelayFor(
+            this.store.current.settings,
+            groupKind(stage, this.store.current.settings.groups),
+          ),
         )
       ) {
         this.archiveDeferrals.delete(candidate.id);

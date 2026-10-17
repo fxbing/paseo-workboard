@@ -4,6 +4,10 @@
 
 All notable changes are documented here.
 
+## Unreleased
+
+- Add independent enable controls and delays for Done and Canceled automatic archive, with per-state due counts and a compatibility fallback for the former shared delay.
+
 ## 0.3.0 — 2026-10-13
 
 - Add a grouped List view alongside Board, sharing task data, filters and saved order while remembering the selected view and separate collapse preferences per host.

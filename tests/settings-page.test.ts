@@ -432,10 +432,16 @@ it("offers cancel binding on a card and respects disabled writes", () => {
 });
 
 it.each(["zh", "en"] as const)(
-  "saves archive days and both default destinations with localized configured hints in %s",
+  "saves independent archive rules and both default destinations in %s",
   async (language) => {
     const localized = strings(language);
-    const settings = settingsSchema.parse({ archiveAfterDays: 14 });
+    const settings = settingsSchema.parse({
+      archiveAfterDays: 14,
+      archiveCanceledAfterDays: 7,
+      archiveDoneAfterDays: 90,
+      archiveCanceledEnabled: true,
+      archiveDoneEnabled: false,
+    });
     const initial = board(settings);
     const mutate = vi.fn(async (input) => ({
       ...initial,
@@ -454,17 +460,25 @@ it.each(["zh", "en"] as const)(
         onBack: vi.fn(),
       });
     };
-    expect(findByTestId(render(), "workboard-auto-archive").props.hint).toBe(
-      localized.autoArchiveHint.replace("{days}", "14"),
-    );
-    const input = findByTestId(render(), "workboard-archive-days");
+    expect(
+      findByTestId(render(), "workboard-auto-archive-canceled").props.hint,
+    ).toContain(localized.archiveRuleHint.replace("{days}", "7"));
+    expect(
+      findByTestId(render(), "workboard-auto-archive-done").props.hint,
+    ).toContain(localized.archiveRuleHint.replace("{days}", "90"));
+    expect(
+      findByTestId(render(), "workboard-auto-archive-done").props.value,
+    ).toBe(false);
+    const input = findByTestId(render(), "workboard-archive-canceled-days");
+    expect(input.props.initialValue).toBe("7");
     (input.props.onChangeText as (value: string) => void)("0");
     expect(
-      findByTestId(render(), "workboard-save-archive-days").props.disabled,
+      findByTestId(render(), "workboard-save-archive-canceled-days").props
+        .disabled,
     ).toBe(true);
     (input.props.onChangeText as (value: string) => void)("21");
     await (
-      findByTestId(render(), "workboard-save-archive-days").props
+      findByTestId(render(), "workboard-save-archive-canceled-days").props
         .onPress as () => Promise<void>
     )();
     expect(mutate).toHaveBeenLastCalledWith(
@@ -472,9 +486,9 @@ it.each(["zh", "en"] as const)(
         action: "settings",
         revision: 7,
         expectedSettings: settings,
-        settings: { ...settings, archiveAfterDays: 21 },
+        settings: { ...settings, archiveCanceledAfterDays: 21 },
       },
-      "settings:days",
+      "settings:canceled-archive-days",
     );
     for (const [testID, key, value] of [
       ["workboard-default-draft", "defaultDraftGroup", "todo"],
@@ -501,9 +515,53 @@ it.each(["zh", "en"] as const)(
       );
     }
     for (const kind of ["done", "canceled"] as const) {
-      expect(localized.groupTypeHints[kind]).toContain("{days}");
-      expect(localized.groupTypeHints[kind]).not.toContain("30");
+      expect(localized.groupTypeHints[kind]).not.toContain("{days}");
     }
+  },
+);
+
+it.each(["zh", "en"] as const)(
+  "enables and disables Done and Canceled archive rules independently in %s",
+  async (language) => {
+    const localized = strings(language);
+    const settings = settingsSchema.parse({
+      autoArchive: true,
+      archiveCanceledEnabled: true,
+      archiveDoneEnabled: false,
+    });
+    const initial = board(settings);
+    const saved = {
+      ...initial,
+      revision: 8,
+      settings: { ...settings, archiveDoneEnabled: true },
+    };
+    const mutate = vi.fn().mockResolvedValue(saved);
+    const toggle = findByTestId(
+      SettingsPage({
+        board: initial,
+        t: localized,
+        theme,
+        disabled: false,
+        saving: false,
+        mutate,
+        onBack: vi.fn(),
+      }),
+      "workboard-auto-archive-done",
+    );
+
+    await (
+      toggle.props as { onValueChange(nextValue: boolean): Promise<void> }
+    ).onValueChange(true);
+
+    expect(mutate).toHaveBeenCalledWith(
+      {
+        action: "settings",
+        revision: 7,
+        expectedSettings: settings,
+        settings: { ...settings, archiveDoneEnabled: true },
+      },
+      "settings:done-archive",
+    );
   },
 );
 
@@ -703,7 +761,10 @@ it.each(["zh", "en"] as const)(
         "due archive confirmation",
       );
       expect(confirmation.props.description).toBe(
-        localized.enableAutoArchiveConfirm.replace("{count}", "1"),
+        localized.enableAutoArchiveConfirm
+          .replace("{count}", "1")
+          .replace("{canceled}", "1")
+          .replace("{done}", "0"),
       );
       await (confirmation.props.onConfirm as () => Promise<boolean>)();
       await test.board.refresh();

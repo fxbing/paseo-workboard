@@ -75,6 +75,8 @@ type DraftForm = {
   projectId: string | null;
 } | null;
 type StartForm = { card: Card; stage?: Stage } | null;
+const ARCHIVE_RULE_KINDS = ["canceled", "done"] as const;
+type ArchiveRuleKind = (typeof ARCHIVE_RULE_KINDS)[number];
 type MoveUndo = {
   group: Pick<Group, "id" | "kind" | "label">;
   card: Card;
@@ -2302,10 +2304,9 @@ export function SettingsPage({
     settings: board.settings,
     revision: board.revision,
   });
-  const [archiveDaysEdit, setArchiveDaysEdit] = useState<{
-    base: number;
-    text: string;
-  } | null>(null);
+  const [archiveDaysEdits, setArchiveDaysEdits] = useState<
+    Partial<Record<ArchiveRuleKind, { base: number; text: string }>>
+  >({});
   const [confirmAutoArchive, setConfirmAutoArchive] = useState(false);
   const current =
     board.revision > confirmed.revision
@@ -2313,12 +2314,6 @@ export function SettingsPage({
       : confirmed;
   const settings = current.settings;
   const groups = settings.groups;
-  const daysText =
-    archiveDaysEdit?.base === settings.archiveAfterDays
-      ? archiveDaysEdit.text
-      : String(settings.archiveAfterDays);
-  const validDays =
-    /^\d+$/.test(daysText) && Number(daysText) >= 1 && Number(daysText) <= 365;
   const preview = mappingPreview(board.cards, settings, Date.now());
   const controlDisabled = (id: string) =>
     disabled || !!pendingMutationIds?.has(`settings:${id}`);
@@ -2362,10 +2357,7 @@ export function SettingsPage({
               <SettingsSwitch
                 label={t.autoArchive}
                 hint={[
-                  t.autoArchiveHint.replace(
-                    "{days}",
-                    String(settings.archiveAfterDays),
-                  ),
+                  t.autoArchiveHint,
                   settings.archiveMappingNeedsReview
                     ? t.autoArchiveMigrationPaused
                     : "",
@@ -2383,41 +2375,106 @@ export function SettingsPage({
                 disabled={controlDisabled("archive")}
                 testID="workboard-auto-archive"
               />
-              <SettingsInput
-                key={settings.archiveAfterDays}
-                label={t.archiveAfterDays}
-                hint={t.archiveAfterDaysHint}
-                initialValue={String(settings.archiveAfterDays)}
-                onChangeText={(text) =>
-                  setArchiveDaysEdit({ base: settings.archiveAfterDays, text })
-                }
-                error={validDays ? null : t.archiveAfterDaysInvalid}
-                disabled={controlDisabled("days")}
-                testID="workboard-archive-days"
-              />
-              <SettingsAction
-                label={t.archiveAfterDays}
-                actionLabel={t.save}
-                onPress={async () => {
-                  if (
-                    validDays &&
-                    (await persist(
-                      {
-                        ...settings,
-                        archiveAfterDays: Number(daysText),
-                      },
-                      "days",
-                    ))
-                  )
-                    setArchiveDaysEdit(null);
-                }}
-                disabled={
-                  controlDisabled("days") ||
-                  !validDays ||
-                  Number(daysText) === settings.archiveAfterDays
-                }
-                testID="workboard-save-archive-days"
-              />
+              {ARCHIVE_RULE_KINDS.map((kind) => {
+                const canceled = kind === "canceled";
+                const enabled = canceled
+                  ? settings.archiveCanceledEnabled
+                  : settings.archiveDoneEnabled;
+                const days = canceled
+                  ? (settings.archiveCanceledAfterDays ??
+                    settings.archiveAfterDays)
+                  : (settings.archiveDoneAfterDays ??
+                    settings.archiveAfterDays);
+                const edit = archiveDaysEdits[kind];
+                const daysText = edit?.base === days ? edit.text : String(days);
+                const validDays =
+                  /^\d+$/.test(daysText) &&
+                  Number(daysText) >= 1 &&
+                  Number(daysText) <= 365;
+                const control = `${kind}-archive`;
+                const daysControl = `${kind}-archive-days`;
+                return (
+                  <View key={kind} style={styles.archiveRule}>
+                    <SettingsSwitch
+                      label={canceled ? t.archiveCanceled : t.archiveDone}
+                      hint={[
+                        t.archiveRuleHint.replace("{days}", String(days)),
+                        settings.autoArchive ? "" : t.archiveRuleInactive,
+                      ]
+                        .filter(Boolean)
+                        .join("\n")}
+                      value={enabled}
+                      onValueChange={async (value) => {
+                        await persist(
+                          canceled
+                            ? {
+                                ...settings,
+                                archiveCanceledEnabled: value,
+                              }
+                            : { ...settings, archiveDoneEnabled: value },
+                          control,
+                        );
+                      }}
+                      disabled={controlDisabled(control)}
+                      testID={`workboard-auto-archive-${kind}`}
+                    />
+                    <SettingsInput
+                      key={`${kind}-${days}`}
+                      label={
+                        canceled
+                          ? t.archiveCanceledAfterDays
+                          : t.archiveDoneAfterDays
+                      }
+                      hint={t.archiveDaysHint}
+                      initialValue={String(days)}
+                      onChangeText={(text) =>
+                        setArchiveDaysEdits((current) => ({
+                          ...current,
+                          [kind]: { base: days, text },
+                        }))
+                      }
+                      error={validDays ? null : t.archiveDaysInvalid}
+                      disabled={controlDisabled(daysControl)}
+                      testID={`workboard-archive-${kind}-days`}
+                    />
+                    <SettingsAction
+                      label={
+                        canceled
+                          ? t.archiveCanceledAfterDays
+                          : t.archiveDoneAfterDays
+                      }
+                      actionLabel={t.save}
+                      onPress={async () => {
+                        if (
+                          validDays &&
+                          (await persist(
+                            canceled
+                              ? {
+                                  ...settings,
+                                  archiveCanceledAfterDays: Number(daysText),
+                                }
+                              : {
+                                  ...settings,
+                                  archiveDoneAfterDays: Number(daysText),
+                                },
+                            daysControl,
+                          ))
+                        )
+                          setArchiveDaysEdits((current) => ({
+                            ...current,
+                            [kind]: undefined,
+                          }));
+                      }}
+                      disabled={
+                        controlDisabled(daysControl) ||
+                        !validDays ||
+                        Number(daysText) === days
+                      }
+                      testID={`workboard-save-archive-${kind}-days`}
+                    />
+                  </View>
+                );
+              })}
               <SettingsSelect
                 label={t.defaultDraftGroupSetting}
                 value={
@@ -2546,6 +2603,16 @@ export function SettingsPage({
                 >
                   {t.duePreview.replace("{count}", String(preview.due))}
                 </Text>
+                <Text
+                  style={[
+                    styles.hintText,
+                    { color: theme.colors.statusWarning },
+                  ]}
+                >
+                  {t.duePreviewBreakdown
+                    .replace("{canceled}", String(preview.dueCanceled))
+                    .replace("{done}", String(preview.dueDone))}
+                </Text>
               </View>
             )}
           </View>
@@ -2554,10 +2621,10 @@ export function SettingsPage({
       {confirmAutoArchive && (
         <ConfirmationModal
           title={t.enableAutoArchive}
-          description={t.enableAutoArchiveConfirm.replace(
-            "{count}",
-            String(preview.due),
-          )}
+          description={t.enableAutoArchiveConfirm
+            .replace("{count}", String(preview.due))
+            .replace("{canceled}", String(preview.dueCanceled))
+            .replace("{done}", String(preview.dueDone))}
           confirmLabel={t.enable}
           disabled={disabled}
           t={t}
@@ -2762,6 +2829,7 @@ const styles = StyleSheet.create({
   settings: { padding: 16, paddingBottom: 24 },
   settingsContent: { width: "100%", maxWidth: 760, alignSelf: "center" },
   settingsPreview: { gap: 4 },
+  archiveRule: { gap: 0 },
   hintText: { fontSize: 13, lineHeight: 18 },
 });
 

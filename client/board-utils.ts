@@ -1,4 +1,5 @@
 import {
+  archiveDelayFor,
   archiveGate,
   isArchiveDue,
   defaultGroup,
@@ -161,7 +162,7 @@ export function mappingPreview(
   cards: readonly Card[],
   settings: Settings,
   now: number,
-): { affected: number; due: number } {
+): { affected: number; due: number; dueDone: number; dueCanceled: number } {
   return cards.reduce(
     (result, card) => {
       if (
@@ -176,21 +177,25 @@ export function mappingPreview(
         settings.defaultStartGroup,
       );
       if (stage !== card.stage) result.affected += 1;
+      const kind = groupKind(stage, settings.groups);
       if (
         archiveGate(card) !== null &&
         !card.archived &&
         !card.binding &&
         isArchiveDue(
-          groupKind(stage, settings.groups),
+          kind,
           archiveGate(card),
           now,
-          settings.archiveAfterDays,
+          archiveDelayFor(settings, kind),
         )
-      )
+      ) {
         result.due += 1;
+        if (kind === "done") result.dueDone += 1;
+        if (kind === "canceled") result.dueCanceled += 1;
+      }
       return result;
     },
-    { affected: 0, due: 0 },
+    { affected: 0, due: 0, dueDone: 0, dueCanceled: 0 },
   );
 }
 

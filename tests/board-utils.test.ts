@@ -459,10 +459,20 @@ describe("board card selection", () => {
         conversationStatus: "unknown",
         lastConversationAt: "2025-01-01T00:00:00Z",
       }),
+      card({
+        id: "canceled",
+        stage: "canceled",
+        labels: ["canceled"],
+        conversationStatus: "known",
+        conversationDisplayEvidence: "exact",
+        conversationGateEvidence: "exact",
+        conversationGateAt: "2025-01-01T00:00:00Z",
+        lastConversationAt: "2025-01-01T00:00:00Z",
+      }),
     ];
     expect(
       mappingPreview(cards, settings, Date.parse("2026-02-01T00:00:00Z")),
-    ).toEqual({ affected: 1, due: 1 });
+    ).toEqual({ affected: 1, due: 2, dueDone: 1, dueCanceled: 1 });
   });
 });
 

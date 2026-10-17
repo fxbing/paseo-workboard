@@ -12,6 +12,12 @@ it("uses the configured archive delay, with bounded integer settings and a stric
   expect(settingsSchema.parse({}).archiveAfterDays).toBe(30);
   for (const archiveAfterDays of [0, 366, 1.5])
     expect(settingsSchema.safeParse({ archiveAfterDays }).success).toBe(false);
+  for (const field of [
+    "archiveCanceledAfterDays",
+    "archiveDoneAfterDays",
+  ] as const)
+    for (const days of [0, 366, 1.5])
+      expect(settingsSchema.safeParse({ [field]: days }).success).toBe(false);
   expect(archiveDueAt("2026-09-20T00:00:00Z", 2)).toBe(
     "2026-09-22T00:00:00.000Z",
   );
@@ -40,6 +46,63 @@ it("uses the configured archive delay, with bounded integer settings and a stric
     }
   }
 });
+
+it.each([
+  {
+    name: "Canceled only",
+    settings: {
+      archiveCanceledAfterDays: 2,
+      archiveDoneAfterDays: 4,
+    },
+    expected: "canceled",
+  },
+  {
+    name: "Done only",
+    settings: {
+      archiveCanceledEnabled: false,
+      archiveDoneAfterDays: 2,
+    },
+    expected: "done",
+  },
+] as const)(
+  "applies independent terminal archive rules: $name",
+  async ({ settings, expected }) => {
+    const test = fixture({
+      settings: settingsSchema.parse({
+        autoArchive: true,
+        archiveCanceledEnabled: true,
+        archiveDoneEnabled: true,
+        ...settings,
+      }),
+    });
+    for (const stage of ["canceled", "done"] as const) {
+      test.inventory.workspaces.push(
+        workspace(stage, stage, [`task:${stage}`]),
+      );
+      test.inventory.agents.push({
+        id: `agent-${stage}`,
+        workspaceId: stage,
+        title: null,
+        activity: "idle",
+        updatedAt: "2026-09-20T00:00:00Z",
+        lastUserMessageAt: "2026-09-20T00:00:00Z",
+      });
+    }
+    test.host.conversation = agentEvidence("2026-09-20T00:00:00Z");
+    try {
+      await test.board.start();
+      expect(test.host.archive).toHaveBeenCalledExactlyOnceWith(expected);
+      if (expected === "done")
+        expect(
+          test.board
+            .snapshot()
+            .cards.find((card) => card.workspaceId === "canceled")?.dueAt,
+        ).toBeNull();
+    } finally {
+      test.board.dispose();
+    }
+  },
+);
 
 it("routes new drafts and unlabeled workspaces through explicit defaults and falls back for removed ids", async () => {
   const groups = [

@@ -6,6 +6,7 @@ import {
   DEFAULT_LABELS,
   DEFAULT_GROUPS,
   resolveStage,
+  archiveDelayFor,
   archiveDueAt,
   archiveGate,
   conversationStatusFor,
@@ -44,6 +45,28 @@ describe("task stages and conversation-based expiry", () => {
     expect(isArchiveDue("inbox", conversation, boundary + 1)).toBe(false);
     expect(isArchiveDue("conflict", conversation, boundary + 1)).toBe(false);
     expect(isArchiveDue("done", null, boundary + 1)).toBe(false);
+    expect(isArchiveDue("done", conversation, boundary + 1, null)).toBe(false);
+  });
+  it("uses the shared legacy delay as each terminal rule's fallback", () => {
+    const legacy = settingsSchema.parse({ archiveAfterDays: 14 });
+    expect(legacy).toMatchObject({
+      archiveCanceledEnabled: true,
+      archiveDoneEnabled: true,
+      archiveCanceledAfterDays: null,
+      archiveDoneAfterDays: null,
+    });
+    expect(archiveDelayFor(legacy, "canceled")).toBe(14);
+    expect(archiveDelayFor(legacy, "done")).toBe(14);
+    expect(archiveDelayFor(legacy, "todo")).toBeNull();
+
+    const split = settingsSchema.parse({
+      archiveAfterDays: 30,
+      archiveCanceledAfterDays: 7,
+      archiveDoneAfterDays: 90,
+      archiveDoneEnabled: false,
+    });
+    expect(archiveDelayFor(split, "canceled")).toBe(7);
+    expect(archiveDelayFor(split, "done")).toBeNull();
   });
   it("keeps one stored settings version for the schema and its registration", () => {
     expect(dataSchema.parse({}).schemaVersion).toBe(DATA_SCHEMA_VERSION);
