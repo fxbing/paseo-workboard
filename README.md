@@ -12,7 +12,7 @@ Workboard is a Paseo plugin with board and grouped-list views for workspaces and
 - Keep drafts without a workspace, directory, Agent, or conversation.
 - Use groups and managed workspace labels as the task status; move cards or change a native label to update the same status.
 - See Agent activity separately from task status. An Agent finishing does **not** complete a task.
-- Optionally move an In progress task to Review after a successful Agent turn completes.
+- Optionally move an In progress task to Review after a successful turn in the tab you are using.
 - Follow Paseo's desktop language for Chinese and English UI text and dates.
 - Review compact PR/MR, CI, and review-decision information supplied by Paseo.
 - Switch between a board and a grouped list. Both views share tasks, group order, task order, and filters; each remembers its own collapsed groups. The board also supports column width and a single-group narrow layout.

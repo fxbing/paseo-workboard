@@ -86,6 +86,11 @@ export interface Inventory {
   agents: Agent[];
   projects: Board["projects"];
 }
+/** One completed Agent turn, kept with its workspace so automation can follow the tab. */
+export interface TurnCompletion {
+  workspaceId: string;
+  agentId: string;
+}
 export interface Host {
   identity: { serverId: string; version: string };
   inventory(): Promise<Inventory>;
@@ -111,7 +116,7 @@ export interface Host {
   archive(
     id: string,
   ): Promise<{ archivedAt: string | null; error: string | null }>;
-  takeTurnCompletions(): ReadonlySet<string>;
+  takeTurnCompletions(): readonly TurnCompletion[];
   dispose(): void;
 }
 interface Page<T> {
@@ -165,7 +170,7 @@ export class PaseoHost implements Host {
   private workspaceUpdates = new Map<string, Workspace | null>();
   private agentUpdates = new Map<string, Agent | null>();
   private agentWorkspaces = new Map<string, string | undefined>();
-  private turnCompletions = new Set<string>();
+  private turnCompletions = new Map<string, TurnCompletion>();
   /** Provider children per parent, keyed by the parent activity Paseo last reported. */
   private childRecords = new Map<string, ChildRecord>();
   constructor(
@@ -219,7 +224,10 @@ export class PaseoHost implements Host {
         this.agentWorkspaces.get(agentId) ??
         this.agentUpdates.get(agentId)?.workspaceId;
       if (event.type === "turn_completed" && workspaceId) {
-        this.turnCompletions.add(workspaceId);
+        this.turnCompletions.set(`${workspaceId}\u0000${agentId}`, {
+          workspaceId,
+          agentId,
+        });
         this.changed(workspaceId);
       }
     } else if (message.type === "agent.provider_subagents.update") {
@@ -234,8 +242,8 @@ export class PaseoHost implements Host {
       this.changed(this.agentWorkspaces.get(parentAgentId));
     }
   }
-  takeTurnCompletions(): ReadonlySet<string> {
-    const completed = new Set(this.turnCompletions);
+  takeTurnCompletions(): readonly TurnCompletion[] {
+    const completed = [...this.turnCompletions.values()];
     this.turnCompletions.clear();
     return completed;
   }

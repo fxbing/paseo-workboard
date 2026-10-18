@@ -272,11 +272,13 @@ it("queues only successful turn completions for their workspace", async () => {
 
     stream("turn_failed");
     stream("turn_canceled");
-    expect(host.takeTurnCompletions()).toEqual(new Set());
+    expect(host.takeTurnCompletions()).toEqual([]);
     stream("turn_completed");
     expect(changed).toHaveBeenLastCalledWith("w1");
-    expect(host.takeTurnCompletions()).toEqual(new Set(["w1"]));
-    expect(host.takeTurnCompletions()).toEqual(new Set());
+    expect(host.takeTurnCompletions()).toEqual([
+      { workspaceId: "w1", agentId: "parent" },
+    ]);
+    expect(host.takeTurnCompletions()).toEqual([]);
   } finally {
     host.dispose();
   }

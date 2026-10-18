@@ -69,6 +69,28 @@ const sameOrder = (left: readonly string[], right: readonly string[]) =>
   left.every((value, index) => value === right[index]);
 const hidden = (task: Task) =>
   task.archived?.status === "archived" || task.archived?.status === "external";
+/**
+ * Paseo publishes no daemon-side "selected tab", so the tab the user most recently
+ * addressed stands in for it: a workspace's card follows the conversation being used.
+ */
+function latestTab(agents: readonly Agent[]): Agent | undefined {
+  const tabs = agents.filter((agent) => !agent.parentAgentId);
+  const addressed = tabs.filter((agent) =>
+    Number.isFinite(Date.parse(agent.lastUserMessageAt ?? "")),
+  );
+  const pool = addressed.length ? addressed : tabs;
+  let latest: Agent | undefined;
+  let latestTime = -Infinity;
+  for (const agent of pool) {
+    const stamp = Date.parse(
+      (addressed.length ? agent.lastUserMessageAt : agent.updatedAt) ?? "",
+    );
+    if (!Number.isFinite(stamp) || stamp <= latestTime) continue;
+    latest = agent;
+    latestTime = stamp;
+  }
+  return latest;
+}
 
 function projectChangeRequest(workspace?: Workspace): Card["changeRequest"] {
   const runtime = workspace?.githubRuntime;
@@ -121,7 +143,7 @@ export class Workboard {
       fingerprint: string;
     }
   >();
-  private pendingReviewTurns = new Set<string>();
+  private pendingReviewTurns = new Map<string, string>();
   private connected = false;
   private error: string | null = "Workboard is starting";
   private refreshedAt: string | null = null;
@@ -174,8 +196,8 @@ export class Workboard {
       for (const task of bindings)
         this.bindingInFlight.delete(task.binding!.operationId);
       await this.reconcile();
-      for (const id of this.host.takeTurnCompletions())
-        this.pendingReviewTurns.add(id);
+      for (const completion of this.host.takeTurnCompletions())
+        this.pendingReviewTurns.set(completion.workspaceId, completion.agentId);
       await this.autoReviewCompletedTurns();
       await this.scan();
     });
@@ -206,8 +228,11 @@ export class Workboard {
       try {
         if (!this.connected) await this.load();
         await this.reconcile(scope);
-        for (const id of this.host.takeTurnCompletions())
-          this.pendingReviewTurns.add(id);
+        for (const completion of this.host.takeTurnCompletions())
+          this.pendingReviewTurns.set(
+            completion.workspaceId,
+            completion.agentId,
+          );
         await this.autoReviewCompletedTurns();
         await this.scan(scope);
       } catch (error) {
@@ -1368,7 +1393,9 @@ export class Workboard {
       this.pendingReviewTurns.clear();
       return;
     }
-    for (const workspaceId of [...this.pendingReviewTurns]) {
+    for (const [workspaceId, completedAgentId] of [
+      ...this.pendingReviewTurns,
+    ]) {
       const workspace = this.inventory.workspaces.find(
         (candidate) => candidate.id === workspaceId,
       );
@@ -1402,16 +1429,18 @@ export class Workboard {
         this.pendingReviewTurns.delete(workspaceId);
         continue;
       }
-      if (agents.some((agent) => agent.activity === "error")) {
+      // Only the tab the user is actually using drives the card, so a parallel tab in the
+      // same workspace neither blocks the move nor pushes the card into Review on its own.
+      const owner = latestTab(agents);
+      if (!owner || owner.id !== completedAgentId) {
         this.pendingReviewTurns.delete(workspaceId);
         continue;
       }
-      if (
-        agents.some(
-          (agent) =>
-            agent.activity === "running" || agent.activity === "waiting",
-        )
-      )
+      if (owner.activity === "error") {
+        this.pendingReviewTurns.delete(workspaceId);
+        continue;
+      }
+      if (owner.activity === "running" || owner.activity === "waiting")
         continue;
       try {
         const next = await this.transition(

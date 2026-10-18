@@ -7,6 +7,7 @@ import type {
   ConversationEvidence,
   Host,
   Inventory,
+  TurnCompletion,
   Workspace,
 } from "../server/host";
 
@@ -55,7 +56,7 @@ export function fixture(initial: Partial<Data> = {}) {
   };
   const inventory: Inventory = { workspaces: [], agents: [], projects: [] };
   const created = new Map<string, string>();
-  const turnCompletions = new Set<string>();
+  const turnCompletions: TurnCompletion[] = [];
   let pinWrites = 0;
   const host: Host = {
     identity: { serverId: "fixture-host", version: "0.9.1" },
@@ -86,11 +87,7 @@ export function fixture(initial: Partial<Data> = {}) {
       return { archivedAt: new Date(now()).toISOString(), error: null };
     }),
     safety: async () => null,
-    takeTurnCompletions: () => {
-      const completed = new Set(turnCompletions);
-      turnCompletions.clear();
-      return completed;
-    },
+    takeTurnCompletions: () => turnCompletions.splice(0),
     dispose: vi.fn(),
   };
   const now = () => Date.parse("2026-09-23T00:00:00Z");
@@ -104,6 +101,20 @@ export function fixture(initial: Partial<Data> = {}) {
     backing,
     now,
     turnCompletions,
+    /** Queue one completed turn, defaulting to the workspace's most recently updated tab. */
+    completeTurn(workspaceId: string, agentId?: string) {
+      const agents = inventory.agents.filter(
+        (agent) => agent.workspaceId === workspaceId && !agent.archivedAt,
+      );
+      const chosen =
+        agentId ??
+        agents
+          .filter((agent) => Number.isFinite(Date.parse(agent.updatedAt)))
+          .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
+          ?.id;
+      if (!chosen) throw new Error(`No Agent in workspace ${workspaceId}`);
+      turnCompletions.push({ workspaceId, agentId: chosen });
+    },
   };
 }
 export function workspace(

@@ -7,6 +7,10 @@ All notable changes are documented here.
 ## Unreleased
 
 - Add an opt-in automatic transition from In progress to Review after Paseo reports a successful Agent turn completion, with a configurable Review destination.
+- Add independent enable controls and delays for Done and Canceled automatic archive, with per-state due counts and a compatibility fallback for the former shared delay.
+- Ignore historical Agent errors when newer healthy activity exists in the same workspace.
+- Let the opt-in Review automation ignore historical Agent errors that newer healthy activity has superseded, so a recovered workspace can still move to Review.
+- Follow the most recently addressed tab when deciding automatic Review moves, so a workspace's parallel tabs neither block the move nor trigger it on their own.
 
 ## 0.3.0 — 2026-10-13
 
