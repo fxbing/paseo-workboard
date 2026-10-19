@@ -235,7 +235,7 @@ it("keeps an agent removal scoped to its last known workspace", async () => {
       observers[1].update({
         type: "agent_update",
         payload: { kind: "remove", agentId },
-      } as Parameters<SubscriptionObserver<unknown>["update"]>[0]);
+      } as unknown as Parameters<SubscriptionObserver<unknown>["update"]>[0]);
     remove("parent");
     expect(changed).toHaveBeenLastCalledWith("w1");
     remove("unknown");
@@ -268,7 +268,7 @@ it("queues only successful turn completions for their workspace", async () => {
             ...(type === "turn_canceled" ? { reason: "canceled" } : {}),
           },
         },
-      } as Parameters<SubscriptionObserver<unknown>["update"]>[0]);
+      } as unknown as Parameters<SubscriptionObserver<unknown>["update"]>[0]);
 
     stream("turn_failed");
     stream("turn_canceled");
@@ -278,6 +278,73 @@ it("queues only successful turn completions for their workspace", async () => {
     expect(host.takeTurnCompletions()).toEqual([
       { workspaceId: "w1", agentId: "parent" },
     ]);
+    expect(host.takeTurnCompletions()).toEqual([]);
+  } finally {
+    host.dispose();
+  }
+});
+
+it("queues a completion when an Agent settles from running to idle", async () => {
+  const changed = vi.fn();
+  const observers: SubscriptionObserver<unknown>[] = [];
+  const host = providerHost(
+    parentAgent,
+    { subagents: async () => [] } as unknown as PaseoCompat,
+    changed,
+    observers,
+  );
+  try {
+    await host.inventory();
+    expect(host.takeTurnCompletions()).toEqual([]);
+    const upsert = (patch: Record<string, unknown>) =>
+      observers[1].update({
+        type: "agent_update",
+        payload: {
+          kind: "upsert",
+          agent: {
+            ...parentAgent,
+            updatedAt: "2026-08-03T00:00:01.000Z",
+            ...patch,
+          },
+        },
+      } as unknown as Parameters<SubscriptionObserver<unknown>["update"]>[0]);
+
+    upsert({ status: "running", activeTurn: { id: "turn" } });
+    expect(host.takeTurnCompletions()).toEqual([]);
+    upsert({ status: "idle" });
+    expect(host.takeTurnCompletions()).toEqual([
+      { workspaceId: "w1", agentId: "parent" },
+    ]);
+    expect(host.takeTurnCompletions()).toEqual([]);
+  } finally {
+    host.dispose();
+  }
+});
+
+it("does not treat a failed turn as a completed one", async () => {
+  const observers: SubscriptionObserver<unknown>[] = [];
+  const host = providerHost(
+    parentAgent,
+    { subagents: async () => [] } as unknown as PaseoCompat,
+    vi.fn(),
+    observers,
+  );
+  try {
+    await host.inventory();
+    const upsert = (patch: Record<string, unknown>) =>
+      observers[1].update({
+        type: "agent_update",
+        payload: {
+          kind: "upsert",
+          agent: {
+            ...parentAgent,
+            updatedAt: "2026-08-03T00:00:01.000Z",
+            ...patch,
+          },
+        },
+      } as unknown as Parameters<SubscriptionObserver<unknown>["update"]>[0]);
+    upsert({ status: "running", activeTurn: { id: "turn" } });
+    upsert({ status: "error", lastError: "boom" });
     expect(host.takeTurnCompletions()).toEqual([]);
   } finally {
     host.dispose();

@@ -171,6 +171,11 @@ export class PaseoHost implements Host {
   private agentUpdates = new Map<string, Agent | null>();
   private agentWorkspaces = new Map<string, string | undefined>();
   private turnCompletions = new Map<string, TurnCompletion>();
+  /**
+   * Last activity reported per Agent. Paseo streams `turn_completed` only to timeline
+   * subscribers, so the agents subscription's activity transitions carry that signal.
+   */
+  private lastActivity = new Map<string, Card["activity"]>();
   /** Provider children per parent, keyed by the parent activity Paseo last reported. */
   private childRecords = new Map<string, ChildRecord>();
   constructor(
@@ -206,13 +211,16 @@ export class PaseoHost implements Host {
     } else if (message.type === "agent_update") {
       const change = message.payload;
       if (change.kind === "upsert") {
-        this.agentUpdates.set(change.agent.id, {
+        const next = {
           ...change.agent,
           activity: activity(change.agent),
-        });
+        };
+        this.agentUpdates.set(change.agent.id, next);
+        this.trackCompletion(next);
         this.changed(change.agent.workspaceId);
       } else {
         this.childRecords.delete(change.agentId);
+        this.lastActivity.delete(change.agentId);
         this.agentUpdates.set(change.agentId, null);
         const workspaceId = this.agentWorkspaces.get(change.agentId);
         this.agentWorkspaces.delete(change.agentId);
@@ -246,6 +254,17 @@ export class PaseoHost implements Host {
     const completed = [...this.turnCompletions.values()];
     this.turnCompletions.clear();
     return completed;
+  }
+  private trackCompletion(agent: Agent): void {
+    const previous = this.lastActivity.get(agent.id);
+    this.lastActivity.set(agent.id, agent.activity);
+    if (!previous || !agent.workspaceId || agent.archivedAt) return;
+    if (previous !== "running" && previous !== "waiting") return;
+    if (agent.activity !== "idle" && agent.activity !== "attention") return;
+    this.turnCompletions.set(`${agent.workspaceId}\u0000${agent.id}`, {
+      workspaceId: agent.workspaceId,
+      agentId: agent.id,
+    });
   }
   async inventory(): Promise<Inventory> {
     if (this.disposed) throw new Error("Workboard stopped");
@@ -327,6 +346,8 @@ export class PaseoHost implements Host {
     }
     for (const agent of [...agentMap.values()]) {
       this.agentWorkspaces.set(agent.id, agent.workspaceId);
+      if (!agent.parentAgentId && !this.lastActivity.has(agent.id))
+        this.lastActivity.set(agent.id, agent.activity);
       if (!agent.workspaceId || !workspaceMap.has(agent.workspaceId)) continue;
       const record = await this.childRecord(agent);
       agent.childEnumeration = record.refused
