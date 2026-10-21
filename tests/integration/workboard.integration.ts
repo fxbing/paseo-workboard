@@ -1040,7 +1040,9 @@ describe("isolated Paseo workboard", () => {
     expect(card.lastConversationAt).toBe(recordedAt);
     expect(card.conversationGateEvidence).toBe("upper-bound");
     expect(card.conversationGateAt).toBe(recordedAt);
-    expect(card.conversationReason).toBe("child-enumeration-unavailable");
+    // An archived parent is idle, so the plugin answers from the recorded bounds instead
+    // of reading a history that would resume the archived agent's provider.
+    expect(card.conversationReason).toBe("inactive-metadata");
     expect(Date.parse(card.dueAt!)).toBeGreaterThan(Date.now());
     expect(card.archived).toBeNull();
   });

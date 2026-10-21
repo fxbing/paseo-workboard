@@ -4,6 +4,12 @@
 
 All notable changes are documented here.
 
+## Unreleased
+
+- Stop waking idle agents: only a running or waiting agent is asked about its history, and an idle agent answers from the host's recorded bounds instead of a resumed provider session.
+- Keep provider children out of the refresh path: an idle parent's children are not listed, a child is not read while its parent is idle, and the children seen while the parent was live are kept.
+- Add the `inactive-metadata` conversation reason, migrate stored settings to schema version 9 and let an idle parent's unlisted child keep the archive gate on the parent's own bound.
+
 ## 0.3.0 — 2026-10-13
 
 - Add a grouped List view alongside Board, sharing task data, filters and saved order while remembering the selected view and separate collapse preferences per host.

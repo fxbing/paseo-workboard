@@ -4,6 +4,12 @@ English: [English](CHANGELOG.md)
 
 所有重要变更记录于此。
 
+## Unreleased
+
+- 不再唤醒空闲 agent：只有 running 或 waiting 的 agent 才会被询问历史，空闲 agent 改用宿主记录的上下界作答，不再恢复它的 provider 进程。
+- provider 子 agent 退出刷新路径：空闲 parent 不再列举子 agent，父 agent 空闲时也不读子 agent 时间线，父 agent 活跃时见过的子 agent 予以保留。
+- 新增 `inactive-metadata` 对话原因，存量设置迁移到 schema version 9；空闲 parent 未列举的子 agent 不再阻塞归档门禁，改由 parent 自身的边界把关。
+
 ## 0.3.0 — 2026-10-13
 
 - 新增分组列表视图，与看板共享任务、筛选及已保存顺序，按 host 记住视图选择，并分别保存折叠偏好。

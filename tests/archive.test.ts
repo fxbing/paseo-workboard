@@ -260,7 +260,8 @@ it("keeps native timeout/partial failure uncertain across restart and never send
 
 /**
  * A child that vanished before its time was recorded leaves the timeline unreadable, so the
- * gate may never go back before an observation that was actually recorded.
+ * gate may never go back before an observation that was actually recorded. Only an active
+ * parent is enumerated, so only an active parent can lose a child.
  */
 function vanishedChildFixture(lastObservedAt: string | null) {
   const test = fixture({
@@ -287,7 +288,7 @@ function vanishedChildFixture(lastObservedAt: string | null) {
     title: null,
     updatedAt: "2026-08-01T00:00:00Z",
     lastUserMessageAt: "2026-08-01T00:00:00Z",
-    activity: "idle",
+    activity: "running",
   });
   test.host.conversation = agentEvidence("2026-08-01T00:00:00Z");
   return test;
@@ -322,6 +323,31 @@ it("refuses the gate when a vanished child has no recorded time", async () => {
     expect(card.conversationReason).toBe("child-enumeration-unavailable");
     expect(card.conversationStatus).toBe("known");
     expect(test.host.archive).not.toHaveBeenCalled();
+  } finally {
+    test.board.dispose();
+  }
+});
+
+it("keeps an idle parent's unlisted child from blocking the archive gate", async () => {
+  const test = vanishedChildFixture(null);
+  test.inventory.agents[0].activity = "idle";
+  test.host.conversation = async (agent) => ({
+    displayAt: agent.lastUserMessageAt,
+    display: "lower-bound" as const,
+    gateAt: agent.updatedAt,
+    gate: "upper-bound" as const,
+    reason: "inactive-metadata" as const,
+  });
+  try {
+    await test.board.start();
+    const card = test.board
+      .snapshot()
+      .cards.find((c) => c.workspaceId === "old")!;
+    // An idle parent is never enumerated, so its child is unlisted rather than gone and
+    // the parent's own bound still gates the archive.
+    expect(card.conversationGateAt).toBe("2026-08-01T00:00:00.000Z");
+    expect(card.conversationGateEvidence).toBe("upper-bound");
+    expect(test.host.archive).toHaveBeenCalledExactlyOnceWith("old");
   } finally {
     test.board.dispose();
   }
@@ -453,22 +479,51 @@ it("defers an unknown verification timeline and retries after the deadline", asy
   const test = dueFixture();
   let clock = test.now();
   const board = new Workboard(test.host, test.store, () => clock);
-  test.host.conversation = vi.fn(async (_agent, _now, options) =>
-    options?.archivedTimeline
-      ? observed(null)
-      : observed("2026-08-01T00:00:00Z"),
-  );
+  // The scan sees a bound, but the recheck before archiving cannot prove one.
+  let reads = 0;
+  test.host.conversation = vi.fn(async () => {
+    reads += 1;
+    return reads === 1 ? observed("2026-08-01T00:00:00Z") : observed(null);
+  });
   try {
     await board.start();
     expect(board.snapshot().cards[0].issue).toBe("conversation-unknown");
     expect(test.host.conversation).toHaveBeenCalledTimes(2);
     clock += 59_999;
     await board.refresh();
-    expect(test.host.conversation).toHaveBeenCalledTimes(2);
-    test.host.conversation = vi.fn(agentEvidence("2026-08-01T00:00:00Z"));
+    // The deferred archive is not retried before its deadline.
+    expect(test.host.archive).not.toHaveBeenCalled();
+    expect(board.snapshot().cards[0].issue).toBe("conversation-unknown");
+    test.host.conversation = agentEvidence("2026-08-01T00:00:00Z");
     clock++;
     await board.refresh();
     expect(test.host.archive).toHaveBeenCalledExactlyOnceWith("old");
+  } finally {
+    board.dispose();
+  }
+});
+
+it("archives an idle task from its recorded metadata without asking the agent", async () => {
+  const { board, host } = dueFixture();
+  // An idle agent is never asked about its history, because the daemon would resume its
+  // provider process. Its recorded user message is a lower bound and its recorded
+  // activity an upper bound, and that upper bound may gate the archive.
+  host.conversation = async (agent) => ({
+    displayAt: agent.lastUserMessageAt,
+    display: "lower-bound" as const,
+    gateAt: agent.updatedAt,
+    gate: "upper-bound" as const,
+    reason: "inactive-metadata" as const,
+  });
+  try {
+    await board.start();
+    expect(host.archive).toHaveBeenCalledExactlyOnceWith("old");
+    expect(board.snapshot().cards[0]).toMatchObject({
+      conversationDisplayEvidence: "lower-bound",
+      conversationGateEvidence: "upper-bound",
+      conversationGateAt: "2026-08-01T00:00:00.000Z",
+      conversationReason: "inactive-metadata",
+    });
   } finally {
     board.dispose();
   }

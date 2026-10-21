@@ -1,11 +1,12 @@
-import type {
-  Board,
-  Card,
-  ConversationAgent,
-  ConversationDisplay,
-  ConversationGate,
-  ConversationReason,
-  StartInput,
+import {
+  isActiveAgent,
+  type Board,
+  type Card,
+  type ConversationAgent,
+  type ConversationDisplay,
+  type ConversationGate,
+  type ConversationReason,
+  type StartInput,
 } from "../shared/model";
 import type { ConversationWindow, TimelineReader } from "./conversations";
 import { readConversationTime } from "./conversations";
@@ -32,6 +33,8 @@ export type ProviderChild = Awaited<
 >[number];
 interface ChildRecord {
   parentUpdatedAt: string;
+  /** Whether the parent was active when this record was taken. */
+  parentActive: boolean;
   seenWhileLive: boolean;
   children: ProviderChild[];
   refused: boolean;
@@ -69,6 +72,8 @@ export type Agent = Pick<
   subagentId?: string;
   /** Whether this parent's provider children could be listed in this inventory. */
   childEnumeration?: "complete" | "refused" | "unavailable";
+  /** The parent agent's activity, for a provider child. */
+  parentActivity?: Card["activity"];
 };
 /**
  * One agent's conversation evidence. Display and gate stay separate because Paseo records
@@ -90,11 +95,7 @@ export interface Host {
   identity: { serverId: string; version: string };
   inventory(): Promise<Inventory>;
   workspace(id: string): Promise<Workspace | null>;
-  conversation(
-    agent: Agent,
-    now: number,
-    options?: { archivedTimeline?: boolean },
-  ): Promise<ConversationEvidence>;
+  conversation(agent: Agent, now: number): Promise<ConversationEvidence>;
   setLabel(
     workspaceId: string,
     name: string,
@@ -315,6 +316,7 @@ export class PaseoHost implements Host {
           id: `${agent.id}/provider/${child.id}`,
           workspaceId: agent.workspaceId,
           parentAgentId: agent.id,
+          parentActivity: agent.activity,
           subagentId: child.id,
           title: child.title,
           updatedAt: child.updatedAt,
@@ -342,15 +344,36 @@ export class PaseoHost implements Host {
    * Provider children are cached per parent activity. Re-listing them costs the daemon one
    * request per agent on every pass, and an archived parent cannot be re-listed at all, so
    * the children observed while it was live are kept instead of its chat going unknown.
+   *
+   * Listing a parent's children loads that parent, so an idle parent is never listed: its
+   * provider process must not be resumed by a refresh. The children seen while it was live
+   * stay in the inventory, and a parent that was never seen live has no known children.
    */
   private async childRecord(agent: Agent): Promise<ChildRecord> {
     const cached = this.childRecords.get(agent.id);
-    if (cached && cached.parentUpdatedAt === agent.updatedAt) return cached;
+    const active = isActiveAgent(agent.activity);
+    // A parent that woke up since the record was taken must be listed again, and a parent
+    // that fell asleep keeps the record so the daemon is not asked about it at all.
+    if (
+      cached &&
+      cached.parentUpdatedAt === agent.updatedAt &&
+      cached.parentActive === active
+    )
+      return cached;
     let record: ChildRecord;
     if (agent.archivedAt) {
       record = {
         parentUpdatedAt: agent.updatedAt,
+        parentActive: false,
         seenWhileLive: false,
+        children: cached?.children ?? [],
+        refused: true,
+      };
+    } else if (!active) {
+      record = {
+        parentUpdatedAt: agent.updatedAt,
+        parentActive: false,
+        seenWhileLive: cached?.seenWhileLive ?? false,
         children: cached?.children ?? [],
         refused: true,
       };
@@ -358,6 +381,7 @@ export class PaseoHost implements Host {
       try {
         record = {
           parentUpdatedAt: agent.updatedAt,
+          parentActive: true,
           seenWhileLive: true,
           children: await this.compat.subagents(agent.id),
           refused: false,
@@ -365,6 +389,7 @@ export class PaseoHost implements Host {
       } catch {
         record = {
           parentUpdatedAt: agent.updatedAt,
+          parentActive: true,
           seenWhileLive: false,
           children: cached?.children ?? [],
           refused: true,
@@ -379,15 +404,15 @@ export class PaseoHost implements Host {
     return value ? normalize(value) : null;
   }
   /**
-   * Read one agent's conversation evidence. `archivedTimeline` is opt-in because Paseo
-   * re-projects an archived agent's whole history on every read (7.2-19.3s for pi), which
-   * must not sit in the periodic refresh path; only the archive recheck asks for it.
+   * Read one agent's conversation evidence.
+   *
+   * Only an active agent may be asked: every per-agent daemon request resumes that
+   * agent's provider process, and the daemon never unloads it again, so a refresh that
+   * asked an idle agent would leave a resident provider behind. An idle agent therefore
+   * answers from the metadata the plugin already holds, and a provider child is asked
+   * only while its parent is active, because reading a child loads its parent.
    */
-  async conversation(
-    agent: Agent,
-    now: number,
-    options: { archivedTimeline?: boolean } = {},
-  ): Promise<ConversationEvidence> {
+  async conversation(agent: Agent, now: number): Promise<ConversationEvidence> {
     const isChild = Boolean(agent.parentAgentId && agent.subagentId);
     const parse = (value: string | null | undefined): number | null => {
       if (!value) return null;
@@ -434,8 +459,27 @@ export class PaseoHost implements Host {
         reason,
       };
     };
-    if (agent.archivedAt && !options.archivedTimeline)
-      return evidenceFor(recordedLower, null);
+    // A provider child's own activity comes from a provider descriptor, so the parent's
+    // activity decides whether the child may be asked at all.
+    const asked = isChild ? agent.parentActivity : agent.activity;
+    if (!isActiveAgent(asked ?? "idle")) {
+      if (isChild) {
+        // The child's descriptor timestamp is a hydration stamp, so it is not a
+        // conversation time, but it is never earlier than the child's last message and
+        // may therefore serve as the gate's upper bound.
+        const stamp = parse(agent.updatedAt);
+        return {
+          displayAt: null,
+          display: "unknown",
+          gateAt: stamp === null ? null : new Date(stamp).toISOString(),
+          gate: stamp === null ? "unknown" : "upper-bound",
+          reason: "inactive-metadata",
+        };
+      }
+      // The recorded bounds are the only evidence an idle agent can give: its recorded
+      // user message is a lower bound and its recorded activity an upper bound.
+      return evidenceFor(recordedLower, "inactive-metadata");
+    }
     let window: ConversationWindow;
     try {
       const read = isChild

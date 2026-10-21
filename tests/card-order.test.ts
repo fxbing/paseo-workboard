@@ -243,11 +243,11 @@ it("F08 admits only one concurrent CAS and keeps the loser from overwriting", as
     test.board.dispose();
   }
 });
-it.each([1, 2, 3, 4, 5, 6, 7])(
-  "F08 migrates v%s to v8 with empty top-level ordering",
+it.each([1, 2, 3, 4, 5, 6, 7, 8])(
+  "F08 migrates v%s to v9 with empty top-level ordering",
   (version) => {
     const result = migrateData({ schemaVersion: version }, version);
-    expect(result.schemaVersion).toBe(8);
+    expect(result.schemaVersion).toBe(9);
     expect(result.cardOrderByStage).toEqual({});
     expect(dataSchema.parse(result)).toEqual(result);
   },

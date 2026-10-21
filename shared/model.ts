@@ -268,8 +268,11 @@ export function conversationStatusFor(
 /**
  * The stored settings version. The plugin registers this same value, because the host only
  * migrates stored settings when the registered version differs from what it finds.
+ *
+ * Version 9 adds the `inactive-metadata` conversation reason, which records that an idle
+ * agent answered from its recorded metadata instead of from a history read.
  */
-export const DATA_SCHEMA_VERSION = 8;
+export const DATA_SCHEMA_VERSION = 9;
 
 export const sourceSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -326,6 +329,7 @@ export const CONVERSATION_REASONS = [
   "timeline-unreadable",
   "child-enumeration-unavailable",
   "child-timeline-unreadable",
+  "inactive-metadata",
 ] as const;
 export const conversationReasonSchema = z.enum(CONVERSATION_REASONS);
 export const conversationAgentSchema = z.object({
@@ -427,6 +431,15 @@ export const activitySchema = z.enum([
   "attention",
   "error",
 ]);
+export type Activity = z.infer<typeof activitySchema>;
+/**
+ * Only a running or waiting agent is active. Every other agent is idle at its provider, and
+ * the daemon resumes an idle agent's provider process whenever it is asked about it, so
+ * only an active agent may be asked.
+ */
+export function isActiveAgent(activity: Activity): boolean {
+  return activity === "running" || activity === "waiting";
+}
 export const pinStateSchema = z
   .enum(["none", "automatic", "manual"])
   .default("none");

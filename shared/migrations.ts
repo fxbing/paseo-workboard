@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   dataSchema,
+  DATA_SCHEMA_VERSION,
   DEFAULT_LABELS,
   DEFAULT_GROUPS,
   groupSchema,
@@ -199,10 +200,27 @@ function migrateV7(values: unknown) {
       settings: preV8Settings.default(() => preV8Settings.parse({})),
     })
     .parse(values);
-  return dataSchema.parse({
+  return migrateV8({
     ...previous,
     schemaVersion: 8,
     cardOrderByStage: {},
+  });
+}
+
+/**
+ * v9 adds the `inactive-metadata` conversation reason. Stored records keep the reasons
+ * they already have, so the migration only moves the version forward.
+ */
+function migrateV8(values: unknown) {
+  const previous = z
+    .object({
+      ...dataSchema.shape,
+      schemaVersion: z.literal(8).default(8),
+    })
+    .parse(values);
+  return dataSchema.parse({
+    ...previous,
+    schemaVersion: DATA_SCHEMA_VERSION,
   });
 }
 
@@ -278,6 +296,7 @@ export class InvalidStorageDataError extends Error {
 }
 
 function migrateDataUnsafe(values: unknown, fromVersion: number) {
+  if (fromVersion === 8) return migrateV8(values);
   if (fromVersion === 7) return migrateV7(values);
   if (fromVersion === 6) return migrateV6(values);
   if (fromVersion === 5) return migrateV5(values);

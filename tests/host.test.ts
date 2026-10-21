@@ -5,9 +5,8 @@ import type {
   SubscriptionObserver,
 } from "@getpaseo/client";
 import { allPages, PaseoHost } from "../server/host";
-import type { TimelineReader } from "../server/conversations";
 import type { PaseoCompat } from "../server/paseo-compat";
-import { workspace } from "./fixtures";
+import { providerHost, workspace } from "./fixtures";
 
 it("reads every page and rejects a cursor loop instead of silently truncating", async () => {
   expect(
@@ -135,61 +134,6 @@ it("keeps directory and subagent subscriptions across inventories, overlays off-
   expect(release).toHaveBeenCalledTimes(3);
 });
 
-function providerHost(
-  parent: Record<string, unknown>,
-  compat: PaseoCompat,
-  changed = vi.fn(),
-  observers: SubscriptionObserver<unknown>[] = [],
-  timeline: TimelineReader = async () => ({
-    epoch: "epoch-empty",
-    gap: false,
-    staleCursor: false,
-    error: null,
-    hasOlder: false,
-    startCursor: null,
-    window: { maxSeq: 0 },
-    entries: [],
-  }),
-) {
-  const release = vi.fn(async () => {});
-  const subscribe = () =>
-    ({
-      ready: Promise.resolve({ subscriptionId: "s" }),
-      subscriptionId: "s",
-      release,
-      subscribe: (observer: SubscriptionObserver<unknown>) => {
-        observers.push(observer);
-        observer.snapshot({ subscriptionId: "s" });
-        return () => {};
-      },
-    }) as OwnedSubscription<unknown>;
-  const api = {
-    observeEvents: subscribe,
-    workspaces: {
-      list: async (options: { subscribe?: object }) => ({
-        entries: [workspace("w1")],
-        subscription: options.subscribe ? subscribe() : undefined,
-        pageInfo: { nextCursor: null, hasMore: false },
-      }),
-    },
-    agents: {
-      list: async (options: { subscribe?: object }) => ({
-        entries: [{ agent: parent }],
-        subscription: options.subscribe ? subscribe() : undefined,
-        pageInfo: { nextCursor: null, hasMore: false },
-      }),
-      ref: () => ({ timeline: { refetch: timeline } }),
-    },
-    projects: { list: async () => ({ projects: [] }) },
-  };
-  return new PaseoHost(
-    api as unknown as PaseoApi,
-    compat,
-    { serverId: "h", version: "0.9.1" },
-    changed,
-  );
-}
-
 const parentAgent = {
   id: "parent",
   workspaceId: "w1",
@@ -203,6 +147,12 @@ const parentAgent = {
   activeTurn: null,
   lastError: null,
   requiresAttention: false,
+};
+/** An active agent may be asked about its history; an idle one may not. */
+const runningAgent = {
+  ...parentAgent,
+  status: "running",
+  activeTurn: { turnId: "turn-1", startedAt: "2026-08-03T00:00:00.000Z" },
 };
 
 it("does not restore provider sessions outside active workspaces", async () => {
@@ -273,7 +223,7 @@ it("merges provider-managed subagents and reads their projected conversation tim
     ]),
     subagentTimeline: vi.fn(() => read),
   } as unknown as PaseoCompat;
-  const host = providerHost(parentAgent, compat);
+  const host = providerHost(runningAgent, compat);
   try {
     const inventory = await host.inventory();
     const child = inventory.agents.find(
@@ -328,7 +278,7 @@ it("keeps a projected child whose row is newer than its descriptor unknown", asy
     ]),
     subagentTimeline: vi.fn(() => read),
   } as unknown as PaseoCompat;
-  const host = providerHost(parentAgent, compat);
+  const host = providerHost(runningAgent, compat);
   try {
     const child = (await host.inventory()).agents.find(
       (agent) => agent.id === "parent/provider/child",
@@ -370,7 +320,7 @@ it("keeps a parent readable when its provider children cannot be listed", async 
       throw new Error("provider unavailable");
     }),
   } as unknown as PaseoCompat;
-  const host = providerHost(parentAgent, compat, vi.fn(), [], read);
+  const host = providerHost(runningAgent, compat, vi.fn(), [], read);
   try {
     const parent = (await host.inventory()).agents.find(
       (agent) => agent.id === "parent",
@@ -391,7 +341,190 @@ it("keeps a parent readable when its provider children cannot be listed", async 
   }
 });
 
-it("keeps an archived parent off the periodic timeline path", async () => {
+it("never asks an idle agent about its history", async () => {
+  const read = vi.fn(async () => ({
+    epoch: "epoch-1",
+    gap: false,
+    staleCursor: false,
+    error: null,
+    hasOlder: false,
+    startCursor: null,
+    window: { maxSeq: 2 },
+    entries: [
+      {
+        timestamp: "2026-08-02T00:00:00.000Z",
+        item: { type: "assistant_message" },
+      },
+    ],
+  }));
+  const subagents = vi.fn(async () => []);
+  const compat = { subagents } as unknown as PaseoCompat;
+  const host = providerHost(
+    { ...parentAgent, lastUserMessageAt: "2026-08-01T00:00:00.000Z" },
+    compat,
+    vi.fn(),
+    [],
+    read,
+  );
+  try {
+    const agent = (await host.inventory()).agents.find(
+      (candidate) => candidate.id === "parent",
+    )!;
+    expect(agent.activity).toBe("idle");
+    // Listing children and reading a timeline both resume the agent's provider process,
+    // so an idle agent is never asked about either.
+    expect(subagents).not.toHaveBeenCalled();
+    const evidence = await host.conversation(
+      agent,
+      Date.parse("2026-08-04T00:00:00.000Z"),
+    );
+    expect(read).not.toHaveBeenCalled();
+    expect(evidence).toEqual({
+      displayAt: "2026-08-01T00:00:00.000Z",
+      display: "lower-bound",
+      gateAt: "2026-08-03T00:00:00.000Z",
+      gate: "upper-bound",
+      reason: "inactive-metadata",
+    });
+  } finally {
+    host.dispose();
+  }
+});
+
+it("asks an active agent about its history", async () => {
+  const read = vi.fn(async () => ({
+    epoch: "epoch-1",
+    gap: false,
+    staleCursor: false,
+    error: null,
+    hasOlder: false,
+    startCursor: null,
+    window: { maxSeq: 2 },
+    entries: [
+      {
+        timestamp: "2026-08-02T00:00:00.000Z",
+        item: { type: "assistant_message" },
+      },
+    ],
+  }));
+  const subagents = vi.fn(async () => []);
+  const compat = { subagents } as unknown as PaseoCompat;
+  const host = providerHost(runningAgent, compat, vi.fn(), [], read);
+  try {
+    const agent = (await host.inventory()).agents.find(
+      (candidate) => candidate.id === "parent",
+    )!;
+    expect(agent.activity).toBe("running");
+    expect(agent.childEnumeration).toBe("complete");
+    expect(subagents).toHaveBeenCalledTimes(1);
+    const evidence = await host.conversation(
+      agent,
+      Date.parse("2026-08-04T00:00:00.000Z"),
+    );
+    expect(read).toHaveBeenCalled();
+    expect(evidence).toEqual({
+      displayAt: "2026-08-02T00:00:00.000Z",
+      display: "exact",
+      gateAt: "2026-08-02T00:00:00.000Z",
+      gate: "exact",
+      reason: null,
+    });
+  } finally {
+    host.dispose();
+  }
+});
+
+it("keeps a cached provider child without reading its timeline while the parent is idle", async () => {
+  const read = vi.fn(async () => ({
+    epoch: "epoch-1",
+    gap: false,
+    staleCursor: false,
+    error: null,
+    hasOlder: false,
+    startCursor: null,
+    window: { maxSeq: 2 },
+    entries: [
+      {
+        timestamp: "2026-08-02T00:00:00.000Z",
+        item: { type: "assistant_message" },
+      },
+    ],
+  }));
+  const childRead = vi.fn(read);
+  const subagents = vi.fn(async () => [
+    {
+      id: "child",
+      title: "Worker",
+      status: "completed" as const,
+      updatedAt: "2026-08-03T00:00:00.000Z",
+    },
+  ]);
+  const compat = {
+    subagents,
+    subagentTimeline: vi.fn(() => childRead),
+  } as unknown as PaseoCompat;
+  const parent: Record<string, unknown> = { ...runningAgent };
+  const host = providerHost(parent, compat, vi.fn(), [], read);
+  try {
+    const running = await host.inventory();
+    expect(
+      running.agents.find((agent) => agent.id === "parent/provider/child"),
+    ).toBeDefined();
+    // The parent goes idle. Listing its children again would resume the parent, so the
+    // children seen while it was live are kept and nothing is asked.
+    parent.status = "idle";
+    parent.activeTurn = null;
+    parent.updatedAt = "2026-08-04T00:00:00.000Z";
+    const idle = await host.inventory();
+    expect(subagents).toHaveBeenCalledTimes(1);
+    expect(idle.agents.find((agent) => agent.id === "parent")).toMatchObject({
+      childEnumeration: "unavailable",
+    });
+    const child = idle.agents.find(
+      (agent) => agent.id === "parent/provider/child",
+    )!;
+    expect(child).toBeDefined();
+    const evidence = await host.conversation(
+      child,
+      Date.parse("2026-08-05T00:00:00.000Z"),
+    );
+    // Reading a child's timeline loads its parent, so an idle parent's child stays unread.
+    expect(compat.subagentTimeline).not.toHaveBeenCalled();
+    expect(childRead).not.toHaveBeenCalled();
+    expect(evidence).toEqual({
+      displayAt: null,
+      display: "unknown",
+      gateAt: "2026-08-03T00:00:00.000Z",
+      gate: "upper-bound",
+      reason: "inactive-metadata",
+    });
+  } finally {
+    host.dispose();
+  }
+});
+
+it("lists a parent's children again once the parent wakes up", async () => {
+  const subagents = vi.fn(async () => []);
+  const compat = { subagents } as unknown as PaseoCompat;
+  const parent: Record<string, unknown> = { ...parentAgent };
+  const host = providerHost(parent, compat);
+  try {
+    await host.inventory();
+    expect(subagents).not.toHaveBeenCalled();
+    // The parent starts running: it may be asked about its children again.
+    parent.status = "running";
+    parent.activeTurn = {
+      turnId: "turn-1",
+      startedAt: "2026-08-03T00:00:00.000Z",
+    };
+    await host.inventory();
+    expect(subagents).toHaveBeenCalledTimes(1);
+  } finally {
+    host.dispose();
+  }
+});
+
+it("keeps an archived parent off every history request", async () => {
   const read = vi.fn(async () => ({
     epoch: "epoch-1",
     gap: false,
@@ -429,24 +562,16 @@ it("keeps an archived parent off the periodic timeline path", async () => {
       parent!,
       Date.parse("2026-08-04T00:00:00.000Z"),
     );
-    // Re-projecting an archived history costs seconds per read, so the periodic refresh
-    // stays on the recorded bounds and only the archive recheck asks for the timeline.
+    // Reading a history resumes the archived agent's provider, so the plugin answers from
+    // the recorded bounds and never asks for the timeline.
     expect(read).not.toHaveBeenCalled();
     expect(periodic).toEqual({
       displayAt: "2026-08-01T00:00:00.000Z",
       display: "lower-bound",
       gateAt: "2026-08-03T00:00:00.000Z",
       gate: "upper-bound",
-      reason: null,
+      reason: "inactive-metadata",
     });
-    const candidate = await host.conversation(
-      parent!,
-      Date.parse("2026-08-04T00:00:00.000Z"),
-      { archivedTimeline: true },
-    );
-    expect(read).toHaveBeenCalled();
-    expect(candidate.display).toBe("exact");
-    expect(candidate.gate).toBe("exact");
   } finally {
     host.dispose();
   }
@@ -470,7 +595,7 @@ it("never labels a lower bound exact when the recorded user message is missing",
   }));
   const compat = { subagents: vi.fn(async () => []) } as unknown as PaseoCompat;
   const host = providerHost(
-    { ...parentAgent, lastUserMessageAt: "2026-08-02T00:00:00.000Z" },
+    { ...runningAgent, lastUserMessageAt: "2026-08-02T00:00:00.000Z" },
     compat,
     vi.fn(),
     [],

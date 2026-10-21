@@ -9,6 +9,7 @@ import {
   defaultWorkspaceGroup,
   defaultStartWorkGroup,
   groupKind,
+  isActiveAgent,
   isArchiveDue,
   isDraftGroup,
   isTerminalGroup,
@@ -52,11 +53,14 @@ interface WorkspaceConversation {
 /** Most severe first, so one reason is stored per task. */
 const REASON_ORDER: ConversationReason[] = [
   "timeline-unreadable",
+  "inactive-metadata",
   "child-enumeration-unavailable",
   "child-timeline-unreadable",
   "replay-timestamp",
   "truncated-window",
 ];
+/** A provider child's id carries its parent: `${parentId}/provider/${childId}`. */
+const parentAgentId = (childId: string) => childId.split("/provider/")[0];
 
 const labelsEqual = (a: string[], b: string[]) =>
   JSON.stringify(a.map(labelKey).sort()) ===
@@ -449,7 +453,6 @@ export class Workboard {
     agents: readonly Agent[],
     previous: Task | undefined,
     now: number,
-    options: { archivedTimeline?: boolean } = {},
   ): Promise<WorkspaceConversation> {
     const readings: Array<{
       agent: Agent;
@@ -459,7 +462,7 @@ export class Workboard {
       const isChild = Boolean(agent.parentAgentId && agent.subagentId);
       let conversation: ConversationEvidence;
       try {
-        conversation = await this.host.conversation(agent, now, options);
+        conversation = await this.host.conversation(agent, now);
       } catch {
         // One unreadable agent degrades its own evidence instead of the whole workspace.
         const bound = isChild ? null : (agent.updatedAt ?? null);
@@ -511,17 +514,35 @@ export class Workboard {
         seenWhileLive: live.has(agent.parentAgentId!),
       }));
     const current = new Set(readings.map(({ agent }) => agent.id));
+    // The workspace's own agents, so a child that is missing from the inventory can be read
+    // as "not enumerated" rather than as "gone".
+    const parents = new Map(
+      readings
+        .filter(({ agent }) => !agent.parentAgentId)
+        .map(({ agent }) => [agent.id, agent.activity]),
+    );
     let blocked = false;
     for (const entry of recorded) {
       if (current.has(entry.id)) continue;
       agentsEvidence.push(entry);
+      const time = entry.lastObservedAt
+        ? Date.parse(entry.lastObservedAt)
+        : null;
+      const parent = parents.get(parentAgentId(entry.id));
+      if (parent !== undefined && !isActiveAgent(parent)) {
+        // The parent is idle, so the plugin did not enumerate its children and this
+        // child's absence proves nothing. Its recorded observation still bounds the
+        // conversation, but a child that was never observed must not block the gate.
+        if (time !== null && Number.isFinite(time)) {
+          lower = Math.max(lower ?? time, time);
+          upper = Math.max(upper ?? time, time);
+        }
+        continue;
+      }
       // A vanished child cannot be re-read, so this workspace can no longer claim an exact
       // time. Its recorded observation still participates in both bounds; without one nothing
       // bounds its conversation any more.
       reasons.add("child-enumeration-unavailable");
-      const time = entry.lastObservedAt
-        ? Date.parse(entry.lastObservedAt)
-        : null;
       if (time === null || !Number.isFinite(time)) {
         blocked = true;
         continue;
@@ -586,11 +607,9 @@ export class Workboard {
   ): Promise<string | null> {
     let gate: number | null = null;
     try {
-      // The archive candidate is the one place that pays for an archived agent's timeline,
-      // and a vanished child without a recorded time already forces an unknown gate.
-      const evidence = await this.observe(agents, candidate, this.now(), {
-        archivedTimeline: true,
-      });
+      // The recheck reads the same recorded bounds as the scan: an idle agent is never
+      // asked about its history, because the daemon would resume its provider process.
+      const evidence = await this.observe(agents, candidate, this.now());
       const at = archiveGate({
         conversationGateAt: evidence.gateAt,
         conversationGateEvidence: evidence.gate,
@@ -1449,11 +1468,7 @@ export class Workboard {
         (agent) => agent.workspaceId === id,
       );
       if (
-        agents.some(
-          (a) =>
-            !a.archivedAt &&
-            (a.activity === "running" || a.activity === "waiting"),
-        ) ||
+        agents.some((a) => !a.archivedAt && isActiveAgent(a.activity)) ||
         workspace.status === "running" ||
         workspace.status === "needs_input"
       ) {

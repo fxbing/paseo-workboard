@@ -1,7 +1,12 @@
 import { vi } from "vitest";
+import type { OwnedSubscription, SubscriptionObserver } from "@getpaseo/client";
+import type { PaseoApi } from "@getpaseo/client";
 import { dataSchema, type Data } from "../shared/model";
 import { Store } from "../server/store";
 import { Workboard } from "../server/workboard";
+import { PaseoHost } from "../server/host";
+import type { TimelineReader } from "../server/conversations";
+import type { PaseoCompat } from "../server/paseo-compat";
 import type {
   Agent,
   ConversationEvidence,
@@ -110,4 +115,76 @@ export function workspace(
     status: "done",
     scripts: [],
   };
+}
+
+/**
+ * A fake Paseo daemon for the real host. It answers the directory, history and archive
+ * requests the plugin makes, and it hands out the agent record it was given, so a test can
+ * change that agent's state between two inventories.
+ */
+export function providerHost(
+  agent: Record<string, unknown>,
+  compat: PaseoCompat,
+  changed = vi.fn(),
+  observers: SubscriptionObserver<unknown>[] = [],
+  timeline: TimelineReader = async () => ({
+    epoch: "epoch-empty",
+    gap: false,
+    staleCursor: false,
+    error: null,
+    hasOlder: false,
+    startCursor: null,
+    window: { maxSeq: 0 },
+    entries: [],
+  }),
+  workspaces: Workspace[] = [workspace("w1")],
+) {
+  const release = vi.fn(async () => {});
+  const subscribe = () =>
+    ({
+      ready: Promise.resolve({ subscriptionId: "s" }),
+      subscriptionId: "s",
+      release,
+      subscribe: (observer: SubscriptionObserver<unknown>) => {
+        observers.push(observer);
+        observer.snapshot({ subscriptionId: "s" });
+        return () => {};
+      },
+    }) as OwnedSubscription<unknown>;
+  const api = {
+    observeEvents: subscribe,
+    workspaces: {
+      list: async (options: { subscribe?: object }) => ({
+        entries: workspaces,
+        subscription: options.subscribe ? subscribe() : undefined,
+        pageInfo: { nextCursor: null, hasMore: false },
+      }),
+      ref: (id: string) => ({
+        refresh: async () => workspaces.find((w) => w.id === id) ?? null,
+      }),
+      archive: async (id: string) => {
+        const index = workspaces.findIndex((w) => w.id === id);
+        if (index < 0)
+          return { archivedAt: null, error: "Workspace not found" };
+        workspaces.splice(index, 1);
+        return { archivedAt: new Date().toISOString(), error: null };
+      },
+    },
+    agents: {
+      list: async (options: { subscribe?: object }) => ({
+        entries: [{ agent }],
+        subscription: options.subscribe ? subscribe() : undefined,
+        pageInfo: { nextCursor: null, hasMore: false },
+      }),
+      ref: () => ({ timeline: { refetch: timeline } }),
+    },
+    terminals: { list: async () => ({ entries: [] }) },
+    projects: { list: async () => ({ projects: [] }) },
+  };
+  return new PaseoHost(
+    api as unknown as PaseoApi,
+    compat,
+    { serverId: "h", version: "0.9.1" },
+    changed,
+  );
 }

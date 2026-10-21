@@ -3,7 +3,14 @@ import { Store } from "../server/store";
 import { Workboard } from "../server/workboard";
 import { boardSchema, DEFAULT_GROUPS, settingsSchema } from "../shared/model";
 import { mutationSchema } from "../shared/rpc";
-import { agentEvidence, fixture, observed, workspace } from "./fixtures";
+import type { PaseoCompat } from "../server/paseo-compat";
+import {
+  agentEvidence,
+  fixture,
+  observed,
+  providerHost,
+  workspace,
+} from "./fixtures";
 import { visibleCards } from "../client/board-utils";
 
 const pullRequest = {
@@ -620,6 +627,64 @@ it("refuses a foreign host's persisted data without touching its workspaces", as
     await expect(board.start()).rejects.toThrow("another Paseo host");
     expect(host.create).not.toHaveBeenCalled();
     expect(host.archive).not.toHaveBeenCalled();
+  } finally {
+    board.dispose();
+  }
+});
+it("keeps an idle agent's card on its recorded metadata without asking the daemon", async () => {
+  const test = fixture();
+  const read = vi.fn(async () => ({
+    epoch: "epoch-1",
+    gap: false,
+    staleCursor: false,
+    error: null,
+    hasOlder: false,
+    startCursor: null,
+    window: { maxSeq: 2 },
+    entries: [
+      {
+        timestamp: "2026-08-02T00:00:00.000Z",
+        item: { type: "assistant_message" },
+      },
+    ],
+  }));
+  const subagents = vi.fn(async () => []);
+  const compat = { subagents } as unknown as PaseoCompat;
+  const host = providerHost(
+    {
+      id: "a",
+      workspaceId: "w1",
+      title: "Idle agent",
+      updatedAt: "2026-08-03T00:00:00.000Z",
+      lastUserMessageAt: "2026-08-01T00:00:00.000Z",
+      archivedAt: null,
+      pendingPermissions: [],
+      attentionReason: null,
+      status: "idle",
+      activeTurn: null,
+      lastError: null,
+      requiresAttention: false,
+    },
+    compat,
+    vi.fn(),
+    [],
+    read,
+    [workspace("w1", "Workspace", ["task:done"])],
+  );
+  const board = new Workboard(host, test.store, test.now);
+  try {
+    await board.start();
+    // The daemon resumes an agent's provider process for every per-agent request, so an
+    // idle agent is asked for neither its history nor its provider children.
+    expect(read).not.toHaveBeenCalled();
+    expect(subagents).not.toHaveBeenCalled();
+    expect(board.snapshot().cards[0]).toMatchObject({
+      lastConversationAt: "2026-08-01T00:00:00.000Z",
+      conversationDisplayEvidence: "lower-bound",
+      conversationGateEvidence: "upper-bound",
+      conversationGateAt: "2026-08-03T00:00:00.000Z",
+      conversationReason: "inactive-metadata",
+    });
   } finally {
     board.dispose();
   }
