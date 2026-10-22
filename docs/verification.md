@@ -6,6 +6,14 @@ This document records the current reproducible evidence for Workboard. It is
 not a claim that every Paseo platform, theme, or host integration has been
 tested.
 
+## Unverified branch
+
+The `read-inactive-agent-metadata-history` branch (schema v9) passes the
+deterministic suite with **410 unit tests in 28 files** and the formatting
+check, but its isolated host integration run and a live provider check are not
+recorded here yet. The change only asks the host about agents that are already
+running, so the host-side behaviour needs a real provider to confirm.
+
 ## Verified baseline
 
 On 2026-10-13, the dual-view source (still schema v8) was checked on macOS arm64 with

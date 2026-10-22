@@ -59,8 +59,6 @@ const REASON_ORDER: ConversationReason[] = [
   "replay-timestamp",
   "truncated-window",
 ];
-/** A provider child's id carries its parent: `${parentId}/provider/${childId}`. */
-const parentAgentId = (childId: string) => childId.split("/provider/")[0];
 
 const labelsEqual = (a: string[], b: string[]) =>
   JSON.stringify(a.map(labelKey).sort()) ===
@@ -476,7 +474,15 @@ export class Workboard {
       }
       readings.push({ agent, conversation });
     }
+    const recorded = previous?.conversationAgents ?? [];
+    const recordedById = new Map(recorded.map((entry) => [entry.id, entry]));
+    const live = new Set(
+      readings
+        .filter(({ agent }) => agent.childEnumeration === "complete")
+        .map(({ agent }) => agent.id),
+    );
     const reasons = new Set<ConversationReason>();
+    const agentsEvidence: ConversationAgent[] = [];
     let lower: number | null = null;
     let upper: number | null = null;
     for (const { agent, conversation } of readings) {
@@ -486,63 +492,52 @@ export class Workboard {
         agent.childEnumeration === "unavailable"
       )
         reasons.add("child-enumeration-unavailable");
-      const time = conversation.displayAt
+      const isChild = Boolean(agent.parentAgentId && agent.subagentId);
+      // A child that is not read has no message time, so it keeps the time it was last
+      // observed at: dropping it would discard evidence that is newer than the parent's
+      // recorded activity.
+      const preserved = isChild
+        ? (recordedById.get(agent.id)?.lastObservedAt ?? null)
+        : null;
+      const display = conversation.displayAt
         ? Date.parse(conversation.displayAt)
         : null;
-      if (time !== null) {
+      const observed =
+        display ?? (preserved === null ? null : Date.parse(preserved));
+      if (isChild)
+        agentsEvidence.push({
+          id: agent.id,
+          lastObservedAt: conversation.displayAt ?? preserved,
+          seenWhileLive: live.has(agent.parentAgentId!),
+        });
+      if (observed !== null && Number.isFinite(observed)) {
         // An upper-bound display value never counts as a lower bound of the conversation.
-        if (conversation.display === "upper-bound")
-          upper = Math.max(upper ?? time, time);
-        else lower = Math.max(lower ?? time, time);
+        if (conversation.display === "upper-bound" && display !== null)
+          upper = Math.max(upper ?? display, display);
+        else lower = Math.max(lower ?? observed, observed);
       }
-      const isChild = Boolean(agent.parentAgentId && agent.subagentId);
+      // The gate bounds the conversation even when the display is unknown: a provider
+      // child of an idle parent has no message time, but its recorded descriptor still
+      // bounds the window.
+      const gate = conversation.gateAt ? Date.parse(conversation.gateAt) : null;
+      if (gate !== null && Number.isFinite(gate))
+        upper = Math.max(upper ?? gate, gate);
       const activity = isChild ? null : Date.parse(agent.updatedAt);
       if (activity !== null && Number.isFinite(activity))
         upper = Math.max(upper ?? activity, activity);
     }
-    const recorded = previous?.conversationAgents ?? [];
-    const live = new Set(
-      readings
-        .filter(({ agent }) => agent.childEnumeration === "complete")
-        .map(({ agent }) => agent.id),
-    );
-    const agentsEvidence: ConversationAgent[] = readings
-      .filter(({ agent }) => Boolean(agent.parentAgentId && agent.subagentId))
-      .map(({ agent, conversation }) => ({
-        id: agent.id,
-        lastObservedAt: conversation.displayAt,
-        seenWhileLive: live.has(agent.parentAgentId!),
-      }));
     const current = new Set(readings.map(({ agent }) => agent.id));
-    // The workspace's own agents, so a child that is missing from the inventory can be read
-    // as "not enumerated" rather than as "gone".
-    const parents = new Map(
-      readings
-        .filter(({ agent }) => !agent.parentAgentId)
-        .map(({ agent }) => [agent.id, agent.activity]),
-    );
     let blocked = false;
     for (const entry of recorded) {
       if (current.has(entry.id)) continue;
       agentsEvidence.push(entry);
+      // A vanished child cannot be re-read, so this workspace can no longer claim an exact
+      // time. Its recorded observation still participates in both bounds; without one nothing
+      // bounds its conversation any more, and an idle parent does not bound it either.
+      reasons.add("child-enumeration-unavailable");
       const time = entry.lastObservedAt
         ? Date.parse(entry.lastObservedAt)
         : null;
-      const parent = parents.get(parentAgentId(entry.id));
-      if (parent !== undefined && !isActiveAgent(parent)) {
-        // The parent is idle, so the plugin did not enumerate its children and this
-        // child's absence proves nothing. Its recorded observation still bounds the
-        // conversation, but a child that was never observed must not block the gate.
-        if (time !== null && Number.isFinite(time)) {
-          lower = Math.max(lower ?? time, time);
-          upper = Math.max(upper ?? time, time);
-        }
-        continue;
-      }
-      // A vanished child cannot be re-read, so this workspace can no longer claim an exact
-      // time. Its recorded observation still participates in both bounds; without one nothing
-      // bounds its conversation any more.
-      reasons.add("child-enumeration-unavailable");
       if (time === null || !Number.isFinite(time)) {
         blocked = true;
         continue;

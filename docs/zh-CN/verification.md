@@ -4,6 +4,10 @@ English: [English](../verification.md)
 
 本文记录 Workboard 当前可复现的验证证据，不代表已经覆盖全部 Paseo 平台、主题或宿主集成。
 
+## 未验证分支
+
+`read-inactive-agent-metadata-history` 分支（schema v9）通过了确定性测试：**410 个单元测试、28 个文件**，格式检查也通过；但其隔离宿主集成运行和真实 provider 验证尚未记录在本文中。该改动只询问已经处于运行状态的 agent，宿主侧行为仍需真实 provider 确认。
+
 ## 已验证基线
 
 2026-10-13，在 macOS arm64 上通过 `mise` 使用 Node 22.22.2 检查了双视图源码，schema 仍为 v8。

@@ -1,4 +1,7 @@
 import { expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { Store } from "../server/store";
 import { Workboard } from "../server/workboard";
 import { boardSchema, DEFAULT_GROUPS, settingsSchema } from "../shared/model";
@@ -687,5 +690,82 @@ it("keeps an idle agent's card on its recorded metadata without asking the daemo
     });
   } finally {
     board.dispose();
+  }
+});
+it("keeps an idle parent's child bounds instead of archiving on the parent's activity", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "workboard-child-"));
+  const test = fixture({
+    settings: settingsSchema.parse({ autoArchive: true }),
+  });
+  const timeline = vi.fn(async () => ({
+    epoch: "epoch-1",
+    gap: false,
+    staleCursor: false,
+    error: null,
+    hasOlder: false,
+    startCursor: null,
+    window: { maxSeq: 2 },
+    entries: [
+      {
+        timestamp: "2026-09-01T00:00:00.000Z",
+        item: { type: "assistant_message" },
+      },
+    ],
+  }));
+  const subagents = vi.fn(async () => [
+    {
+      id: "child",
+      title: "Worker",
+      status: "completed" as const,
+      updatedAt: "2026-09-01T00:00:00.000Z",
+    },
+  ]);
+  const compat = {
+    subagents,
+    subagentTimeline: vi.fn(() => timeline),
+  } as unknown as PaseoCompat;
+  const parent: Record<string, unknown> = {
+    id: "a",
+    workspaceId: "w1",
+    title: "Parent",
+    // The parent's own activity is old enough to archive on its own.
+    updatedAt: "2026-08-01T00:00:00.000Z",
+    lastUserMessageAt: "2026-08-01T00:00:00.000Z",
+    archivedAt: null,
+    pendingPermissions: [],
+    attentionReason: null,
+    status: "running",
+    activeTurn: { turnId: "turn-1", startedAt: "2026-08-01T00:00:00.000Z" },
+    lastError: null,
+    requiresAttention: false,
+  };
+  const native = workspace("w1", "Workspace", ["task:done"]);
+  native.workspaceDirectory = directory;
+  const host = providerHost(parent, compat, vi.fn(), [], timeline, [native]);
+  const board = new Workboard(host, test.store, test.now);
+  try {
+    await board.start();
+    // The parent was running, so its child was listed and read.
+    expect(subagents).toHaveBeenCalledTimes(1);
+    // The parent goes idle: its child is kept, but it is no longer read.
+    parent.status = "idle";
+    parent.activeTurn = null;
+    await board.refresh();
+    expect(subagents).toHaveBeenCalledTimes(1);
+    const card = board.snapshot().cards[0];
+    // The child's recorded activity bounds the workspace, so archiving waits for it.
+    expect(card.conversationGateAt).toBe("2026-09-01T00:00:00.000Z");
+    expect(card.conversationGateEvidence).toBe("upper-bound");
+    expect(card.conversationAgents).toEqual([
+      {
+        id: "a/provider/child",
+        lastObservedAt: "2026-09-01T00:00:00.000Z",
+        seenWhileLive: false,
+      },
+    ]);
+    expect(test.host.archive).not.toHaveBeenCalled();
+  } finally {
+    board.dispose();
+    await rm(directory, { recursive: true, force: true });
   }
 });

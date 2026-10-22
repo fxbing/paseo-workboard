@@ -328,7 +328,7 @@ it("refuses the gate when a vanished child has no recorded time", async () => {
   }
 });
 
-it("keeps an idle parent's unlisted child from blocking the archive gate", async () => {
+it("keeps an idle parent's unlisted child blocking the archive gate", async () => {
   const test = vanishedChildFixture(null);
   test.inventory.agents[0].activity = "idle";
   test.host.conversation = async (agent) => ({
@@ -343,11 +343,91 @@ it("keeps an idle parent's unlisted child from blocking the archive gate", async
     const card = test.board
       .snapshot()
       .cards.find((c) => c.workspaceId === "old")!;
-    // An idle parent is never enumerated, so its child is unlisted rather than gone and
-    // the parent's own bound still gates the archive.
-    expect(card.conversationGateAt).toBe("2026-08-01T00:00:00.000Z");
+    // An idle parent is not enumerated, so its child is unlisted rather than gone, but
+    // the parent's recorded activity does not bound a child whose history is unknown.
+    expect(card.conversationGateAt).toBeNull();
+    expect(card.conversationGateEvidence).toBe("unknown");
+    expect(card.conversationStatus).toBe("known");
+    expect(test.host.archive).not.toHaveBeenCalled();
+  } finally {
+    test.board.dispose();
+  }
+});
+
+it("keeps an inactive parent's child bounds instead of archiving on the parent's activity", async () => {
+  const test = fixture({
+    settings: settingsSchema.parse({ autoArchive: true }),
+    tasks: [
+      {
+        ...newTask("task", "Old task", "2026-08-01T00:00:00Z", "done"),
+        workspaceId: "old",
+        lastStage: "done",
+        conversationAgents: [
+          {
+            id: "a/provider/child",
+            lastObservedAt: "2026-08-15T00:00:00Z",
+            seenWhileLive: true,
+          },
+        ],
+      },
+    ],
+  });
+  test.inventory.workspaces.push(workspace("old", undefined, ["task:done"]));
+  test.inventory.agents.push(
+    {
+      id: "a",
+      workspaceId: "old",
+      title: null,
+      updatedAt: "2026-08-01T00:00:00Z",
+      lastUserMessageAt: "2026-08-01T00:00:00Z",
+      activity: "idle",
+    },
+    {
+      id: "a/provider/child",
+      workspaceId: "old",
+      title: null,
+      updatedAt: "2026-09-01T00:00:00Z",
+      lastUserMessageAt: null,
+      activity: "idle",
+      parentAgentId: "a",
+      subagentId: "child",
+      parentActivity: "idle",
+    },
+  );
+  // An idle parent and its unread child answer from their recorded metadata: the child
+  // has no message time, but its recorded descriptor still bounds the window.
+  test.host.conversation = async (agent) =>
+    agent.parentAgentId
+      ? {
+          displayAt: null,
+          display: "unknown" as const,
+          gateAt: agent.updatedAt,
+          gate: "upper-bound" as const,
+          reason: "inactive-metadata" as const,
+        }
+      : {
+          displayAt: agent.lastUserMessageAt,
+          display: "lower-bound" as const,
+          gateAt: agent.updatedAt,
+          gate: "upper-bound" as const,
+          reason: "inactive-metadata" as const,
+        };
+  try {
+    await test.board.start();
+    const card = test.board
+      .snapshot()
+      .cards.find((c) => c.workspaceId === "old")!;
+    // Gating on the parent alone would be 2026-08-01 and archive this workspace.
+    expect(card.conversationGateAt).toBe("2026-09-01T00:00:00.000Z");
     expect(card.conversationGateEvidence).toBe("upper-bound");
-    expect(test.host.archive).toHaveBeenCalledExactlyOnceWith("old");
+    expect(card.conversationAgents).toEqual([
+      {
+        id: "a/provider/child",
+        lastObservedAt: "2026-08-15T00:00:00Z",
+        seenWhileLive: false,
+      },
+    ]);
+    expect(test.host.archive).not.toHaveBeenCalled();
   } finally {
     test.board.dispose();
   }
