@@ -69,6 +69,29 @@ const sameOrder = (left: readonly string[], right: readonly string[]) =>
   left.every((value, index) => value === right[index]);
 const hidden = (task: Task) =>
   task.archived?.status === "archived" || task.archived?.status === "external";
+/** Newer healthy activity supersedes errors from historical Agents in the same workspace. */
+function workspaceActivity(
+  agents: readonly Pick<Agent, "activity" | "updatedAt" | "archivedAt">[],
+): Card["activity"] {
+  const live = agents.filter((agent) => !agent.archivedAt);
+  const healthyTimes = live
+    .filter((agent) => agent.activity !== "error")
+    .map((agent) => Date.parse(agent.updatedAt))
+    .filter(Number.isFinite);
+  const newestHealthy = healthyTimes.length ? Math.max(...healthyTimes) : null;
+  const activities = live
+    .filter((agent) => {
+      if (agent.activity !== "error" || newestHealthy === null) return true;
+      const updated = Date.parse(agent.updatedAt);
+      return !Number.isFinite(updated) || updated >= newestHealthy;
+    })
+    .map((agent) => agent.activity);
+  return (
+    (["waiting", "error", "attention", "running"] as const).find((activity) =>
+      activities.includes(activity),
+    ) ?? "idle"
+  );
+}
 
 function projectChangeRequest(workspace?: Workspace): Card["changeRequest"] {
   const runtime = workspace?.githubRuntime;
@@ -265,13 +288,7 @@ export class Workboard {
         const agents = this.inventory.agents.filter(
           (a) => a.workspaceId === task.workspaceId,
         );
-        const activities = agents
-          .filter((a) => !a.archivedAt)
-          .map((a) => a.activity);
-        const activity: Card["activity"] =
-          (["waiting", "error", "attention", "running"] as const).find((a) =>
-            activities.includes(a),
-          ) ?? "idle";
+        const activity = workspaceActivity(agents);
         const stage = task.workspaceId
           ? workspace
             ? resolveStage(

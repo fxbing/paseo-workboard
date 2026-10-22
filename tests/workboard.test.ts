@@ -243,6 +243,46 @@ it("keeps another agent's actionable status visible while a workspace is running
   }
 });
 
+it("ignores an older Agent error after a newer healthy Agent activity", async () => {
+  const { board, inventory } = fixture();
+  inventory.workspaces.push(workspace("w", "Recovered", ["task:review"]));
+  const agent = {
+    title: null,
+    workspaceId: "w",
+    lastUserMessageAt: null,
+  };
+  inventory.agents.push(
+    {
+      ...agent,
+      id: "historical-error",
+      activity: "error",
+      updatedAt: "2026-09-23T00:00:00Z",
+    },
+    {
+      ...agent,
+      id: "current-running",
+      activity: "running",
+      updatedAt: "2026-09-23T00:01:00Z",
+    },
+  );
+  await board.start();
+  try {
+    expect(board.snapshot().cards[0].activity).toBe("running");
+
+    inventory.agents[0].updatedAt = "2026-09-23T00:02:00Z";
+    await board.refresh();
+    expect(board.snapshot().cards[0].activity).toBe("error");
+
+    inventory.agents[0].updatedAt = "2026-09-23T00:03:00Z";
+    inventory.agents[1].activity = "idle";
+    inventory.agents[1].updatedAt = "2026-09-23T00:04:00Z";
+    await board.refresh();
+    expect(board.snapshot().cards[0].activity).toBe("idle");
+  } finally {
+    board.dispose();
+  }
+});
+
 it("saves the sidebar In progress pin preference through the RPC contract and keeps it after restart", async () => {
   const { board, host, backing, inventory, now } = fixture();
   inventory.workspaces.push(workspace("task", "Task", ["task:review"]));

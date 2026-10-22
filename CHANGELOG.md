@@ -4,6 +4,10 @@
 
 All notable changes are documented here.
 
+## Unreleased
+
+- Ignore historical Agent errors when newer healthy activity exists in the same workspace.
+
 ## 0.3.0 — 2026-10-13
 
 - Add a grouped List view alongside Board, sharing task data, filters and saved order while remembering the selected view and separate collapse preferences per host.
