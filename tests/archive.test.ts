@@ -57,6 +57,29 @@ it("periodic work strictly crosses 30 days, includes archived Agents, and stops 
     board.dispose();
   }
 });
+it("archives a workspace whose tabs were all removed using its last task update", async () => {
+  const test = fixture({
+    settings: settingsSchema.parse({
+      autoArchive: true,
+      archiveAfterDays: 1,
+    }),
+  });
+  test.inventory.workspaces.push(
+    workspace("empty", undefined, ["task:canceled"]),
+  );
+  try {
+    await test.board.start();
+    await test.store.update((data) => {
+      const task = data.tasks.find((t) => t.workspaceId === "empty")!;
+      task.updatedAt = "2026-09-01T00:00:00Z";
+    });
+    await test.board.refresh();
+    expect(test.host.archive).toHaveBeenCalledWith("empty");
+  } finally {
+    test.board.dispose();
+  }
+});
+
 it("defers no conversation, recent replies, busy agents, unsafe Git and label conflicts", async () => {
   for (const reason of ["none", "recent", "busy", "git", "conflict"]) {
     const { board, host, inventory } = dueFixture();

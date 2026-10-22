@@ -4,6 +4,10 @@
 
 All notable changes are documented here.
 
+## Unreleased
+
+- Let a workspace whose tabs were all removed age into archive by using the task's last update as its upper bound instead of staying at an unknown time.
+
 ## 0.3.0 — 2026-10-13
 
 - Add a grouped List view alongside Board, sharing task data, filters and saved order while remembering the selected view and separate collapse preferences per host.

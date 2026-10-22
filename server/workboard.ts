@@ -529,6 +529,20 @@ export class Workboard {
     now: number,
     options: { archivedTimeline?: boolean } = {},
   ): Promise<WorkspaceConversation> {
+    // Every tab was removed, so no timeline remains. The task record was last touched after
+    // the conversation ended, which still bounds it and lets the archive clock keep running.
+    if (agents.length === 0 && !previous?.conversationAgents?.length) {
+      const bound = previous?.updatedAt ?? null;
+      if (bound)
+        return {
+          displayAt: bound,
+          display: "upper-bound",
+          gateAt: bound,
+          gate: "upper-bound",
+          reason: null,
+          agents: [],
+        };
+    }
     const readings: Array<{
       agent: Agent;
       conversation: ConversationEvidence;
