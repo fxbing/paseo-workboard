@@ -382,7 +382,7 @@ it("migrates v6 through v7 to v8 without discarding observed agents, notes or pr
   });
 });
 
-it("moves a stored v8 record to v9 and keeps its evidence and column order", () => {
+it("moves a stored v8 record to v10 and keeps its evidence and column order", () => {
   const task = {
     ...newTask("t", "Task", "2026-09-01T00:00:00Z"),
     conversationReason: "timeline-unreadable",
@@ -407,6 +407,38 @@ it("moves a stored v8 record to v9 and keeps its evidence and column order", () 
       {
         id: "t",
         conversationReason: "timeline-unreadable",
+        conversationDisplayEvidence: "lower-bound",
+        conversationGateEvidence: "upper-bound",
+      },
+    ],
+  });
+});
+
+it("moves a stored v9 record to v10 without changing its reasons", () => {
+  const task = {
+    ...newTask("t", "Task", "2026-09-01T00:00:00Z"),
+    conversationReason: "inactive-metadata",
+    conversationDisplayEvidence: "lower-bound",
+    conversationGateEvidence: "upper-bound",
+  };
+  const result = migrateData(
+    {
+      schemaVersion: 9,
+      revision: 6,
+      settings: { autoArchive: true },
+      tasks: [task],
+      cardOrderByStage: { done: ["t"] },
+    },
+    9,
+  );
+  expect(result).toMatchObject({
+    schemaVersion: DATA_SCHEMA_VERSION,
+    revision: 6,
+    cardOrderByStage: { done: ["t"] },
+    tasks: [
+      {
+        id: "t",
+        conversationReason: "inactive-metadata",
         conversationDisplayEvidence: "lower-bound",
         conversationGateEvidence: "upper-bound",
       },

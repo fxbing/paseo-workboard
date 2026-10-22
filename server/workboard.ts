@@ -52,6 +52,7 @@ interface WorkspaceConversation {
 }
 /** Most severe first, so one reason is stored per task. */
 const REASON_ORDER: ConversationReason[] = [
+  "child-history-unknown",
   "timeline-unreadable",
   "inactive-metadata",
   "child-enumeration-unavailable",
@@ -539,7 +540,10 @@ export class Workboard {
         ? Date.parse(entry.lastObservedAt)
         : null;
       if (time === null || !Number.isFinite(time)) {
+        // The child's history is unknown, so no bound can be proven for it and the
+        // archive waits until one can be established.
         blocked = true;
+        reasons.add("child-history-unknown");
         continue;
       }
       lower = Math.max(lower ?? time, time);

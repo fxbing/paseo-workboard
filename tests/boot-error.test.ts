@@ -91,11 +91,11 @@ function startup(read: () => Promise<unknown>) {
 it.each([
   { status: "invalid", revision: "r", error: "unsupported-storage-version" },
   { status: "invalid", revision: "r", error: "Validation failed" },
-  { status: "ready", revision: "r", values: { schemaVersion: 10 } },
+  { status: "ready", revision: "r", values: { schemaVersion: 11 } },
   {
     status: "ready",
     revision: "r",
-    values: { schemaVersion: 9, tasks: "corrupt" },
+    values: { schemaVersion: 10, tasks: "corrupt" },
   },
 ])(
   "stops startup retries for invalid stored data and exposes a localized board error: %j",
@@ -106,7 +106,7 @@ it.each([
       const code =
         (result.status === "invalid" &&
           result.error === "unsupported-storage-version") ||
-        (result.status === "ready" && result.values?.schemaVersion === 10)
+        (result.status === "ready" && result.values?.schemaVersion === 11)
           ? "unsupported-storage-version"
           : "invalid-storage-data";
       expect(test.snapshot()).toMatchObject({ connected: false, error: code });
@@ -157,7 +157,7 @@ it("retries a transient read failure after ten seconds and recovers", async () =
   }
 });
 
-it("registers the same v9 schema and migration that upgrade stored v6 data", async () => {
+it("registers the same v10 schema and migration that upgrade stored v6 data", async () => {
   const test = startup(async () => ({
     status: "ready",
     revision: "r",
@@ -168,9 +168,9 @@ it("registers the same v9 schema and migration that upgrade stored v6 data", asy
       version: number;
       migrate(values: unknown, fromVersion: number): unknown;
     };
-    expect(definition.version).toBe(9);
+    expect(definition.version).toBe(10);
     expect(definition.migrate({ schemaVersion: 6 }, 6)).toMatchObject({
-      schemaVersion: 9,
+      schemaVersion: 10,
       settings: {
         archiveAfterDays: 30,
         defaultDraftGroup: null,

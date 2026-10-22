@@ -8,8 +8,8 @@ tested.
 
 ## Unverified branch
 
-The `read-inactive-agent-metadata-history` branch (schema v9) passes the
-deterministic suite with **410 unit tests in 28 files** and the formatting
+The `read-inactive-agent-metadata-history` branch (schema v10) passes the
+deterministic suite with **413 unit tests in 28 files** and the formatting
 check, but its isolated host integration run and a live provider check are not
 recorded here yet. The change only asks the host about agents that are already
 running, so the host-side behaviour needs a real provider to confirm.

@@ -270,9 +270,12 @@ export function conversationStatusFor(
  * migrates stored settings when the registered version differs from what it finds.
  *
  * Version 9 adds the `inactive-metadata` conversation reason, which records that an idle
- * agent answered from its recorded metadata instead of from a history read.
+ * agent answered from its recorded metadata instead of from a history read. Version 10
+ * adds `child-history-unknown`, which records that a provider child's history is unknown
+ * and that the archive gate cannot be proven. Version 9 is frozen: a build that ships it
+ * may still be installed, so a later shape gets its own version.
  */
-export const DATA_SCHEMA_VERSION = 9;
+export const DATA_SCHEMA_VERSION = 10;
 
 export const sourceSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -330,6 +333,7 @@ export const CONVERSATION_REASONS = [
   "child-enumeration-unavailable",
   "child-timeline-unreadable",
   "inactive-metadata",
+  "child-history-unknown",
 ] as const;
 export const conversationReasonSchema = z.enum(CONVERSATION_REASONS);
 export const conversationAgentSchema = z.object({

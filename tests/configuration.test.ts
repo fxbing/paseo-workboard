@@ -208,7 +208,7 @@ it("cleans polluted v6 evidence, initializes current fields and permits real obs
     },
     6,
   );
-  expect(migrated.schemaVersion).toBe(9);
+  expect(migrated.schemaVersion).toBe(10);
   expect(migrated.settings).toMatchObject({
     archiveAfterDays: 30,
     defaultDraftGroup: null,
@@ -540,17 +540,16 @@ it("F05-R01 requires changing the selected start-work default before changing it
     test.board.dispose();
   }
 });
-it.each([1, 2, 3, 4, 5, 6, 7, 8])(
+it.each([1, 2, 3, 4, 5, 6, 7, 8, 9])(
   "F05-R01 migrates v%s with an independent null start-work default",
   (version) => {
     const result = migrateData(
       { schemaVersion: version, settings: { defaultStartGroup: "review" } },
       version,
     );
-    expect(result.schemaVersion).toBe(9);
+    expect(result.schemaVersion).toBe(10);
     expect(result.settings.defaultStartWorkGroup).toBeNull();
-    if (version === 7 || version === 8)
-      expect(result.settings.defaultStartGroup).toBe("review");
+    if (version >= 7) expect(result.settings.defaultStartGroup).toBe("review");
   },
 );
 

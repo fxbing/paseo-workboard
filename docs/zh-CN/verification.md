@@ -6,7 +6,7 @@ English: [English](../verification.md)
 
 ## 未验证分支
 
-`read-inactive-agent-metadata-history` 分支（schema v9）通过了确定性测试：**410 个单元测试、28 个文件**，格式检查也通过；但其隔离宿主集成运行和真实 provider 验证尚未记录在本文中。该改动只询问已经处于运行状态的 agent，宿主侧行为仍需真实 provider 确认。
+`read-inactive-agent-metadata-history` 分支（schema v10）通过了确定性测试：**413 个单元测试、28 个文件**，格式检查也通过；但其隔离宿主集成运行和真实 provider 验证尚未记录在本文中。该改动只询问已经处于运行状态的 agent，宿主侧行为仍需真实 provider 确认。
 
 ## 已验证基线
 

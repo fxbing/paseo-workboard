@@ -9,6 +9,7 @@ All notable changes are documented here.
 - Stop waking idle agents: only a running or waiting agent is asked about its history, and an idle agent answers from the host's recorded bounds instead of a resumed provider session.
 - Keep provider children out of the refresh path: an idle parent's children are not listed, a child is not read while its parent is idle, and the children seen while the parent was live are kept.
 - Add the `inactive-metadata` conversation reason, migrate stored settings to schema version 9, keep an idle parent's child bounds in the archive gate and keep a child whose history is unknown blocking automatic archive.
+- Add the `child-history-unknown` conversation reason in schema version 10, so a workspace whose provider child history is unknown says why it cannot be archived.
 
 ## 0.3.0 — 2026-10-13
 

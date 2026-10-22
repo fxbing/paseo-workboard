@@ -284,6 +284,7 @@ const zh = {
     "child-enumeration-unavailable": "无法枚举 provider 子 agent",
     "child-timeline-unreadable": "子 agent 时间线读取失败",
     "inactive-metadata": "agent 处于空闲状态，已改用宿主记录的上下界",
+    "child-history-unknown": "子 agent 历史未知，无法确定归档门禁",
   },
   archiveConfirmedByUser: "归档结果已由用户确认",
   mutationErrors: {
@@ -709,6 +710,8 @@ const en: typeof zh = {
       "A provider child's timeline could not be read",
     "inactive-metadata":
       "The agent is idle, so the host's recorded bounds are used instead of its history",
+    "child-history-unknown":
+      "A provider child's history is unknown, so the archive gate cannot be proven",
   },
   archiveConfirmedByUser: "Archive outcome confirmed by user",
   mutationErrors: {

@@ -320,7 +320,7 @@ it("refuses the gate when a vanished child has no recorded time", async () => {
       .cards.find((c) => c.workspaceId === "old")!;
     expect(card.conversationGateAt).toBeNull();
     expect(card.conversationGateEvidence).toBe("unknown");
-    expect(card.conversationReason).toBe("child-enumeration-unavailable");
+    expect(card.conversationReason).toBe("child-history-unknown");
     expect(card.conversationStatus).toBe("known");
     expect(test.host.archive).not.toHaveBeenCalled();
   } finally {
@@ -347,6 +347,7 @@ it("keeps an idle parent's unlisted child blocking the archive gate", async () =
     // the parent's recorded activity does not bound a child whose history is unknown.
     expect(card.conversationGateAt).toBeNull();
     expect(card.conversationGateEvidence).toBe("unknown");
+    expect(card.conversationReason).toBe("child-history-unknown");
     expect(card.conversationStatus).toBe("known");
     expect(test.host.archive).not.toHaveBeenCalled();
   } finally {

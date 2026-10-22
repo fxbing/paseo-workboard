@@ -218,6 +218,24 @@ function migrateV8(values: unknown) {
       schemaVersion: z.literal(8).default(8),
     })
     .parse(values);
+  return migrateV9({
+    ...previous,
+    schemaVersion: 9,
+  });
+}
+
+/**
+ * v10 adds the `child-history-unknown` conversation reason. The v9 shape is frozen, so a
+ * build that shipped v9 can still read the records it wrote, and this migration only
+ * moves the version forward.
+ */
+function migrateV9(values: unknown) {
+  const previous = z
+    .object({
+      ...dataSchema.shape,
+      schemaVersion: z.literal(9).default(9),
+    })
+    .parse(values);
   return dataSchema.parse({
     ...previous,
     schemaVersion: DATA_SCHEMA_VERSION,
@@ -296,6 +314,7 @@ export class InvalidStorageDataError extends Error {
 }
 
 function migrateDataUnsafe(values: unknown, fromVersion: number) {
+  if (fromVersion === 9) return migrateV9(values);
   if (fromVersion === 8) return migrateV8(values);
   if (fromVersion === 7) return migrateV7(values);
   if (fromVersion === 6) return migrateV6(values);
