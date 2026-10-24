@@ -19,6 +19,17 @@ suite. It chooses a loopback port, disables relay access, stops the daemon, and
 removes the home after the run. A failed stop preserves the home for diagnosis.
 It never uses an existing Paseo home or daemon.
 
+After the integration suite, the runner also checks that Workboard does not
+resume idle Agents (`scripts/check-idle-wake.mjs`): it seeds idle fixture
+Agents, restarts the daemon so none is loaded, lets Workboard start and run a
+periodic refresh, and fails if the daemon log shows an `Agent resumed from
+persistence` for `clientId: plugin:paseo-workboard`. A control request from the
+script itself must log such a resume, so a host that words the line differently
+fails instead of passing silently. The fixture provider has no provider
+children, so children of an idle parent are covered only by unit tests, and the
+suite cannot archive an idle fixture end to end because its Agents are always
+recent.
+
 To also exercise the actual Paseo Web UI in headless Chromium:
 
 ```sh
