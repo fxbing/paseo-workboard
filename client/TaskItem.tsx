@@ -9,7 +9,7 @@ import {
   type Board,
   type Card,
 } from "../shared/model";
-import { attentionReasons, shortDate } from "./board-utils";
+import { attentionReasons, hasNoAgents, shortDate } from "./board-utils";
 import { strings } from "./strings";
 import { groupColor, supplementalColor } from "./colors";
 import { HintButton } from "./Hint";
@@ -88,8 +88,11 @@ export function TaskItem({
   const displayedDate = card.lastConversationAt
     ? shortDate(card.lastConversationAt, t.locale)
     : null;
-  const time =
-    card.conversationDisplayEvidence === "none"
+  const noAgents =
+    hasNoAgents(card) && card.conversationDisplayEvidence === "unknown";
+  const time = noAgents
+    ? t.noAgents
+    : card.conversationDisplayEvidence === "none"
       ? t.noConversation
       : card.conversationDisplayEvidence === "unknown" || displayedDate === null
         ? t.unknownConversation
@@ -494,9 +497,13 @@ export function TaskItem({
             { color: activityColor(card.activity, theme) },
           ]}
         >
-          {isDraft ? t.noWorkspace : t.activity[card.activity]}
+          {isDraft
+            ? t.noWorkspace
+            : noAgents
+              ? t.noAgents
+              : t.activity[card.activity]}
         </Text>
-        {!isDraft && (
+        {!isDraft && !noAgents && (
           <Text
             numberOfLines={1}
             style={[
@@ -754,13 +761,17 @@ export function TaskItem({
             hint={
               reasons.length
                 ? reasons.join(" · ")
-                : `${t.activity[card.activity]} · ${time}`
+                : noAgents
+                  ? time
+                  : `${t.activity[card.activity]} · ${time}`
             }
             accessibilityRole="button"
             accessibilityLabel={
               reasons.length
                 ? `${t.attentionReason}: ${reasons.join(" · ")}`
-                : `${t.activity[card.activity]} · ${time}`
+                : noAgents
+                  ? time
+                  : `${t.activity[card.activity]} · ${time}`
             }
             style={styles.cardFooter}
           >
@@ -775,13 +786,18 @@ export function TaskItem({
                 { color: activityColor(card.activity, theme) },
               ]}
             >
-              {t.activity[card.activity]}
+              {noAgents ? t.noAgents : t.activity[card.activity]}
             </Text>
-            <Text
-              style={[styles.cardMeta, { color: theme.colors.foregroundMuted }]}
-            >
-              {time}
-            </Text>
+            {!noAgents && (
+              <Text
+                style={[
+                  styles.cardMeta,
+                  { color: theme.colors.foregroundMuted },
+                ]}
+              >
+                {time}
+              </Text>
+            )}
           </HintButton>
         )}
         <View style={styles.cardActions}>

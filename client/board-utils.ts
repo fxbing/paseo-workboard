@@ -35,6 +35,10 @@ const attentionIssues = new Set([
   "directory-unavailable",
 ]);
 
+export function hasNoAgents(card: Card): boolean {
+  return card.workspaceId !== null && card.agents.length === 0;
+}
+
 export function attentionReasons(card: Card): string[] {
   const reasons: string[] = [];
   if (["waiting", "error", "attention"].includes(card.activity))
@@ -43,6 +47,7 @@ export function attentionReasons(card: Card): string[] {
   if (
     card.issue &&
     attentionIssues.has(card.issue) &&
+    !(card.issue === "conversation-unknown" && hasNoAgents(card)) &&
     !reasons.includes(card.issue)
   )
     reasons.push(card.issue);
