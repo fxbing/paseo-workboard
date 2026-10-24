@@ -837,7 +837,7 @@ describe("isolated Paseo workboard", () => {
     ).toEqual(expect.arrayContaining(["task:done", "ordinary-label"]));
   });
 
-  test("automatically archives an old idle fixture conversation without a real model", async () => {
+  test("answers an idle fixture conversation from recorded bounds and does not archive it early", async () => {
     const directory = path.join(
       home,
       "integration-archive",
@@ -884,20 +884,24 @@ describe("isolated Paseo workboard", () => {
       archiveDoneEnabled: true,
       archiveCanceledEnabled: true,
     });
-    const archived = await eventually(
+    // The fixture replays 2025 history, but the Agent is idle and its record is fresh. A refresh
+    // does not read an idle Agent, so the card carries only the recorded bound with its gate
+    // unknown, and the workspace is not a recheck candidate for another month.
+    const board = await eventually(
       snapshot,
-      (board) =>
-        board.cards.some(
+      (current) =>
+        current.cards.some(
           (card) =>
             card.workspaceId === workspaceId &&
-            card.archived?.status === "archived",
+            card.conversationReason === "child-enumeration-unavailable",
         ),
-      "old fixture conversation was not archived",
+      "idle fixture conversation was not answered from recorded bounds",
     );
-    expect(
-      archived.cards.find((card) => card.workspaceId === workspaceId)?.archived
-        ?.status,
-    ).toBe("archived");
+    const card = board.cards.find((item) => item.workspaceId === workspaceId)!;
+    expect(card.conversationGateEvidence).toBe("unknown");
+    expect(card.conversationDisplayEvidence).not.toBe("exact");
+    expect(card.archived).toBeNull();
+    expect(card.dueAt).toBeNull();
   });
 
   test("persists column order through native storage and plugin reload, rejects stale CAS and resets activity order", async () => {
@@ -1058,7 +1062,7 @@ describe("isolated Paseo workboard", () => {
     expect(card.archived).toBeNull();
   });
 
-  test("automatically archives a clean, upstreamed Paseo managed worktree", async () => {
+  test("keeps a clean, upstreamed Paseo managed worktree with a recently active idle Agent", async () => {
     await updateSettings({
       archiveDoneEnabled: false,
       archiveCanceledEnabled: false,
@@ -1163,25 +1167,28 @@ describe("isolated Paseo workboard", () => {
       archiveDoneEnabled: true,
       archiveCanceledEnabled: true,
     });
-    const archived = await eventually(
+    // The idle Agent is not read by a refresh, so the workspace is not due and nothing may
+    // archive it or remove its worktree early.
+    await eventually(
       snapshot,
       (board) =>
         board.cards.some(
           (card) =>
             card.workspaceId === workspace.id &&
-            card.archived?.status === "archived",
+            card.conversationReason === "child-enumeration-unavailable",
         ),
-      "managed worktree was not automatically archived",
+      "managed worktree was not answered from recorded bounds",
     );
-    expect(
-      archived.cards.find((card) => card.workspaceId === workspace.id)?.archived
-        ?.status,
-    ).toBe("archived");
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    const card = (await snapshot()).cards.find(
+      (item) => item.workspaceId === workspace.id,
+    )!;
+    expect(card.archived).toBeNull();
     expect(
       (await client.fetchWorkspaces()).entries.some(
         (item) => item.id === workspace.id,
       ),
-    ).toBe(false);
-    expect(await exists(worktree)).toBe(false);
+    ).toBe(true);
+    expect(await exists(worktree)).toBe(true);
   });
 });
