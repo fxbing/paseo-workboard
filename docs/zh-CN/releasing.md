@@ -2,88 +2,97 @@
 
 [English](../releasing.md) · [README](../../README.zh-CN.md)
 
-0.3.2 使用 manifest 声明的最低版本；已验证宿主和客户端检查边界见[验证说明](verification.md)。准备候选包不等于发布到 npm；Paseo Cafe 是独立的社区目录。
+一次发布对应一个带 tag 的源码快照，以及公开的升级说明：
+
+| 记录     | 位置                          | 作用                   |
+| -------- | ----------------------------- | ---------------------- |
+| 源码标签 | 发布提交上的 Git tag `vX.Y.Z` | 指向不可变的源码       |
+| 升级记录 | 该 tag 的 GitHub Release      | 相对上一版本的升级说明 |
+
+按 README 的说明，用户从默认分支安装。Release 不会改变该安装命令解析到的内容；它标记一个已审阅的快照，并附带该快照的说明。仓库不保存更新日志，因此 [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) 是唯一的升级记录。
+
+把本项目的包发布到 npm 不属于当前发布流程。`npm pack` 只用于生成本地验证产物，`npm run check:package` 只检查其内容，两者都不会发布。`package.json` 中的 `publishConfig` 和 `prepublishOnly` 仅作为包配置保留，不使发布成为流程的一部分。
 
 ## 发布包约定
 
 Paseo 加载 TypeScript 客户端/服务端入口及相对模块，所有外部运行时依赖由 Paseo 或 Node 提供。开发依赖保留在 `devDependencies`，无需 manifest 构建命令或编译后的分发目录。参见 [Paseo 发布指南](https://paseo.sh/docs/plugins/publishing)。
 
-npm 包包含 manifest、入口、`client/`、`server/`、`shared/`、中英文 README、更新日志、两份 `OVERVIEW`、`images/`（图标、截图和 GIF）以及 MIT 许可证。测试、开发脚本、daemon 数据、日志、凭证与 `node_modules` 不进入发布包。
+打包内容包含 manifest、入口、`client/`、`server/`、`shared/`、中英文 README、两份 `OVERVIEW`、`images/`（图标、截图和 GIF）以及 MIT 许可证。测试、开发脚本、daemon 数据、日志、凭证与 `node_modules` 不进入发布包。
 
-`npm run check:package` 检查包身份/版本、manifest 最低版本、Cafe 提取所需 README 标题、完整文件清单、引用素材的文件签名和图标尺寸。从 checkout 发布时，`prepublishOnly` 还运行 TypeScript、单元测试和格式检查。CI 执行这些检查并生成可下载 tarball，不自动发布 npm 或提交 Cafe。
+`npm run check:package` 检查包身份/版本、manifest 最低版本、Cafe 提取所需 README 标题、完整文件清单、引用素材的文件签名和图标尺寸。CI 执行这些检查并生成可下载的 tarball 供审查，CI 中不存在任何发布动作。
 
-## 验证发布候选
+## 准备并验证候选版本
 
-1. 同步更新 `package.json` 与 `package-lock.json`。每次发布变更都使用新的正式语义版本；同步更新两份更新日志与中英文文档。
+1. 同步更新 `package.json` 与 `package-lock.json`。每次发布变更都使用新的正式语义版本；保持中英文文档一致。
 2. `requirements.paseo` 应设置预期的最低版本；扩大范围前在当前目标宿主运行集成测试。内部桥接校验响应结构，但无法保证后续 Paseo 版本始终兼容。
 3. 在干净 checkout 中运行：
 
    ```sh
-   mise install
-   mise exec -- npm ci
-   mise exec -- npm run check
-   mise exec -- npm run format:check
-   mise exec -- npm run check:package
+   npm ci
+   npm run check
+   npm run format:check
+   npm run check:package
+   WORKBOARD_VERSION="$(node -p "require('./package.json').version")"
    WORKBOARD_RELEASE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/workboard-release.XXXXXX")"
-   mise exec -- npm pack --pack-destination "$WORKBOARD_RELEASE_DIR"
+   npm pack --pack-destination "$WORKBOARD_RELEASE_DIR"
    ```
 
 4. 按[隔离集成测试指南](../../tests/integration/README.zh-CN.md)启动带标记的临时 Paseo home。将生成的包解压到另一个临时目录，并安装到隔离 daemon；不要给解压包安装开发依赖：
 
    ```sh
    WORKBOARD_PACKAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/workboard-package.XXXXXX")"
-   tar -xzf "$WORKBOARD_RELEASE_DIR/paseo-workboard-0.3.2.tgz" -C "$WORKBOARD_PACKAGE_DIR"
+   tar -xzf "$WORKBOARD_RELEASE_DIR/paseo-workboard-$WORKBOARD_VERSION.tgz" -C "$WORKBOARD_PACKAGE_DIR"
    paseo plugin install "$WORKBOARD_PACKAGE_DIR/package" --home "$WORKBOARD_INTEGRATION_HOME"
    paseo plugin ls --home "$WORKBOARD_INTEGRATION_HOME" --json
-   mise exec -- npm run test:integration
+   npm run test:integration
    ```
 
-   文件名替换为本次版本。要求插件 `running`、看板已连接且集成测试通过；视觉行为仅用虚构任务检查。先停止隔离 daemon，再删除其 home 和解压包。
+   要求插件 `running`、看板已连接且集成测试通过；视觉行为仅用虚构任务检查。先停止隔离 daemon，再删除其 home 和解压包。
 
-5. 审阅 tarball 与 Git diff，排除本机数据，并在[验证说明](verification.md)中记录实际平台和检查结果。本地通过不等于 GitHub Actions 已运行或 npm 安装已验证。
+5. 审阅 tarball 与 Git diff，排除本机数据。本地通过不代表 GitHub Actions 已成功、tag 或 Release 已创建；这些结果都要在实际执行时到对应位置确认。
 
 ## 审批边界
 
-先在本地准备并验证，提交版本号、完整发布说明、兼容性变化、tarball 校验值及发布目标供用户确认。批准前不得 push 源码、创建 tag 或 GitHub Release、发布 npm 包或提交目录变更。已批准公开内容发生实质变化时需要重新审阅。直接发布已有 tarball 不能代替上述检查，必须验证同一个产物。
+先在本地准备并验证，提交版本号、完整发布说明、兼容性变化、tarball 校验值及发布目标供用户确认。批准前不得 push 源码、创建 tag 或 GitHub Release、提交目录变更。已批准公开内容发生实质变化时需要重新审阅。新建 Release 不能代替上述检查，必须验证要打 tag 的那个修订。
 
-## Paseo 官方目录
-
-[官方 registry](https://paseo.sh/docs/plugins/publishing)检测 npm 新版本并自动创建更新 PR；审核通过后，页面才使用获批版本。仅发布 npm 或 Git push 不会立即更新页面。Git 来源的版本更新需要手动提交。
-
-将 `OVERVIEW.md`、`OVERVIEW.zh-CN.md`、manifest 图标和 media 路径及素材一并放入发布包；获批版本提供页面介绍和本地化内容。获批后核对 [Workboard 页面](https://paseo.sh/plugins/fxbing/workboard)的版本、图标、素材及中文内容。目录待审核与 npm 已发布应分别记录。
-
-## 发布源码与 npm
-
-发布需要目标 GitHub 仓库权限和 npm 包名发布权限。查到名称尚未使用不代表当前账号具备权限；真正发布时完成账号检查，仓库不保存发布凭证。
-
-生成最终发布包前，核对 README 安装说明并为更新日志填写发布日期，再重复上述验证。将该源码放到公开 GitHub 仓库默认分支，并为同一版本创建 tag，例如 `v0.3.2`。Cafe 检查默认分支的包与 manifest，只有 tag 不能让未发布的功能分支成为目录来源。将已经验证的 tarball 发布到公开 npm registry：
+在请求批准前就写好发布说明，使批准覆盖最终要发布的文本。说明保存在仓库之外的临时文件中，写入完整正文，并与校验值和发布目标放在同一次请求里：
 
 ```sh
-npm publish "$WORKBOARD_RELEASE_DIR/paseo-workboard-0.3.2.tgz" --access public --registry https://registry.npmjs.org/
-npm view paseo-workboard@0.3.2 version dist.integrity --registry https://registry.npmjs.org/
+WORKBOARD_NOTES="$(mktemp "${TMPDIR:-/tmp}/workboard-notes.XXXXXX")"
+"${EDITOR:-vi}" "$WORKBOARD_NOTES"
+test -s "$WORKBOARD_NOTES" || echo "说明为空"
 ```
 
-随后在隔离 daemon 验证 registry 安装：
+该文件的内容就是下面第 2 步要发布的正文。在说明及其余请求内容获得批准前，不要创建 tag 或 Release。
 
-```sh
-paseo plugin install npm:paseo-workboard@0.3.2 --home "$WORKBOARD_INTEGRATION_HOME"
-paseo plugin ls --home "$WORKBOARD_INTEGRATION_HOME" --json
-mise exec -- npm run test:integration
-```
+## 发布 tag 与 GitHub Release
 
-不要复用已发布 npm 版本；发布说明更新也应保持 GitHub 与 npm 的版本及插件 ID 一致。
+发布需要目标 GitHub 仓库的推送权限；仓库不保存发布凭证。只有上面已写好并经批准的说明就位后才执行发布。
 
-## 提交 Paseo Cafe
+1. 核对 README 安装说明，然后将已验证的源码放到公开仓库默认分支。只能从已审阅、已合并的提交发布。
+2. 在该合并提交上创建 annotated tag 和 GitHub Release。tag `vX.Y.Z` 必须与 `package.json` 一致；Release 正文就是已批准的升级记录，只写上一版本用户需要知道的内容：
 
-已收录的插件发布新 npm 版本并同步默认分支版本即可，版本更新无需另开 Cafe PR。[定时扫描器](https://github.com/paseo-cafe/paseo-cafe#how-it-works)每 15 分钟检查 npm 新版本，候选检查通过后才更新目录；npm 发布成功不代表 Cafe 已刷新。通过 `https://paseo.cafe/api/plugin/paseo-workboard.json` 核对目录版本。
+   ```sh
+   test -s "$WORKBOARD_NOTES" || { echo "已批准的说明为空或不存在"; exit 1; }
+   git tag -a "v$WORKBOARD_VERSION" -m "paseo-workboard $WORKBOARD_VERSION"
+   git push origin "v$WORKBOARD_VERSION"
+   gh release create "v$WORKBOARD_VERSION" \
+     "$WORKBOARD_RELEASE_DIR/paseo-workboard-$WORKBOARD_VERSION.tgz" \
+     --title "paseo-workboard $WORKBOARD_VERSION" \
+     --notes-file "$WORKBOARD_NOTES"
+   ```
 
-Cafe 是社区目录。当前[提交要求](https://paseo.cafe/submit/)包含公开 GitHub 仓库，以及插件 ID 和版本匹配的公开 npmjs 包；仅本地打包或建立 GitHub 仓库不够。
+   这些命令只使用已有变量，绝不在其中创建说明文件。正文先写用户可感知的变化，再写行为变化、兼容性变化（如新的 `requirements.paseo` 最低版本）和已知限制，并遵循与其它文档相同的虚构示例规则。不要向仓库添加说明文件；不要附加日志、本机路径或未审阅的二进制文件，唯一附件是打包好的 tarball。Release 创建后删除该临时说明文件。
 
-[paseo-cafe.json](../paseo-cafe.json)提供已准备的表单数据。它是提交候选，放在本仓库不会自动注册；初始平台声明为已验证宿主集成的 macOS，其它平台验证后再补充。
+3. 确认 tag 指向已审阅的提交，且 Release 显示的版本、标题和说明正确。不要移动或删除已发布的 tag；说明写错时直接编辑 Release，tag 指向的源码有误时修复后发布新版本。
+4. 不要将发布说明、更新日志或验证记录加入仓库。
 
-1. 打开提交页，填写 registry ID `paseo-workboard`、仓库 `fxbing/paseo-workboard`、npm 包 `paseo-workboard`，子路径留空。
-2. 从 JSON 复制分类、平台及 caveats，检查表单生成的完整 GitHub Issue 与确认项后再提交。
-3. Cafe bot 创建 registry PR，准入检查源码、manifest、npm 包和安全扫描；提交不保证收录。
-4. 合并后检查生成的目录页和安装命令，后续更新继续遵循版本与打包验证流程。
+## 目录收录
+
+目录收录更新独立于本仓库的发布流程：发布流程不包含它们，GitHub Release 也不会自动更新已有的 npm 来源目录页面。
+
+[_paseo-cafe.json_](../paseo-cafe.json)只保存准备好的收录元数据：分类、平台与 caveats。它仅作参考；放在仓库中不会产生注册，也不属于 GitHub Release。
+
+保持在包内 `OVERVIEW.md`、`OVERVIEW.zh-CN.md`、manifest 图标与 media 路径及素材准确。
 
 Cafe 从英文 README 提取安装和限制内容，因此保留 `## Installation`、`## Limitations` 标题。`images/` 下的截图和演示视频为可选项；使用真实产品画面及公开或虚构数据。

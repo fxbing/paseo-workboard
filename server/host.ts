@@ -35,6 +35,7 @@ interface ChildRecord {
   seenWhileLive: boolean;
   children: ProviderChild[];
   refused: boolean;
+  retryAt?: number;
 }
 
 export type Workspace = Pick<
@@ -166,6 +167,7 @@ export class PaseoHost implements Host {
   private agentWorkspaces = new Map<string, string | undefined>();
   /** Provider children per parent, keyed by the parent activity Paseo last reported. */
   private childRecords = new Map<string, ChildRecord>();
+  private childRevision = 0;
   constructor(
     private api: PaseoApi,
     private compat: PaseoCompat,
@@ -177,15 +179,28 @@ export class PaseoHost implements Host {
     subscription.subscribe({
       snapshot: () => {
         if (initial) initial = false;
-        else this.changed();
+        else {
+          this.invalidateChildren();
+          this.changed();
+        }
       },
       update: (message) => this.update(message),
       error: () => {
+        this.invalidateChildren();
         this.subscriptionsFailed = true;
         this.changed();
       },
     });
     this.subscriptions.push(() => subscription.release());
+  }
+  private invalidateChildren(parentId?: string): void {
+    this.childRevision++;
+    for (const [id, record] of this.childRecords) {
+      if (parentId !== undefined && id !== parentId) continue;
+      // Retain observed children until a fresh listing succeeds.
+      record.refused = true;
+      record.retryAt = undefined;
+    }
   }
   private update(message: SessionOutboundMessage): void {
     if (message.type === "workspace_update") {
@@ -205,6 +220,7 @@ export class PaseoHost implements Host {
         });
         this.changed(change.agent.workspaceId);
       } else {
+        this.invalidateChildren(change.agentId);
         this.childRecords.delete(change.agentId);
         this.agentUpdates.set(change.agentId, null);
         const workspaceId = this.agentWorkspaces.get(change.agentId);
@@ -219,7 +235,7 @@ export class PaseoHost implements Host {
           : change.parentAgentId;
       // A child change does not have to touch the parent, so the cache cannot wait for
       // the parent's updatedAt to move.
-      this.childRecords.delete(parentAgentId);
+      this.invalidateChildren(parentAgentId);
       this.changed(this.agentWorkspaces.get(parentAgentId));
     }
   }
@@ -234,7 +250,7 @@ export class PaseoHost implements Host {
     }
     if (!this.subscriptions.length) {
       try {
-        // In 0.9.1 the subscription is filtered, not paged (session.ts handleFetch*).
+        // Host subscriptions are filtered, not paged (session.ts handleFetch*).
         // A single unfiltered subscription covers updates beyond the first 200 rows.
         this.own(
           (
@@ -266,6 +282,7 @@ export class PaseoHost implements Host {
         throw error;
       }
     }
+    const revision = this.childRevision;
     const [workspaces, agents, projects] = await Promise.all([
       allPages((cursor) =>
         this.api.workspaces.list({ page: { limit: 200, cursor } }),
@@ -327,6 +344,11 @@ export class PaseoHost implements Host {
                 : "idle",
         });
     }
+    // An event during a later listing can also invalidate an earlier parent's result.
+    if (revision !== this.childRevision)
+      for (const agent of agentMap.values())
+        if (agent.childEnumeration)
+          agent.childEnumeration = agent.archivedAt ? "refused" : "unavailable";
     return {
       workspaces: [...workspaceMap.values()],
       agents: [...agentMap.values()],
@@ -339,13 +361,20 @@ export class PaseoHost implements Host {
     };
   }
   /**
-   * Provider children are cached per parent activity. Re-listing them costs the daemon one
-   * request per agent on every pass, and an archived parent cannot be re-listed at all, so
-   * the children observed while it was live are kept instead of its chat going unknown.
+   * Provider children are cached per parent activity. A failed live listing is retried
+   * after one refresh interval; archived parents cannot be re-listed at all.
    */
   private async childRecord(agent: Agent): Promise<ChildRecord> {
     const cached = this.childRecords.get(agent.id);
-    if (cached && cached.parentUpdatedAt === agent.updatedAt) return cached;
+    if (
+      cached &&
+      cached.parentUpdatedAt === agent.updatedAt &&
+      (agent.archivedAt
+        ? cached.refused
+        : !cached.refused || Date.now() < (cached.retryAt ?? 0))
+    )
+      return cached;
+    const revision = this.childRevision;
     let record: ChildRecord;
     if (agent.archivedAt) {
       record = {
@@ -368,9 +397,12 @@ export class PaseoHost implements Host {
           seenWhileLive: false,
           children: cached?.children ?? [],
           refused: true,
+          retryAt: Date.now() + 60_000,
         };
       }
     }
+    // An old in-flight response is neither a complete inventory nor a reusable cache.
+    if (revision !== this.childRevision) return { ...record, refused: true };
     this.childRecords.set(agent.id, record);
     return record;
   }

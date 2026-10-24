@@ -49,7 +49,7 @@
 
 卡片和列表行均显示标题、项目、活动和最近对话日期。标题悬停时显示下划线和用途提示：草稿打开编辑，已绑定任务打开 workspace；当前界面不支持 workspace 跳转时会提示从 Paseo 列表打开。时间写成「不早于 {date}」或「不晚于 {date}」说明 Paseo 那边只能给边界：前者来自 Paseo 记录的最后一条用户消息，或部分回放窗口里较早的行；后者是 Paseo 记录的活动时间。Workboard 不会把 Paseo 记录的活动时间当成消息时间展示。展开卡片或列表行可查看标签、Agent 和完整 PR/MR 标题。Paseo 提供信息时，两种布局都会用原生风格图标显示 PR/MR 状态、CI 结果和评审结论。列表行直接显示任务 issue、PR/MR 信息不可用、CI 失败、要求修改、绑定和归档逾期提示；更多操作从独立入口打开。Workboard 不会直接查询 forge。PR/MR 合并或关闭不会改变任务状态。
 
-已绑定 workspace 但没有任何 Agent 时，卡片显示「没有 Agent」代替对话时间；它不算需关注，也不会被自动归档，因为对话时间仍然未知。
+已绑定 workspace 没有任何 Agent 且对话时间未知时，卡片显示「没有 Agent」代替对话时间。没有 Agent 的 workspace 不会仅因对话时间未知而计入需关注，其它提醒仍然适用。归档安全检查保持不变。
 
 卡片只在桌面列中为拖动把手预留空间。操作按钮在窄卡片内换行，间隔为 2px，悬停或键盘聚焦时显示底色；告警文本与卡片元信息字号一致。
 
@@ -103,7 +103,7 @@
 
 旧设置继续用原共享期限，直到各条规则分别修改期限。升级时若补建缺失的已废弃组，会暂停自动归档，因为新标签可能匹配已有 workspace；设置页会持续说明原因，直到重新开启。其它升级保留原归档偏好。
 
-归档前，如果无法证明任何对话上界，或 workspace 有运行/等待的 Agent、terminal、运行脚本，或 Git 状态不安全/无法核实，Workboard 会延期。它不会自动 stash、commit、push 或删除文件。
+归档前，如果无法枚举 provider 子 Agent、无法证明任何对话上界，或 workspace 有运行/等待的 Agent、terminal、运行脚本，或 Git 状态不安全/无法核实，Workboard 会延期。已枚举子 Agent 的历史若无法证明上界，同样延期归档；已确认空历史除外。子 Agent 清单不完整时，归档资格保持未知，卡片仍保留对话显示时间；父 Agent 的旧时间不能证明子 Agent 没有新活动。已观察的子 Agent 从清单消失后，同样阻止自动归档。上次读取即使得到了精确时间、上界或空历史，也不能证明移除前没有新消息；刷新和重启后仍保留原显示时间。订阅恢复或失败后，Workboard 重新检查子 Agent 清单，再判断能否归档；检查失败时保留已观察的子 Agent。未归档父 Agent 的子 Agent 枚举失败后，一分钟后重试。它不会自动 stash、commit、push 或删除文件。
 
 自动归档调用 Paseo 原生 workspace 归档。这可能停止 Agent 与 terminal，并可能移除托管 worktree。成功需要原生响应 `error=null` 且存在 `archivedAt`，随后刷新确认 workspace 已从原生活跃列表消失；不确定结果会保留供人工处理，不会盲目重试。
 
@@ -127,7 +127,7 @@ Paseo 原生的 **Archive merged PR workspaces** 设置是独立功能。它按�
 
 ## 限制与支持边界
 
-- 插件 manifest 设置 Paseo 最低版本。内部标签桥接在后续版本中可能需要调整；已验证宿主见[验证记录](verification.md)。
+- 插件 manifest 设置 Paseo 最低版本。内部标签桥接在后续版本中可能需要调整；宿主兼容范围与剩余边界见 README 的安装说明和限制说明。
 - 本地筛选、视图选择、分别保存的看板/列表折叠状态及看板列宽按客户端与 host 保存，不是共享任务数据。
 - workspace 标签以及原生归档/置顶可以在 Workboard 外变化。插件会尽可能重读状态，但原生 API 不提供所有原子操作。
-- Paseo 0.9.1 对已归档 parent 拒绝 provider 子 agent API，其 pi provider 回放历史时不给每行时间戳；Workboard 因此回退到展示用边界，只在无法证明任何上界时延期归档。
+- Paseo 对已归档 parent 拒绝 provider 子 agent API，其 pi provider 回放历史时不给每行时间戳；Workboard 保留展示用边界，在子 Agent 清单不完整，或对话证据无法安全界定父、子 Agent 历史的上界时延期归档。

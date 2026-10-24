@@ -238,6 +238,212 @@ it("uses the latest of multiple agents, including a provider child, without borr
     test.board.dispose();
   }
 });
+
+it.each([
+  {
+    name: "replayed history",
+    child: observed(null, { display: "unknown", reason: "replay-timestamp" }),
+    displayAt: "2026-08-01T00:00:00.000Z",
+  },
+  {
+    name: "accepted rows mixed with replayed history",
+    child: observed("2026-08-02T00:00:00Z", {
+      display: "lower-bound",
+      gateAt: null,
+      gate: "unknown",
+      reason: "replay-timestamp",
+    }),
+    displayAt: "2026-08-02T00:00:00.000Z",
+  },
+  {
+    name: "a partial history",
+    child: observed("2026-08-02T00:00:00Z", {
+      display: "lower-bound",
+      gateAt: null,
+      gate: "unknown",
+      reason: "child-timeline-unreadable",
+    }),
+    displayAt: "2026-08-02T00:00:00.000Z",
+  },
+])(
+  "keeps $name unsafe while a child is present, after removal and after restart",
+  async ({ child, displayAt }) => {
+    const test = dueFixture();
+    test.inventory.agents[0].childEnumeration = "complete";
+    test.inventory.agents.push({
+      id: "a/provider/child",
+      parentAgentId: "a",
+      subagentId: "child",
+      workspaceId: "old",
+      title: "Child",
+      updatedAt: "2026-09-22T00:00:00Z",
+      lastUserMessageAt: null,
+      activity: "idle",
+    });
+    test.host.conversation = async (agent) =>
+      agent.id === "a" ? observed("2026-08-01T00:00:00Z") : child;
+    const resumed = new Workboard(test.host, new Store(test.backing), test.now);
+    const expectBlocked = (board: Workboard) => {
+      expect(board.snapshot().cards[0]).toMatchObject({
+        archived: null,
+        lastConversationAt: displayAt,
+        conversationGateAt: null,
+        conversationGateEvidence: "unknown",
+        dueAt: null,
+      });
+      expect(test.host.archive).not.toHaveBeenCalled();
+    };
+    try {
+      await test.board.start();
+      expectBlocked(test.board);
+      test.inventory.agents.pop();
+      await test.board.refresh();
+      expectBlocked(test.board);
+      await test.board.refresh();
+      expectBlocked(test.board);
+      test.board.dispose();
+      await resumed.start();
+      await resumed.refresh();
+      expectBlocked(resumed);
+    } finally {
+      test.board.dispose();
+      resumed.dispose();
+    }
+  },
+);
+
+it("keeps an enumerated child with a verified empty timeline archiveable", async () => {
+  const test = dueFixture();
+  test.inventory.agents[0].childEnumeration = "complete";
+  test.inventory.agents.push({
+    id: "a/provider/child",
+    parentAgentId: "a",
+    subagentId: "child",
+    workspaceId: "old",
+    title: "Child",
+    updatedAt: "2026-09-22T00:00:00Z",
+    lastUserMessageAt: null,
+    activity: "idle",
+  });
+  test.host.conversation = async (agent) =>
+    observed(agent.id === "a" ? "2026-08-01T00:00:00Z" : null);
+  try {
+    await test.board.start();
+    expect(test.host.archive).toHaveBeenCalledExactlyOnceWith("old");
+  } finally {
+    test.board.dispose();
+  }
+});
+
+it.each([
+  { name: "exact", evidence: observed("2026-08-02T00:00:00Z") },
+  {
+    name: "upper bound",
+    evidence: observed("2026-08-02T00:00:00Z", {
+      display: "lower-bound",
+      gate: "upper-bound",
+      gateAt: "2026-09-10T00:00:00Z",
+      reason: "truncated-window",
+    }),
+  },
+  { name: "empty", evidence: observed(null) },
+])(
+  "keeps a child unknown after its $name read, a newer message and removal, including restart",
+  async ({ evidence }) => {
+    const test = dueFixture();
+    test.inventory.workspaces[0].labels = ["task:todo"];
+    test.inventory.agents[0].childEnumeration = "complete";
+    test.inventory.agents.push({
+      ...test.inventory.agents[0],
+      id: "a/provider/child",
+      parentAgentId: "a",
+      subagentId: "child",
+      lastUserMessageAt: null,
+      childEnumeration: undefined,
+    });
+    let childEvidence = evidence;
+    test.host.conversation = async (agent) =>
+      agent.id === "a" ? observed("2026-08-01T00:00:00Z") : childEvidence;
+    let now = test.now();
+    const resumed = new Workboard(
+      test.host,
+      new Store(test.backing),
+      () => now,
+    );
+    const bound = new Date(
+      evidence.gateAt ?? "2026-08-01T00:00:00Z",
+    ).toISOString();
+    const expectBlocked = (board: Workboard) => {
+      expect(board.snapshot().cards[0]).toMatchObject({
+        conversationGateEvidence: "unknown",
+        conversationGateAt: null,
+        lastConversationAt: new Date(
+          evidence.displayAt ?? "2026-08-01T00:00:00Z",
+        ).toISOString(),
+        dueAt: null,
+        archived: null,
+      });
+      expect(test.host.archive).not.toHaveBeenCalled();
+    };
+    try {
+      await test.board.start();
+      expect(test.board.snapshot().cards[0].conversationGateAt).toBe(bound);
+      childEvidence = observed("2026-09-22T00:00:00Z");
+      test.inventory.workspaces[0].labels = ["task:done"];
+      test.inventory.agents.pop();
+      await test.board.refresh();
+      expectBlocked(test.board);
+      await test.board.refresh();
+      expectBlocked(test.board);
+      test.board.dispose();
+      await resumed.start();
+      expectBlocked(resumed);
+      now += 365 * 24 * 60 * 60 * 1000;
+      await resumed.refresh();
+      expectBlocked(resumed);
+    } finally {
+      test.board.dispose();
+      resumed.dispose();
+    }
+  },
+);
+
+it("does not move the archive gate back to an old task timestamp when its last agent disappears", async () => {
+  const test = fixture({
+    settings: settingsSchema.parse({ archiveDoneEnabled: true }),
+    tasks: [
+      {
+        ...newTask("task", "Old task", "2026-08-01T00:00:00Z", "done"),
+        workspaceId: "old",
+        lastStage: "done",
+      },
+    ],
+  });
+  test.inventory.workspaces.push(workspace("old", undefined, ["task:done"]));
+  test.inventory.agents.push({
+    id: "a",
+    workspaceId: "old",
+    title: null,
+    updatedAt: "2026-09-22T00:00:00Z",
+    lastUserMessageAt: "2026-09-22T00:00:00Z",
+    activity: "idle",
+  });
+  test.host.conversation = agentEvidence("2026-09-22T00:00:00Z");
+  try {
+    await test.board.start();
+    expect(test.board.snapshot().cards[0].conversationGateAt).toBe(
+      "2026-09-22T00:00:00.000Z",
+    );
+    test.inventory.agents.length = 0;
+    await test.board.refresh();
+    expect(test.host.archive).not.toHaveBeenCalled();
+    expect(test.board.snapshot().cards[0].conversationGateEvidence).toBe(
+      "unknown",
+    );
+  } finally {
+    test.board.dispose();
+  }
+});
 it("keeps native timeout/partial failure uncertain across restart and never sends a second archive", async () => {
   for (const failure of ["timeout", "partial"]) {
     const { board, host, backing, now } = dueFixture();
@@ -261,10 +467,6 @@ it("keeps native timeout/partial failure uncertain across restart and never send
   }
 });
 
-/**
- * A child that vanished before its time was recorded leaves the timeline unreadable, so the
- * gate may never go back before an observation that was actually recorded.
- */
 function vanishedChildFixture(lastObservedAt: string | null) {
   const test = fixture({
     settings: settingsSchema.parse({
@@ -299,81 +501,156 @@ function vanishedChildFixture(lastObservedAt: string | null) {
   return test;
 }
 
-it("folds a vanished child's recorded time into the archive gate", async () => {
-  const test = vanishedChildFixture("2026-09-10T00:00:00Z");
-  try {
-    await test.board.start();
-    const card = test.board
-      .snapshot()
-      .cards.find((c) => c.workspaceId === "old")!;
-    // Gating on the parent alone would be 2026-08-01 and archive this workspace.
-    expect(card.conversationGateAt).toBe("2026-09-10T00:00:00.000Z");
-    expect(card.conversationGateEvidence).toBe("upper-bound");
-    expect(card.conversationDisplayEvidence).toBe("lower-bound");
-    expect(test.host.archive).not.toHaveBeenCalled();
-  } finally {
-    test.board.dispose();
-  }
-});
+it.each(["2026-08-02T00:00:00Z", null])(
+  "keeps legacy child records unknown across loading and restart, recorded time: %s",
+  async (lastObservedAt) => {
+    const test = vanishedChildFixture(lastObservedAt);
+    for (let restart = 0; restart < 2; restart++) {
+      const board = new Workboard(test.host, new Store(test.backing), test.now);
+      try {
+        await board.start();
+        await board.refresh();
+        expect(board.snapshot().cards[0]).toMatchObject({
+          lastConversationAt: new Date(
+            lastObservedAt ?? "2026-08-01T00:00:00Z",
+          ).toISOString(),
+          conversationDisplayEvidence: "lower-bound",
+          conversationGateAt: null,
+          conversationGateEvidence: "unknown",
+          conversationReason: "child-enumeration-unavailable",
+          dueAt: null,
+          archived: null,
+        });
+        expect(test.host.archive).not.toHaveBeenCalled();
+      } finally {
+        board.dispose();
+      }
+    }
+  },
+);
 
-it("refuses the gate when a vanished child has no recorded time", async () => {
-  const test = vanishedChildFixture(null);
-  try {
-    await test.board.start();
-    const card = test.board
-      .snapshot()
-      .cards.find((c) => c.workspaceId === "old")!;
-    expect(card.conversationGateAt).toBeNull();
-    expect(card.conversationGateEvidence).toBe("unknown");
-    expect(card.conversationReason).toBe("child-enumeration-unavailable");
-    expect(card.conversationStatus).toBe("known");
-    expect(test.host.archive).not.toHaveBeenCalled();
-  } finally {
-    test.board.dispose();
-  }
-});
+it.each(["unavailable", "refused"] as const)(
+  "defers an idle parent's archive while child enumeration is %s, including after restart",
+  async (childEnumeration) => {
+    const test = dueFixture();
+    test.inventory.agents[0].childEnumeration = childEnumeration;
+    const resumed = new Workboard(test.host, new Store(test.backing), test.now);
+    try {
+      await test.board.start();
+      expect(test.board.snapshot().cards[0]).toMatchObject({
+        archived: null,
+        lastConversationAt: "2026-08-01T00:00:00.000Z",
+        conversationGateAt: null,
+        conversationGateEvidence: "unknown",
+        conversationReason: "child-enumeration-unavailable",
+      });
+      expect(test.host.archive).not.toHaveBeenCalled();
+      await test.board.refresh();
+      expect(test.board.snapshot().cards[0].conversationGateEvidence).toBe(
+        "unknown",
+      );
+      test.board.dispose();
+      await resumed.start();
+      expect(resumed.snapshot().cards[0].conversationGateEvidence).toBe(
+        "unknown",
+      );
+      expect(test.host.archive).not.toHaveBeenCalled();
+      test.inventory.agents[0].childEnumeration = "complete";
+      await resumed.refresh();
+      expect(test.host.archive).toHaveBeenCalledExactlyOnceWith("old");
+    } finally {
+      test.board.dispose();
+      resumed.dispose();
+    }
+  },
+);
 
-it("does not leave a v5-migrated task permanently blocked by a never-observed legacy agent id", async () => {
-  const migrated = migrateData(
-    {
-      schemaVersion: 5,
-      revision: 1,
-      serverId: "fixture-host",
-      settings: { autoArchive: true },
-      tasks: [
+it.each([true, false])(
+  "keeps a child without a message time unsafe after v6 migration, seenWhileLive: %s",
+  async (seenWhileLive) => {
+    const legacy = vanishedChildFixture(null);
+    const values = (await legacy.backing.read()).values;
+    // v6 could clear this flag when a failed listing returned cached children.
+    values.tasks[0].conversationAgents[0].seenWhileLive = seenWhileLive;
+    const test = fixture(
+      migrateData(
         {
-          ...newTask("task", "Old task", "2026-08-01T00:00:00Z", "done"),
-          workspaceId: "old",
-          lastStage: "done",
-          lastConversationAt: "2026-08-01T00:00:00Z",
-          conversationStatus: "known",
-          conversationAgents: ["a", "a/provider/child"],
+          ...values,
+          schemaVersion: 6,
+          settings: { ...values.settings, autoArchive: true },
         },
-      ],
-    },
-    5,
-  );
-  expect(migrated.tasks[0].conversationAgents).toEqual([]);
-  const { board, inventory, host } = fixture(migrated);
-  inventory.workspaces.push(workspace("old", undefined, ["task:done"]));
-  inventory.agents.push({
-    id: "a",
-    workspaceId: "old",
-    title: null,
-    updatedAt: "2026-08-01T00:00:00Z",
-    lastUserMessageAt: "2026-08-01T00:00:00Z",
-    activity: "idle",
-  });
-  host.conversation = agentEvidence("2026-08-01T00:00:00Z");
-  try {
-    await board.start();
-    const card = board.snapshot().cards.find((c) => c.workspaceId === "old")!;
-    expect(card.conversationGateEvidence).toBe("exact");
-    expect(host.archive).toHaveBeenCalledExactlyOnceWith("old");
-  } finally {
-    board.dispose();
-  }
-});
+        6,
+      ),
+    );
+    test.inventory.workspaces = legacy.inventory.workspaces;
+    test.inventory.agents = legacy.inventory.agents;
+    test.host.conversation = legacy.host.conversation;
+    for (let restart = 0; restart < 2; restart++) {
+      const board = new Workboard(test.host, new Store(test.backing), test.now);
+      try {
+        await board.start();
+        await board.refresh();
+        expect(test.host.archive).not.toHaveBeenCalled();
+        expect(board.snapshot().cards[0]).toMatchObject({
+          conversationGateEvidence: "unknown",
+          conversationGateAt: null,
+          dueAt: null,
+          archived: null,
+        });
+      } finally {
+        board.dispose();
+      }
+    }
+  },
+);
+
+it.each([5, 6])(
+  "does not leave a v%s-migrated task permanently blocked by a never-observed legacy agent id",
+  async (version) => {
+    const migrated = migrateData(
+      {
+        schemaVersion: version,
+        revision: 1,
+        serverId: "fixture-host",
+        settings: { autoArchive: true },
+        tasks: [
+          {
+            ...newTask("task", "Old task", "2026-08-01T00:00:00Z", "done"),
+            workspaceId: "old",
+            lastStage: "done",
+            lastConversationAt: "2026-08-01T00:00:00Z",
+            conversationStatus: "known",
+            conversationAgents:
+              version === 5
+                ? ["a", "a/provider/child"]
+                : [{ id: "a", lastObservedAt: null, seenWhileLive: false }],
+          },
+        ],
+      },
+      version,
+    );
+    expect(migrated.tasks[0].conversationAgents).toEqual([]);
+    const { board, inventory, host } = fixture(migrated);
+    inventory.workspaces.push(workspace("old", undefined, ["task:done"]));
+    inventory.agents.push({
+      id: "a",
+      workspaceId: "old",
+      title: null,
+      updatedAt: "2026-08-01T00:00:00Z",
+      lastUserMessageAt: "2026-08-01T00:00:00Z",
+      activity: "idle",
+    });
+    host.conversation = agentEvidence("2026-08-01T00:00:00Z");
+    try {
+      await board.start();
+      const card = board.snapshot().cards.find((c) => c.workspaceId === "old")!;
+      expect(card.conversationGateEvidence).toBe("exact");
+      expect(host.archive).toHaveBeenCalledExactlyOnceWith("old");
+    } finally {
+      board.dispose();
+    }
+  },
+);
 
 it("shares scan inventory and exponentially defers unchanged unsafe candidates up to one hour", async () => {
   const test = dueFixture();

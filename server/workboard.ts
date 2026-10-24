@@ -527,8 +527,8 @@ export class Workboard {
   /**
    * Combine every agent's evidence into one display time and one archive gate. Only a full
    * exact read of every agent and every provider child can claim an exact time; anything
-   * else keeps the newest observed bound so a task never loses its card time, while the gate
-   * stays an upper bound that can only delay archiving.
+   * else keeps the newest observed bound for display. The archive gate needs a bound for
+   * every agent and child; an incomplete inventory leaves it unknown.
    */
   private async observe(
     agents: readonly Agent[],
@@ -561,13 +561,24 @@ export class Workboard {
     const reasons = new Set<ConversationReason>();
     let lower: number | null = null;
     let upper: number | null = null;
+    let blocked = false;
     for (const { agent, conversation } of readings) {
+      const isChild = Boolean(agent.parentAgentId && agent.subagentId);
       if (conversation.reason) reasons.add(conversation.reason);
+      if (
+        isChild &&
+        conversation.gate === "unknown" &&
+        (conversation.display !== "none" || conversation.reason !== null)
+      )
+        blocked = true;
       if (
         agent.childEnumeration === "refused" ||
         agent.childEnumeration === "unavailable"
-      )
+      ) {
         reasons.add("child-enumeration-unavailable");
+        // Parent activity does not bound a child that could not be listed.
+        blocked = true;
+      }
       const time = conversation.displayAt
         ? Date.parse(conversation.displayAt)
         : null;
@@ -577,10 +588,13 @@ export class Workboard {
           upper = Math.max(upper ?? time, time);
         else lower = Math.max(lower ?? time, time);
       }
-      const isChild = Boolean(agent.parentAgentId && agent.subagentId);
       const activity = isChild ? null : Date.parse(agent.updatedAt);
       if (activity !== null && Number.isFinite(activity))
         upper = Math.max(upper ?? activity, activity);
+      if (conversation.gate !== "unknown" && conversation.gateAt !== null) {
+        const bound = Date.parse(conversation.gateAt);
+        upper = Math.max(upper ?? bound, bound);
+      }
     }
     const recorded = previous?.conversationAgents ?? [];
     const live = new Set(
@@ -596,23 +610,17 @@ export class Workboard {
         seenWhileLive: live.has(agent.parentAgentId!),
       }));
     const current = new Set(readings.map(({ agent }) => agent.id));
-    let blocked = false;
     for (const entry of recorded) {
       if (current.has(entry.id)) continue;
       agentsEvidence.push(entry);
-      // A vanished child cannot be re-read, so this workspace can no longer claim an exact
-      // time. Its recorded observation still participates in both bounds; without one nothing
-      // bounds its conversation any more.
+      // Its last read cannot cover new messages between that read and removal.
+      blocked = true;
       reasons.add("child-enumeration-unavailable");
       const time = entry.lastObservedAt
         ? Date.parse(entry.lastObservedAt)
         : null;
-      if (time === null || !Number.isFinite(time)) {
-        blocked = true;
-        continue;
-      }
-      lower = Math.max(lower ?? time, time);
-      upper = Math.max(upper ?? time, time);
+      if (time !== null && Number.isFinite(time))
+        lower = Math.max(lower ?? time, time);
     }
     if (lower !== null) upper = Math.max(upper ?? lower, lower);
     // Derived after the vanished children folded in: their reasons and their time decide whether
@@ -672,7 +680,7 @@ export class Workboard {
     let gate: number | null = null;
     try {
       // The archive candidate is the one place that pays for an archived agent's timeline,
-      // and a vanished child without a recorded time already forces an unknown gate.
+      // and a vanished child already forces an unknown gate.
       const evidence = await this.observe(agents, candidate, this.now(), {
         archivedTimeline: true,
       });
@@ -1701,8 +1709,6 @@ export class Workboard {
           current.archivingAt ||
           current.status === "running" ||
           current.status === "needs_input" ||
-          // A refused child listing for an archived parent keeps the gate on its recorded
-          // bounds, so it must not defer the archive forever as a state change would.
           resolveStage(
             current.labels,
             this.store.current.settings.groups,

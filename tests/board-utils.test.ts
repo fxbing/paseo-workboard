@@ -162,6 +162,28 @@ describe("board card selection", () => {
     ).toEqual(["conversation-unknown"]);
   });
 
+  it("keeps other attention reasons when an agentless workspace has unknown conversation time", () => {
+    const value = card({
+      issue: "conversation-unknown",
+      stage: "conflict",
+      changeRequest: {
+        forge: "github",
+        number: 42,
+        url: "https://code.example/repo/pull/42",
+        title: "Fix workspace sync",
+        state: "open",
+        checksStatus: "failure",
+        reviewDecision: "changes_requested",
+      },
+    });
+    expect(attentionReasons(value)).toEqual([
+      "labels-conflict",
+      "checks-failure",
+      "changes-requested",
+    ]);
+    expect(visibleCards(board([value]), "all", "", true)).toEqual([value]);
+  });
+
   it("flags failing checks or requested changes only on current open change requests", () => {
     const request: NonNullable<Card["changeRequest"]> = {
       forge: "gitlab",

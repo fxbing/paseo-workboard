@@ -40,8 +40,6 @@ const expected = [
   "LICENSE",
   "README.md",
   "README.zh-CN.md",
-  "CHANGELOG.md",
-  "CHANGELOG.zh-CN.md",
   "OVERVIEW.md",
   "OVERVIEW.zh-CN.md",
   "images/icon.png",

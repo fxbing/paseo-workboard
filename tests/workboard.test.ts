@@ -243,6 +243,53 @@ it("keeps another agent's actionable status visible while a workspace is running
   }
 });
 
+it("keeps the parent's current error visible beside a replayed idle provider child", async () => {
+  const { board, inventory, host } = fixture();
+  inventory.workspaces.push(
+    workspace("w", "Parent and child", ["task:review"]),
+  );
+  inventory.agents.push(
+    {
+      id: "parent",
+      workspaceId: "w",
+      title: "Parent",
+      updatedAt: "2026-09-23T00:00:00Z",
+      lastUserMessageAt: null,
+      activity: "error",
+    },
+    {
+      id: "parent/provider/child",
+      parentAgentId: "parent",
+      subagentId: "child",
+      workspaceId: "w",
+      title: "Child",
+      updatedAt: "2026-09-23T00:01:00Z",
+      lastUserMessageAt: null,
+      activity: "idle",
+    },
+  );
+  host.conversation = async (agent) =>
+    agent.id === "parent"
+      ? observed("2026-09-22T00:00:00Z")
+      : observed(null, {
+          display: "unknown",
+          gate: "unknown",
+          reason: "replay-timestamp",
+        });
+  await board.start();
+  try {
+    const card = board.snapshot().cards[0];
+    expect(card.activity).toBe("error");
+    expect(card.lastConversationAt).toBe("2026-09-22T00:00:00.000Z");
+    expect(card.agents).toMatchObject([
+      { id: "parent", activity: "error" },
+      { id: "parent/provider/child", activity: "idle" },
+    ]);
+  } finally {
+    board.dispose();
+  }
+});
+
 it("saves the sidebar In progress pin preference through the RPC contract and keeps it after restart", async () => {
   const { board, host, backing, inventory, now } = fixture();
   inventory.workspaces.push(workspace("task", "Task", ["task:review"]));

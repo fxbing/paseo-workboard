@@ -407,7 +407,7 @@ export const taskSchema = z.object({
   lastConversationAt: z.string().nullable(),
   conversationStatus: z.enum(["known", "none", "unknown"]),
   conversationDisplayEvidence: conversationDisplaySchema.default("unknown"),
-  // Paseo's recorded activity: never later than the real last message, but polluted for
+  // Paseo's recorded activity: never earlier than the real last message, but polluted for
   // archived agents, whose updatedAt lands on the archive time instead.
   conversationGateAt: z.string().nullable().default(null),
   conversationGateEvidence: conversationGateSchema.default("unknown"),

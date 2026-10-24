@@ -41,15 +41,15 @@ Workboard 将活跃 workspace 汇集到同一个看板，每个 workspace 对应
 
 ## 安装
 
-需要 Paseo 0.11.0 或更高版本，详见 [paseo-plugin.json](paseo-plugin.json)。已验证宿主与客户端范围见[验证记录](docs/zh-CN/verification.md)。插件作为受信任、未沙箱隔离的代码运行在 daemon 中，请先审阅源码再安装。
+需要 Paseo 0.11.0 或更高版本，详见 [paseo-plugin.json](paseo-plugin.json)。插件作为受信任、未沙箱隔离的代码运行在 daemon 中，请先审阅源码再安装。
 
-从 GitHub 安装到当前选中的 Paseo daemon：
+从仓库默认分支安装到当前选中的 Paseo daemon：
 
 ```sh
 paseo plugin install github:fxbing/paseo-workboard
 ```
 
-在 Paseo 中启用 Plugins 后，从侧边栏打开 **Workboard**。
+该命令跟随默认分支，可能包含比最新 [GitHub Release](https://github.com/fxbing/paseo-workboard/releases) 更新的改动。每个 Release 标记一个带升级说明的版本快照；升级前请阅读对应说明。在 Paseo 中启用 Plugins 后，从侧边栏打开 **Workboard**。
 
 ## 快速开始
 
@@ -62,13 +62,12 @@ paseo plugin install github:fxbing/paseo-workboard
 
 ## 文档
 
-| 指南                                   | 内容                           |
-| -------------------------------------- | ------------------------------ |
-| [使用指南](docs/zh-CN/user-guide.md)   | 任务流程、视图、分组与设置     |
-| [架构](docs/zh-CN/architecture.md)     | 数据归属、同步与安全检查       |
-| [验证记录](docs/zh-CN/verification.md) | 已测版本、实际结果与未验证行为 |
-| [发布指南](docs/zh-CN/releasing.md)    | 包验证与发布流程               |
-| [更新日志](CHANGELOG.zh-CN.md)         | 版本历史                       |
+| 指南                                                                  | 内容                       |
+| --------------------------------------------------------------------- | -------------------------- |
+| [使用指南](docs/zh-CN/user-guide.md)                                  | 任务流程、视图、分组与设置 |
+| [架构](docs/zh-CN/architecture.md)                                    | 数据归属、同步与安全检查   |
+| [发布指南](docs/zh-CN/releasing.md)                                   | 包验证、打 tag 与 Release  |
+| [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) | 各版本升级说明             |
 
 ## 参与贡献
 
@@ -76,23 +75,22 @@ paseo plugin install github:fxbing/paseo-workboard
 
 Issue 与 PR 应包含的内容、本地环境和检查要求见[贡献指南](CONTRIBUTING.zh-CN.md)。AI 编程助手还需遵循 [AGENTS.md](AGENTS.md)；`CLAUDE.md` 软链到同一份规则。
 
-开发时使用 `mise.toml` 固定的运行时：
+开发需要 Node.js（建议使用与 CI 一致的 22.22.2）、npm 和 Git，无需特定运行时管理器。具体要求见[环境与检查](CONTRIBUTING.zh-CN.md#环境与检查)：
 
 ```sh
-mise install
-mise exec -- npm ci --ignore-scripts
-mise exec -- npm run check
-mise exec -- npm run format:check
+npm ci
+npm run check
+npm run format:check
 ```
 
 宿主级检查与本地插件评估使用[隔离集成环境](tests/integration/README.zh-CN.md)。
 
 ## 限制
 
-- 部分标签与 workspace 操作通过 Paseo 内部桥接完成，复用宿主会话并校验响应。manifest 的最低版本不代表兼容所有后续版本，升级前请查看[验证记录](docs/zh-CN/verification.md)。
-- 自动归档可能停止 Agent 与 terminal，并可能移除托管 worktree。缺少对话证据或状态不安全时会延期；Workboard 无法恢复原生归档或被移除的 worktree。
+- 部分标签与 workspace 操作通过 Paseo 内部桥接完成，复用宿主会话并校验响应。manifest 的最低版本不代表兼容所有后续版本，升级前请查看 [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) 中的升级说明。
+- 自动归档可能停止 Agent 与 terminal，并可能移除托管 worktree。缺少对话证据（包括已不在清单中的子 Agent）、provider 子 Agent 清单不完整或状态不安全时会延期。订阅恢复后，须重新枚举子 Agent 才能归档；Workboard 无法恢复原生归档或被移除的 worktree。
 - 标签、归档状态和侧边栏置顶可在 Workboard 外变化。宿主未提供全部原子操作，结果不确定时需要人工核实，不会进行破坏性重试。
-- 列表视图已有 Chrome 检查记录。Electron、原生移动端、长时间边缘自动滚动，以及拖动过程中的 `Escape` 或失焦仍未验收，完整范围见验证记录。
+- 支持目标为 Paseo Web 与 Electron 桌面界面，原生移动端不在支持范围内。在该目标内，列表视图仅在 Chrome 中实际验证过；Electron、长时间边缘自动滚动，以及拖动过程中的 `Escape` 或失焦仍待验证。这些交互均已实现（包括拖动取消），并非缺失。
 
 ## 许可证与致谢
 

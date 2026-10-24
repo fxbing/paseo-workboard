@@ -2534,7 +2534,7 @@ it("shows No Agents instead of unverified time for agentless bound workspaces", 
     const texts = elements(tree)
       .filter((element) => element.type === Text)
       .map((element) => text(element));
-    expect(texts).toContain(t.noAgents);
+    expect(texts.filter((value) => value === t.noAgents)).toHaveLength(1);
     expect(texts).not.toContain(t.unknownConversation);
     expect(texts).not.toContain(t.activity.idle);
   }

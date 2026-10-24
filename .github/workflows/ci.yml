@@ -3,15 +3,23 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, "feature/**"]
+    branches: [main, "feature/**", "fix/**"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -24,10 +32,60 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run format:check
+        if: runner.os == 'Linux'
       - run: npm run check:package
+        if: runner.os == 'Linux'
       - run: npm pack --ignore-scripts
+        if: runner.os == 'Linux'
       - uses: actions/upload-artifact@v7
+        if: runner.os == 'Linux'
         with:
           name: paseo-workboard-package
           path: paseo-workboard-*.tgz
           if-no-files-found: error
+
+  host:
+    strategy:
+      fail-fast: false
+      matrix:
+        paseo: ["0.11.0", "0.12.0"]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.22.2"
+          cache: npm
+      - run: npm ci
+      - name: Install supported Paseo host
+        run: |
+          npm install --prefix "$RUNNER_TEMP/paseo" --no-audit --no-fund "@getpaseo/cli@${{ matrix.paseo }}"
+          echo "$RUNNER_TEMP/paseo/node_modules/.bin" >> "$GITHUB_PATH"
+      - run: npx playwright install --with-deps --only-shell chromium
+      - name: Check packed plugin and UI in isolated host
+        env:
+          WORKBOARD_HOST_ARTIFACTS: ${{ runner.temp }}/workboard-host-artifacts
+        run: npm run test:host -- --ui
+      - name: Upload host and browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: host-failure-${{ matrix.paseo }}
+          path: ${{ runner.temp }}/workboard-host-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+
+  check:
+    needs: [unit, host]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require every CI job to pass
+        env:
+          UNIT_RESULT: ${{ needs.unit.result }}
+          HOST_RESULT: ${{ needs.host.result }}
+        run: test "$UNIT_RESULT" = success && test "$HOST_RESULT" = success

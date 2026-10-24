@@ -31,25 +31,30 @@
 
 ## 环境与检查
 
-通过 `mise` 使用项目运行时：
+安装 Node.js、npm 和 Git，确保 `node`、`npm`、`git` 在 `PATH` 中。建议开发使用 Node 22.22.2，与主要 CI 环境一致。包的运行时要求由 `package.json` 声明，开发工具还有额外要求（Vite 在 Node 22 上至少需要 22.12）。安装方式不限，无需特定运行时管理器。只有运行插件或隔离宿主集成测试时才需要 Paseo。
+
+安装锁定的开发依赖并运行检查：
 
 ```sh
-mise install
-mise exec -- npm ci --ignore-scripts
-mise exec -- npm run check
-mise exec -- npm run format:check
+npm ci
+npm run check
+npm run format:check
 ```
 
 `npm run check` 会运行 TypeScript 和单元测试。开发时先运行最小相关测试，再按改动类型执行检查：
 
-| 改动                                  | 必需检查                                                                      |
-| ------------------------------------- | ----------------------------------------------------------------------------- |
-| 代码                                  | 相关测试、`mise exec -- npm run check` 和 `mise exec -- npm run format:check` |
-| 纯文档                                | 格式、链接与源码一致性，无需运行单元测试                                      |
-| 包、依赖、manifest 或 README 打包契约 | 额外运行 `mise exec -- npm run check:package`                                 |
-| 宿主兼容桥接                          | 额外按[隔离集成指南](tests/integration/README.zh-CN.md)运行受支持宿主的测试   |
+| 改动                                  | 必需检查                                                                    |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| 代码                                  | 相关测试、`npm run check` 和 `npm run format:check`                         |
+| 纯文档                                | 格式、链接与源码一致性，无需运行单元测试                                    |
+| 包、依赖、manifest 或 README 打包契约 | 额外运行 `npm run check:package`                                            |
+| 宿主兼容桥接                          | 额外按[隔离集成指南](tests/integration/README.zh-CN.md)运行受支持宿主的测试 |
 
-包检查验证待发布文件清单和 README 必需标题，不会执行发布。保留英文 README 的 `## Installation` 与 `## Limitations` 标题，Paseo Cafe 会用它们提取内容。[验证记录](docs/zh-CN/verification.md)只记录实际执行过的检查。
+包检查验证待发布文件清单和 README 必需标题，不会执行发布。保留英文 README 的 `## Installation` 与 `## Limitations` 标题，Paseo Cafe 会用它们提取内容。只在 PR 描述或该 PR 的 CI 运行结果中报告实际执行过的检查；验证日志、带日期的测试记录和问题排查记录留在 issue 与 PR 讨论中，不进入仓库。
+
+CI 在 Ubuntu 和 Windows 上使用 Node 22.22.2 运行 TypeScript 与单元测试，并在 Ubuntu 上执行格式和包检查。独立的 Ubuntu 24.04 任务会将实际 npm tarball 安装到一次性的 Paseo **0.11.0** 和 **0.12.0** 宿主，运行集成测试和 Chromium UI 冒烟测试。浏览器失败时保留 trace、截图和隔离 daemon 日志。固定的 `check` 任务要求所有矩阵任务成功；依赖失败或跳过也不会通过。仓库维护者应将 `check` 设为 `main` 的必选检查，workflow 本身不能启用分支保护。相同的本地入口和 UI 覆盖边界见[集成指南](tests/integration/README.zh-CN.md)。
+
+Bug 修复应包含在问题版本失败、修复后通过的回归测试；归档和活动状态改动按相关性覆盖历史缺失或回放、Agent 移除、重启等场景。单测绿灯只证明已覆盖的场景。检查 PR 当前 head 的实际运行结果；等待批准、跳过或没有运行都不算通过。
 
 ## 变更边界
 
@@ -58,12 +63,14 @@ mise exec -- npm run format:check
 - 不要把集成变量指向日常 Paseo home。该套件会修改自己的 fixture provider 并创建测试 workspace。
 - 使用现有 React Native primitive 和 `theme` 颜色，紧凑控件保持现有的 36px 最小点击区。
 - 公共 SDK 和 React Native API 已能完成的小型 UI 行为，不新增依赖。
+- 文档描述当前设计与约束，而不是走到这里的经历。不要新增更新日志、带日期的验证记录、排查日志或 issue/PR 总结；这些内容属于 GitHub Releases、issue 和 PR。
+- 用户可感知的改动必须在同一个 PR 内同步更新中英文文档。
 
 ## 架构与兼容性
 
-先阅读[架构说明](docs/zh-CN/architecture.md)，再查看[验证记录](docs/zh-CN/verification.md)了解当前证据和边界。server 负责持久化看板投影和原生写入；client 是跟随主题的 React Native 界面。版本敏感集成集中在 `server/paseo-compat.ts`（宿主操作）和 `client/paseo-language.ts`（Web/Electron 语言设置）。
+先阅读[架构说明](docs/zh-CN/architecture.md)。server 负责持久化看板投影和原生写入；client 是跟随主题的 React Native 界面。版本敏感集成集中在 `server/paseo-compat.ts`（宿主操作）和 `client/paseo-language.ts`（Web/Electron 语言设置）。
 
-修改该兼容性边界时，必须补充已支持 Paseo 版本的测试；支持范围或证据变化时也要更新验证或发布文档。不能仅凭 TypeScript 类型推断兼容性。
+修改该兼容性边界时，必须补充已支持 Paseo 版本的测试；支持范围变化时同步更新 manifest 最低版本、README 和发布说明。不能仅凭 TypeScript 类型推断兼容性。
 
 Paseo 最低版本由 `paseo-plugin.json` 定义。三个 Paseo SDK 开发依赖保持相同版本，并与受支持宿主一起验证；一次宿主集成通过不代表完成 SDK 迁移。
 
@@ -73,4 +80,4 @@ AI 编程助手修改仓库前必须阅读 [AGENTS.md](AGENTS.md)。`CLAUDE.md` 
 
 ## 发布
 
-打包和发布请遵循[发布说明](docs/zh-CN/releasing.md)。
+每个面向用户的版本都以 annotated Git tag 加 GitHub Release（正文即升级记录）发布；仓库不保存更新日志。用户从默认分支安装，包不通过 npm 分发。打包和发布请遵循[发布说明](docs/zh-CN/releasing.md)。

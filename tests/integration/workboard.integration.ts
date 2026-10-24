@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { isolatedGitEnvironment } from "../git-environment";
+import { isTemporaryIntegrationHome } from "./temporary-home";
 import {
   defaultGroup,
   cardsForStage,
@@ -51,6 +52,7 @@ async function git(args: string[], cwd?: string): Promise<string> {
   const { stdout } = await run("git", args, {
     ...(cwd ? { cwd } : {}),
     encoding: "utf8",
+    env: isolatedGitEnvironment(path.join(home, "git-templates")),
   });
   return stdout.trim();
 }
@@ -101,14 +103,7 @@ beforeAll(async () => {
   if (!root)
     throw new Error("Set WORKBOARD_INTEGRATION_HOME to an isolated Paseo home");
   home = await realpath(root);
-  const temporaryRoots = await Promise.all(
-    [tmpdir(), "/tmp"].map((directory) => realpath(directory)),
-  );
-  if (
-    !temporaryRoots.some((directory) =>
-      home.startsWith(`${directory}${path.sep}`),
-    )
-  ) {
+  if (!(await isTemporaryIntegrationHome(home))) {
     throw new Error(
       "Integration home must be inside a system temporary directory",
     );
@@ -119,6 +114,7 @@ beforeAll(async () => {
     throw new Error("Integration marker is missing or invalid");
   if (!(await stat(home)).isDirectory())
     throw new Error("Integration home is not a directory");
+  await mkdir(path.join(home, "git-templates"), { recursive: true });
 
   const daemon = await status();
   if ((await realpath(daemon.home)) !== home)
@@ -987,7 +983,7 @@ describe("isolated Paseo workboard", () => {
     );
   });
 
-  test("keeps an archived parent's readable old history out of the upper-bound archive gate", async () => {
+  test("preserves an archived parent's display time but blocks archiving when children cannot be listed", async () => {
     const directory = path.join(
       home,
       "integration-archived-parent",
@@ -1043,10 +1039,11 @@ describe("isolated Paseo workboard", () => {
             card.workspaceId === workspaceId &&
             card.conversationStatus === "known" &&
             card.conversationDisplayEvidence === "upper-bound" &&
-            card.conversationGateEvidence === "upper-bound" &&
-            card.conversationGateAt === recordedAt,
+            card.lastConversationAt === recordedAt &&
+            card.conversationGateEvidence === "unknown" &&
+            card.conversationGateAt === null,
         ),
-      "archived parent did not retain its recorded activity upper bound",
+      "archived parent did not retain its display time with an unknown archive gate",
     );
     const card = observed.cards.find(
       (item) => item.workspaceId === workspaceId,
@@ -1054,10 +1051,10 @@ describe("isolated Paseo workboard", () => {
     expect(card.conversationStatus).toBe("known");
     expect(card.conversationDisplayEvidence).toBe("upper-bound");
     expect(card.lastConversationAt).toBe(recordedAt);
-    expect(card.conversationGateEvidence).toBe("upper-bound");
-    expect(card.conversationGateAt).toBe(recordedAt);
+    expect(card.conversationGateEvidence).toBe("unknown");
+    expect(card.conversationGateAt).toBeNull();
     expect(card.conversationReason).toBe("child-enumeration-unavailable");
-    expect(Date.parse(card.dueAt!)).toBeGreaterThan(Date.now());
+    expect(card.dueAt).toBeNull();
     expect(card.archived).toBeNull();
   });
 
@@ -1076,6 +1073,15 @@ describe("isolated Paseo workboard", () => {
     await mkdir(root, { recursive: true });
     await git(["init", "--bare", remote]);
     await git(["init", "--initial-branch=main", seed]);
+    await git(
+      ["config", "core.hooksPath", path.join(home, "git-templates")],
+      seed,
+    );
+    const emptyConfig = path.join(home, "git-templates", "disabled-config");
+    await git(["config", "core.excludesFile", emptyConfig], seed);
+    await git(["config", "core.attributesFile", emptyConfig], seed);
+    await git(["config", "core.autocrlf", "false"], seed);
+    await git(["config", "commit.gpgsign", "false"], seed);
     await git(["config", "user.name", "Test"], seed);
     await git(["config", "user.email", "test@example.invalid"], seed);
     await writeFile(

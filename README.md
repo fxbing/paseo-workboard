@@ -41,15 +41,15 @@ See the [archive guide](docs/user-guide.md#archive-workspaces) for independent D
 
 ## Installation
 
-Use Paseo 0.11.0 or later, as required by [paseo-plugin.json](paseo-plugin.json). See [verification](docs/verification.md) for tested hosts and client coverage. Plugins run as trusted, unsandboxed code in the daemon; review the source before installing.
+Use Paseo 0.11.0 or later, as required by [paseo-plugin.json](paseo-plugin.json). Plugins run as trusted, unsandboxed code in the daemon; review the source before installing.
 
-Install from GitHub into the selected Paseo daemon:
+Install from the repository's default branch into the selected Paseo daemon:
 
 ```sh
 paseo plugin install github:fxbing/paseo-workboard
 ```
 
-Enable plugins in Paseo, then open **Workboard** from the sidebar.
+This tracks the default branch, which may include changes newer than the latest [GitHub Release](https://github.com/fxbing/paseo-workboard/releases). Each Release marks a tagged snapshot with its upgrade notes; read them before upgrading. Enable plugins in Paseo, then open **Workboard** from the sidebar.
 
 ## Quick start
 
@@ -62,13 +62,12 @@ The [user guide](docs/user-guide.md) covers filters, ordering, undo, draft recov
 
 ## Documentation
 
-| Guide                                | Contents                                                   |
-| ------------------------------------ | ---------------------------------------------------------- |
-| [User guide](docs/user-guide.md)     | Task workflow, views, groups, and settings                 |
-| [Architecture](docs/architecture.md) | Data ownership, synchronization, and safety checks         |
-| [Verification](docs/verification.md) | Tested versions, recorded results, and unverified behavior |
-| [Releasing](docs/releasing.md)       | Package validation and release procedure                   |
-| [Changelog](CHANGELOG.md)            | Release history                                            |
+| Guide                                                                 | Contents                                           |
+| --------------------------------------------------------------------- | -------------------------------------------------- |
+| [User guide](docs/user-guide.md)                                      | Task workflow, views, groups, and settings         |
+| [Architecture](docs/architecture.md)                                  | Data ownership, synchronization, and safety checks |
+| [Releasing](docs/releasing.md)                                        | Package validation, tagging, and Release procedure |
+| [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) | Upgrade notes for every version                    |
 
 ## Contributing
 
@@ -76,23 +75,23 @@ The [user guide](docs/user-guide.md) covers filters, ordering, undo, draft recov
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for issue and PR contents, local setup, and required checks. AI coding assistants must also follow [AGENTS.md](AGENTS.md); `CLAUDE.md` links to the same instructions.
 
-For development, use the runtime pinned in `mise.toml`:
+For development, install Node.js (22.22.2 recommended, matching CI), npm, and Git.
+See [the setup guide](CONTRIBUTING.md#setup-and-checks) for requirements; no runtime manager is required:
 
 ```sh
-mise install
-mise exec -- npm ci --ignore-scripts
-mise exec -- npm run check
-mise exec -- npm run format:check
+npm ci
+npm run check
+npm run format:check
 ```
 
 Use the [isolated integration fixture](tests/integration/README.md) for host-level checks and local plugin evaluation.
 
 ## Limitations
 
-- Some label and workspace operations use an internal Paseo bridge that reuses the host session and validates responses. The manifest minimum does not guarantee compatibility with every later Paseo release; consult [verification](docs/verification.md) before upgrading.
-- Automatic archiving can stop Agents and terminals and may remove a managed worktree. Missing conversation evidence or unsafe state postpones it. Workboard cannot restore a native archive or a removed worktree.
+- Some label and workspace operations use an internal Paseo bridge that reuses the host session and validates responses. The manifest minimum does not guarantee compatibility with every later Paseo release; read the upgrade notes in [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) before upgrading.
+- Automatic archiving can stop Agents and terminals and may remove a managed worktree. Missing conversation evidence, including for children no longer listed, an incomplete provider-child inventory, or unsafe state postpones it. Subscription recovery requires a fresh child inventory before archive. Workboard cannot restore a native archive or a removed worktree.
 - Labels, archive state, and sidebar pins can change outside Workboard. The host does not expose every atomic operation; uncertain outcomes require manual review instead of destructive retries.
-- The List view has recorded Chrome checks. Electron, native mobile, long-duration edge autoscroll, and `Escape` or blur during an active drag remain unverified; see the verification guide for the full scope.
+- The supported clients are the Paseo Web and Electron desktop UI; native mobile is not a supported target. Within that target, the List view has been exercised in Chrome only, and Electron, long-duration edge autoscroll, and `Escape` or blur during an active drag remain unverified. Those interactions are implemented, including drag cancellation, not absent.
 
 ## License and acknowledgements
 

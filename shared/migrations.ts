@@ -191,8 +191,12 @@ function migrateV6(values: unknown) {
     tasks: previous.tasks.map((task) => ({
       ...task,
       mergedDrafts: [],
+      // v6 could clear seenWhileLive while retaining cached provider children.
       conversationAgents: task.conversationAgents.filter(
-        (entry) => entry.lastObservedAt !== null,
+        (entry) =>
+          entry.lastObservedAt !== null ||
+          entry.seenWhileLive ||
+          entry.id.includes("/provider/"),
       ),
     })),
   });

@@ -8,8 +8,8 @@ declare const window: {
 };
 declare const navigator: { languages: readonly string[] };
 
-// Paseo 0.9.1 exposes no client locale API. Read its Web/Electron settings,
-// never write them. Revalidate these keys and system matching when upgrading.
+// Paseo exposes no client locale API. Read its Web/Electron settings, never
+// write them. Revalidate these keys and system matching when upgrading.
 const otherLocales = ["ar", "en", "es", "fr", "ja", "ko", "ru"];
 
 export function readPaseoLanguage(): Language {

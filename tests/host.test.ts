@@ -7,7 +7,11 @@ import type {
 import { allPages, PaseoHost } from "../server/host";
 import type { TimelineReader } from "../server/conversations";
 import type { PaseoCompat } from "../server/paseo-compat";
-import { workspace } from "./fixtures";
+import { Store } from "../server/store";
+import { Workboard } from "../server/workboard";
+import { settingsSchema } from "../shared/model";
+import { fixture, workspace } from "./fixtures";
+import type { ProviderChild, Workspace } from "../server/host";
 
 it("reads every page and rejects a cursor loop instead of silently truncating", async () => {
   expect(
@@ -136,7 +140,7 @@ it("keeps directory and subagent subscriptions across inventories, overlays off-
 });
 
 function providerHost(
-  parent: Record<string, unknown>,
+  parent: Record<string, unknown> | Record<string, unknown>[],
   compat: PaseoCompat,
   changed = vi.fn(),
   observers: SubscriptionObserver<unknown>[] = [],
@@ -150,6 +154,7 @@ function providerHost(
     window: { maxSeq: 0 },
     entries: [],
   }),
+  workspaces: () => Workspace[] = () => [workspace("w1")],
 ) {
   const release = vi.fn(async () => {});
   const subscribe = () =>
@@ -167,14 +172,16 @@ function providerHost(
     observeEvents: subscribe,
     workspaces: {
       list: async (options: { subscribe?: object }) => ({
-        entries: [workspace("w1")],
+        entries: workspaces(),
         subscription: options.subscribe ? subscribe() : undefined,
         pageInfo: { nextCursor: null, hasMore: false },
       }),
     },
     agents: {
       list: async (options: { subscribe?: object }) => ({
-        entries: [{ agent: parent }],
+        entries: (Array.isArray(parent) ? parent : [parent]).map((agent) => ({
+          agent,
+        })),
         subscription: options.subscribe ? subscribe() : undefined,
         pageInfo: { nextCursor: null, hasMore: false },
       }),
@@ -204,6 +211,256 @@ const parentAgent = {
   lastError: null,
   requiresAttention: false,
 };
+
+function invalidateChildListing(
+  observers: SubscriptionObserver<unknown>[],
+  event: "snapshot" | "error" | "upsert" | "remove",
+) {
+  const observer = observers[2];
+  if (event === "snapshot") observer.snapshot({});
+  else if (event === "error")
+    observer.error!(new Error("Subscription request failed"));
+  else
+    observer.update({
+      type: "agent.provider_subagents.update",
+      payload:
+        event === "upsert"
+          ? { kind: event, subagent: { parentAgentId: "parent", id: "child" } }
+          : { kind: event, parentAgentId: "parent", subagentId: "child" },
+    } as Parameters<typeof observer.update>[0]);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+it.each(["snapshot", "error"] as const)(
+  "rechecks child inventory after subscription %s before automatic archive",
+  async (event) => {
+    const test = fixture({
+      settings: settingsSchema.parse({ archiveDoneEnabled: true }),
+    });
+    test.inventory.workspaces.push(workspace("w1", "Task", ["task:todo"]));
+    const old = "2026-08-02T00:00:00.000Z";
+    const recent = "2026-09-22T00:00:00.000Z";
+    const page = (timestamp: string) => ({
+      epoch: "epoch",
+      gap: false,
+      staleCursor: false,
+      error: null,
+      hasOlder: false,
+      startCursor: null,
+      window: { maxSeq: 1 },
+      entries: [{ timestamp, item: { type: "assistant_message" } }],
+    });
+    let children: ProviderChild[] = [];
+    const subagents = vi.fn(async () => children);
+    const observers: SubscriptionObserver<unknown>[] = [];
+    const native = providerHost(
+      { ...parentAgent, lastUserMessageAt: old },
+      {
+        subagents,
+        subagentTimeline: () => async () => page(recent),
+      } as unknown as PaseoCompat,
+      vi.fn(),
+      observers,
+      async () => page(old),
+      () => test.inventory.workspaces,
+    );
+    const host = {
+      ...test.host,
+      inventory: native.inventory.bind(native),
+      conversation: native.conversation.bind(native),
+      dispose: () => native.dispose(),
+    };
+    const board = new Workboard(host, test.store, test.now);
+    try {
+      await board.start();
+      expect(subagents).toHaveBeenCalledTimes(1);
+      // A child arrived while events were unavailable, without changing parent.updatedAt.
+      children = [
+        { id: "child", title: "Child", status: "completed", updatedAt: recent },
+      ];
+      invalidateChildListing(observers, event);
+      test.inventory.workspaces[0].labels = ["task:done"];
+      await board.refresh();
+      expect(host.archive).not.toHaveBeenCalled();
+      expect(board.snapshot().cards[0].conversationGateAt).toBe(recent);
+      expect(subagents).toHaveBeenCalledTimes(2);
+    } finally {
+      board.dispose();
+    }
+  },
+);
+
+it.each(["snapshot", "error", "upsert", "remove"] as const)(
+  "retains known children after %s and retries a failed listing after 60 seconds",
+  async (event) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-23T00:00:00.000Z"));
+    const old = "2026-08-02T00:00:00.000Z";
+    const test = fixture({
+      settings: settingsSchema.parse({ archiveDoneEnabled: true }),
+    });
+    test.inventory.workspaces.push(workspace("w1", "Task", ["task:todo"]));
+    const children = [
+      { id: "child", title: "Child", status: "completed", updatedAt: old },
+    ];
+    const subagents = vi.fn(async () => children);
+    const timeline: TimelineReader = async () => ({
+      epoch: "epoch",
+      gap: false,
+      staleCursor: false,
+      error: null,
+      hasOlder: false,
+      startCursor: null,
+      window: { maxSeq: 1 },
+      entries: [{ timestamp: old, item: { type: "assistant_message" } }],
+    });
+    const observers: SubscriptionObserver<unknown>[] = [];
+    const native = providerHost(
+      parentAgent,
+      { subagents, subagentTimeline: () => timeline } as unknown as PaseoCompat,
+      vi.fn(),
+      observers,
+      timeline,
+      () => test.inventory.workspaces,
+    );
+    const host = {
+      ...test.host,
+      inventory: native.inventory.bind(native),
+      conversation: native.conversation.bind(native),
+      dispose: () => native.dispose(),
+    };
+    const board = new Workboard(host, test.store, test.now);
+    try {
+      await board.start();
+      invalidateChildListing(observers, event);
+      subagents.mockRejectedValueOnce(new Error("Provider unavailable"));
+      test.inventory.workspaces[0].labels = ["task:done"];
+      await board.refresh();
+      expect(host.archive).not.toHaveBeenCalled();
+      expect(board.snapshot().cards[0]).toMatchObject({
+        conversationGateEvidence: "unknown",
+        lastConversationAt: old,
+        dueAt: null,
+      });
+      expect(
+        (await native.inventory()).agents.map((agent) => agent.id),
+      ).toContain("parent/provider/child");
+      vi.setSystemTime(new Date("2026-09-23T00:00:59.999Z"));
+      await board.refresh();
+      expect(subagents).toHaveBeenCalledTimes(2);
+      expect(host.archive).not.toHaveBeenCalled();
+      vi.setSystemTime(new Date("2026-09-23T00:01:00.000Z"));
+      await board.refresh();
+      expect(subagents).toHaveBeenCalledTimes(3);
+      expect(host.archive).toHaveBeenCalledExactlyOnceWith("w1");
+    } finally {
+      board.dispose();
+      vi.useRealTimers();
+    }
+  },
+);
+
+it.each(["snapshot", "error", "upsert", "remove"] as const)(
+  "rejects an in-flight child result invalidated by %s in both the inventory and cache",
+  async (event) => {
+    const started = deferred<void>();
+    const listing = deferred<ProviderChild[]>();
+    const subagents = vi
+      .fn(
+        async (): Promise<ProviderChild[]> => [
+          {
+            id: "child",
+            title: "Child",
+            status: "completed",
+            updatedAt: "2026-09-22T00:00:00.000Z",
+          },
+        ],
+      )
+      .mockImplementationOnce(() => {
+        started.resolve();
+        return listing.promise;
+      });
+    const observers: SubscriptionObserver<unknown>[] = [];
+    const host = providerHost(
+      parentAgent,
+      { subagents } as unknown as PaseoCompat,
+      vi.fn(),
+      observers,
+    );
+    try {
+      const pending = host.inventory();
+      await started.promise;
+      invalidateChildListing(observers, event);
+      listing.resolve([]);
+      expect((await pending).agents[0].childEnumeration).toBe("unavailable");
+      const current = await host.inventory();
+      expect(current.agents[0].childEnumeration).toBe("complete");
+      expect(current.agents.map((agent) => agent.id)).toContain(
+        "parent/provider/child",
+      );
+      expect(subagents).toHaveBeenCalledTimes(2);
+    } finally {
+      host.dispose();
+    }
+  },
+);
+
+it("invalidates earlier parents when a subscription restores during a later parent's listing", async () => {
+  const started = deferred<void>();
+  const listing = deferred<ProviderChild[]>();
+  const subagents = vi.fn(async (_id: string): Promise<ProviderChild[]> => []);
+  const observers: SubscriptionObserver<unknown>[] = [];
+  const parents = [{ ...parentAgent }];
+  const host = providerHost(
+    parents,
+    { subagents } as unknown as PaseoCompat,
+    vi.fn(),
+    observers,
+  );
+  try {
+    await host.inventory();
+    parents.push({ ...parentAgent, id: "second" });
+    subagents.mockImplementationOnce(() => {
+      started.resolve();
+      return listing.promise;
+    });
+    const pending = host.inventory();
+    await started.promise;
+    invalidateChildListing(observers, "snapshot");
+    listing.resolve([]);
+    expect(
+      (await pending).agents.map((agent) => agent.childEnumeration),
+    ).toEqual(["unavailable", "unavailable"]);
+    subagents.mockImplementation(async (id) =>
+      id === "parent"
+        ? [
+            {
+              id: "child",
+              title: "Child",
+              status: "completed",
+              updatedAt: "2026-09-22T00:00:00.000Z",
+            },
+          ]
+        : [],
+    );
+    const current = await host.inventory();
+    expect(
+      current.agents.find((agent) => agent.id === "parent")?.childEnumeration,
+    ).toBe("complete");
+    expect(current.agents.map((agent) => agent.id)).toContain(
+      "parent/provider/child",
+    );
+  } finally {
+    host.dispose();
+  }
+});
 
 it("does not restore provider sessions outside active workspaces", async () => {
   const subagents = vi.fn(async () => []);
@@ -391,7 +648,235 @@ it("keeps a parent readable when its provider children cannot be listed", async 
   }
 });
 
+it("retries failed live child enumeration before allowing automatic archive", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-23T00:00:00.000Z"));
+  const test = fixture({
+    settings: settingsSchema.parse({ archiveDoneEnabled: true }),
+  });
+  test.inventory.workspaces.push(workspace("w1", "Done task", ["task:done"]));
+  let attempts = 0;
+  const subagents = vi.fn(async () => {
+    if (++attempts < 3) throw new Error("temporary provider failure");
+    return [];
+  });
+  const timeline: TimelineReader = async () => ({
+    epoch: "epoch-1",
+    gap: false,
+    staleCursor: false,
+    error: null,
+    hasOlder: false,
+    startCursor: null,
+    window: { maxSeq: 1 },
+    entries: [
+      {
+        timestamp: "2026-08-02T00:00:00.000Z",
+        item: { type: "assistant_message" },
+      },
+    ],
+  });
+  const native = providerHost(
+    { ...parentAgent, lastUserMessageAt: "2026-08-01T00:00:00.000Z" },
+    { subagents } as unknown as PaseoCompat,
+    vi.fn(),
+    [],
+    timeline,
+    () => test.inventory.workspaces,
+  );
+  const host = {
+    ...test.host,
+    inventory: native.inventory.bind(native),
+    conversation: native.conversation.bind(native),
+    dispose: () => native.dispose(),
+  };
+  const board = new Workboard(host, test.store, test.now);
+  try {
+    await board.start();
+    expect(subagents).toHaveBeenCalledTimes(1);
+    expect(host.archive).not.toHaveBeenCalled();
+    expect(board.snapshot().cards[0].lastConversationAt).toBe(
+      "2026-08-02T00:00:00.000Z",
+    );
+
+    vi.setSystemTime(new Date("2026-09-23T00:00:59.999Z"));
+    await board.refresh();
+    expect(subagents).toHaveBeenCalledTimes(1);
+    expect(host.archive).not.toHaveBeenCalled();
+
+    vi.setSystemTime(new Date("2026-09-23T00:01:00.000Z"));
+    await board.refresh();
+    expect(subagents).toHaveBeenCalledTimes(2);
+    expect(host.archive).not.toHaveBeenCalled();
+
+    vi.setSystemTime(new Date("2026-09-23T00:01:59.999Z"));
+    await board.refresh();
+    expect(subagents).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(new Date("2026-09-23T00:02:00.000Z"));
+    await board.refresh();
+    expect(subagents).toHaveBeenCalledTimes(3);
+    expect(host.archive).toHaveBeenCalledExactlyOnceWith("w1");
+    expect(board.snapshot().cards[0].archived?.status).toBe("archived");
+  } finally {
+    board.dispose();
+    vi.useRealTimers();
+  }
+});
+
+it.each(["empty", "exact"] as const)(
+  "keeps a vanished child with an earlier %s read unknown across refresh and restart",
+  async (firstRead) => {
+    const old = "2026-08-02T00:00:00.000Z";
+    const recent = "2026-09-22T00:00:00.000Z";
+    const test = fixture({
+      settings: settingsSchema.parse({ archiveDoneEnabled: true }),
+    });
+    test.inventory.workspaces.push(workspace("w1", "Task", ["task:todo"]));
+    let children = [
+      { id: "child", title: "Child", status: "completed", updatedAt: old },
+    ];
+    let childEntries =
+      firstRead === "exact"
+        ? [{ timestamp: old, item: { type: "assistant_message" } }]
+        : [];
+    const page = (entries: typeof childEntries) => ({
+      epoch: "epoch-1",
+      gap: false,
+      staleCursor: false,
+      error: null,
+      hasOlder: false,
+      startCursor: null,
+      window: { maxSeq: entries.length },
+      entries,
+    });
+    const compat = {
+      subagents: vi.fn(async () => children),
+      subagentTimeline: () => async () => page(childEntries),
+    } as unknown as PaseoCompat;
+    const parent = {
+      ...parentAgent,
+      lastUserMessageAt: "2026-08-01T00:00:00.000Z",
+    };
+    const timeline: TimelineReader = async () =>
+      page([{ timestamp: old, item: { type: "assistant_message" } }]);
+    const makeBoard = (store: Store) => {
+      const observers: SubscriptionObserver<unknown>[] = [];
+      const native = providerHost(
+        parent,
+        compat,
+        vi.fn(),
+        observers,
+        timeline,
+        () => test.inventory.workspaces,
+      );
+      const host = {
+        ...test.host,
+        inventory: native.inventory.bind(native),
+        conversation: native.conversation.bind(native),
+        dispose: () => native.dispose(),
+      };
+      return { board: new Workboard(host, store, test.now), observers };
+    };
+    const first = makeBoard(test.store);
+    try {
+      await first.board.start();
+      expect(first.board.snapshot().cards[0].conversationAgents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "parent/provider/child" }),
+        ]),
+      );
+      expect(test.host.archive).not.toHaveBeenCalled();
+
+      childEntries = [
+        { timestamp: recent, item: { type: "assistant_message" } },
+      ];
+      const emit = first.observers[2].update.bind(first.observers[2]);
+      emit({
+        type: "agent.provider_subagents.update",
+        payload: {
+          kind: "upsert",
+          subagent: {
+            parentAgentId: "parent",
+            id: "child",
+            updatedAt: recent,
+          },
+        },
+      } as Parameters<typeof emit>[0]);
+      children = [];
+      emit({
+        type: "agent.provider_subagents.update",
+        payload: {
+          kind: "remove",
+          parentAgentId: "parent",
+          subagentId: "child",
+        },
+      } as Parameters<typeof emit>[0]);
+      test.inventory.workspaces[0].labels = ["task:done"];
+
+      for (let i = 0; i < 2; i++) {
+        await first.board.refresh();
+        const card = first.board.snapshot().cards[0];
+        expect(test.host.archive).not.toHaveBeenCalled();
+        expect(card.lastConversationAt).toBe(old);
+        expect(card.conversationGateEvidence).toBe("unknown");
+        expect(card.dueAt).toBeNull();
+      }
+    } finally {
+      first.board.dispose();
+    }
+
+    const resumed = makeBoard(new Store(test.backing));
+    try {
+      await resumed.board.start();
+      const card = resumed.board.snapshot().cards[0];
+      expect(test.host.archive).not.toHaveBeenCalled();
+      expect(card.lastConversationAt).toBe(old);
+      expect(card.conversationGateEvidence).toBe("unknown");
+      expect(card.dueAt).toBeNull();
+    } finally {
+      resumed.board.dispose();
+    }
+  },
+);
+
+it("does not reuse a complete child list when the parent becomes archived without new activity", async () => {
+  const parent = { ...parentAgent, archivedAt: null as string | null };
+  const subagents = vi.fn(async () => [
+    {
+      id: "child",
+      title: "Child",
+      status: "completed",
+      updatedAt: parent.updatedAt,
+    },
+  ]);
+  const observers: SubscriptionObserver<unknown>[] = [];
+  const host = providerHost(
+    parent,
+    { subagents } as unknown as PaseoCompat,
+    vi.fn(),
+    observers,
+  );
+  try {
+    expect((await host.inventory()).agents[0].childEnumeration).toBe(
+      "complete",
+    );
+    parent.archivedAt = "2026-09-23T00:00:00.000Z";
+    expect((await host.inventory()).agents[0].childEnumeration).toBe("refused");
+    invalidateChildListing(observers, "snapshot");
+    const restored = await host.inventory();
+    expect(restored.agents[0].childEnumeration).toBe("refused");
+    expect(restored.agents.map((agent) => agent.id)).toContain(
+      "parent/provider/child",
+    );
+    expect(subagents).toHaveBeenCalledTimes(1);
+  } finally {
+    host.dispose();
+  }
+});
+
 it("keeps an archived parent off the periodic timeline path", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-23T00:00:00.000Z"));
   const read = vi.fn(async () => ({
     epoch: "epoch-1",
     gap: false,
@@ -425,6 +910,12 @@ it("keeps an archived parent off the periodic timeline path", async () => {
     );
     expect(parent?.childEnumeration).toBe("refused");
     expect(compat.subagents).not.toHaveBeenCalled();
+    vi.setSystemTime(new Date("2026-09-23T00:02:00.000Z"));
+    expect(
+      (await host.inventory()).agents.find((agent) => agent.id === "parent")
+        ?.childEnumeration,
+    ).toBe("refused");
+    expect(compat.subagents).not.toHaveBeenCalled();
     const periodic = await host.conversation(
       parent!,
       Date.parse("2026-08-04T00:00:00.000Z"),
@@ -449,6 +940,7 @@ it("keeps an archived parent off the periodic timeline path", async () => {
     expect(candidate.gate).toBe("exact");
   } finally {
     host.dispose();
+    vi.useRealTimers();
   }
 });
 
