@@ -206,7 +206,7 @@ const parentAgent = {
   archivedAt: null,
   pendingPermissions: [],
   attentionReason: null,
-  status: "idle",
+  status: "running",
   activeTurn: null,
   lastError: null,
   requiresAttention: false,
@@ -275,6 +275,7 @@ it.each(["snapshot", "error"] as const)(
       ...test.host,
       inventory: native.inventory.bind(native),
       conversation: native.conversation.bind(native),
+      recheckAgents: native.recheckAgents.bind(native),
       dispose: () => native.dispose(),
     };
     const board = new Workboard(host, test.store, test.now);
@@ -322,8 +323,11 @@ it.each(["snapshot", "error", "upsert", "remove"] as const)(
       entries: [{ timestamp: old, item: { type: "assistant_message" } }],
     });
     const observers: SubscriptionObserver<unknown>[] = [];
+    // The parent stays live while the listing is retried, then rests: a resting parent is
+    // listed only by the archive recheck, which is the third and last listing here.
+    const parent = { ...parentAgent };
     const native = providerHost(
-      parentAgent,
+      parent,
       { subagents, subagentTimeline: () => timeline } as unknown as PaseoCompat,
       vi.fn(),
       observers,
@@ -334,6 +338,7 @@ it.each(["snapshot", "error", "upsert", "remove"] as const)(
       ...test.host,
       inventory: native.inventory.bind(native),
       conversation: native.conversation.bind(native),
+      recheckAgents: native.recheckAgents.bind(native),
       dispose: () => native.dispose(),
     };
     const board = new Workboard(host, test.store, test.now);
@@ -357,6 +362,7 @@ it.each(["snapshot", "error", "upsert", "remove"] as const)(
       expect(subagents).toHaveBeenCalledTimes(2);
       expect(host.archive).not.toHaveBeenCalled();
       vi.setSystemTime(new Date("2026-09-23T00:01:00.000Z"));
+      parent.status = "idle";
       await board.refresh();
       expect(subagents).toHaveBeenCalledTimes(3);
       expect(host.archive).toHaveBeenCalledExactlyOnceWith("w1");
@@ -675,8 +681,12 @@ it("retries failed live child enumeration before allowing automatic archive", as
       },
     ],
   });
+  const parent = {
+    ...parentAgent,
+    lastUserMessageAt: "2026-08-01T00:00:00.000Z",
+  };
   const native = providerHost(
-    { ...parentAgent, lastUserMessageAt: "2026-08-01T00:00:00.000Z" },
+    parent,
     { subagents } as unknown as PaseoCompat,
     vi.fn(),
     [],
@@ -687,6 +697,7 @@ it("retries failed live child enumeration before allowing automatic archive", as
     ...test.host,
     inventory: native.inventory.bind(native),
     conversation: native.conversation.bind(native),
+    recheckAgents: native.recheckAgents.bind(native),
     dispose: () => native.dispose(),
   };
   const board = new Workboard(host, test.store, test.now);
@@ -713,6 +724,8 @@ it("retries failed live child enumeration before allowing automatic archive", as
     expect(subagents).toHaveBeenCalledTimes(2);
 
     vi.setSystemTime(new Date("2026-09-23T00:02:00.000Z"));
+    // A resting parent is listed only by the archive recheck: the third attempt.
+    parent.status = "idle";
     await board.refresh();
     expect(subagents).toHaveBeenCalledTimes(3);
     expect(host.archive).toHaveBeenCalledExactlyOnceWith("w1");
@@ -933,7 +946,7 @@ it("keeps an archived parent off the periodic timeline path", async () => {
     const candidate = await host.conversation(
       parent!,
       Date.parse("2026-08-04T00:00:00.000Z"),
-      { archivedTimeline: true },
+      { recheck: true },
     );
     expect(read).toHaveBeenCalled();
     expect(candidate.display).toBe("exact");

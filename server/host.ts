@@ -1,3 +1,4 @@
+import { isActiveActivity } from "../shared/model";
 import type {
   Board,
   Card,
@@ -68,8 +69,15 @@ export type Agent = Pick<
   activity: Card["activity"];
   parentAgentId?: string;
   subagentId?: string;
-  /** Whether this parent's provider children could be listed in this inventory. */
-  childEnumeration?: "complete" | "refused" | "unavailable";
+  /**
+   * Whether this parent's provider children could be listed in this inventory. `skipped`
+   * means the parent is idle and listing was left out on purpose: Paseo loads an agent before
+   * answering a per-agent request, so a refresh must not resume it. Unlike `unavailable`, it
+   * is never retried, and only the archive recheck lists such a parent.
+   */
+  childEnumeration?: "complete" | "refused" | "unavailable" | "skipped";
+  /** A provider child of an idle, unarchived parent; reading it would load that parent. */
+  parentIdle?: boolean;
 };
 /**
  * One agent's conversation evidence. Display and gate stay separate because Paseo records
@@ -94,8 +102,15 @@ export interface Host {
   conversation(
     agent: Agent,
     now: number,
-    options?: { archivedTimeline?: boolean },
+    options?: { recheck?: boolean },
   ): Promise<ConversationEvidence>;
+  /**
+   * Archive recheck only: list the provider children of every idle parent among `agents`
+   * (this loads that parent) and return the agents with those children filled in. Rejects
+   * when a listing fails or is overtaken by an invalidation, so a caller never trusts a
+   * partial or stale inventory.
+   */
+  recheckAgents(agents: readonly Agent[]): Promise<Agent[]>;
   setLabel(
     workspaceId: string,
     name: string,
@@ -153,10 +168,15 @@ function activity(agent: PaseoAgent): Card["activity"] {
     return "error";
   return agent.requiresAttention ? "attention" : "idle";
 }
+const isActiveAgent = (agent: Pick<Agent, "activity">) =>
+  isActiveActivity(agent.activity);
 const normalize = (workspace: PaseoWorkspace): Workspace => ({
   ...workspace,
   labels: workspace.labels ?? [],
 });
+
+/** Caught by the archive recheck, which defers; it never reaches a user. */
+class ChildInventoryChanged extends Error {}
 
 export class PaseoHost implements Host {
   private subscriptions: Array<() => Promise<void>> = [];
@@ -322,32 +342,23 @@ export class PaseoHost implements Host {
       this.agentWorkspaces.set(agent.id, agent.workspaceId);
       if (!agent.workspaceId || !workspaceMap.has(agent.workspaceId)) continue;
       const record = await this.childRecord(agent);
-      agent.childEnumeration = record.refused
-        ? agent.archivedAt
-          ? "refused"
-          : "unavailable"
-        : "complete";
-      for (const child of record.children)
-        agentMap.set(`${agent.id}/provider/${child.id}`, {
-          id: `${agent.id}/provider/${child.id}`,
-          workspaceId: agent.workspaceId,
-          parentAgentId: agent.id,
-          subagentId: child.id,
-          title: child.title,
-          updatedAt: child.updatedAt,
-          lastUserMessageAt: null,
-          activity:
-            child.status === "running"
-              ? "running"
-              : child.status === "failed"
-                ? "error"
-                : "idle",
-        });
+      const idle = !agent.archivedAt && !isActiveAgent(agent);
+      agent.childEnumeration = idle
+        ? "skipped"
+        : record.refused
+          ? agent.archivedAt
+            ? "refused"
+            : "unavailable"
+          : "complete";
+      for (const child of record.children) {
+        const entry = this.childAgent(agent, child, idle);
+        agentMap.set(entry.id, entry);
+      }
     }
     // An event during a later listing can also invalidate an earlier parent's result.
     if (revision !== this.childRevision)
       for (const agent of agentMap.values())
-        if (agent.childEnumeration)
+        if (agent.childEnumeration && agent.childEnumeration !== "skipped")
           agent.childEnumeration = agent.archivedAt ? "refused" : "unavailable";
     return {
       workspaces: [...workspaceMap.values()],
@@ -366,6 +377,16 @@ export class PaseoHost implements Host {
    */
   private async childRecord(agent: Agent): Promise<ChildRecord> {
     const cached = this.childRecords.get(agent.id);
+    // Listing an idle parent's children would load it, so a refresh keeps what it has.
+    if (!agent.archivedAt && !isActiveAgent(agent))
+      return (
+        cached ?? {
+          parentUpdatedAt: agent.updatedAt,
+          seenWhileLive: false,
+          children: [],
+          refused: true,
+        }
+      );
     if (
       cached &&
       cached.parentUpdatedAt === agent.updatedAt &&
@@ -406,19 +427,71 @@ export class PaseoHost implements Host {
     this.childRecords.set(agent.id, record);
     return record;
   }
+  async recheckAgents(agents: readonly Agent[]): Promise<Agent[]> {
+    if (this.disposed) throw new Error("Workboard stopped");
+    const result: Agent[] = [];
+    for (const agent of agents) {
+      if (agent.parentAgentId) continue;
+      const children = agents.filter((a) => a.parentAgentId === agent.id);
+      if (agent.archivedAt || isActiveAgent(agent)) {
+        result.push(agent, ...children);
+        continue;
+      }
+      const revision = this.childRevision;
+      const listed = await this.compat.subagents(agent.id);
+      // An event during the listing makes it an unreliable inventory, like a refresh's.
+      if (revision !== this.childRevision || this.disposed)
+        throw new ChildInventoryChanged();
+      const record: ChildRecord = {
+        parentUpdatedAt: agent.updatedAt,
+        seenWhileLive: true,
+        children: listed,
+        refused: false,
+      };
+      this.childRecords.set(agent.id, record);
+      result.push(
+        { ...agent, childEnumeration: "complete" },
+        ...listed.map((child) => this.childAgent(agent, child, false)),
+      );
+    }
+    return result;
+  }
+  private childAgent(
+    parent: Agent,
+    child: ProviderChild,
+    idle: boolean,
+  ): Agent {
+    return {
+      id: `${parent.id}/provider/${child.id}`,
+      workspaceId: parent.workspaceId,
+      parentAgentId: parent.id,
+      subagentId: child.id,
+      ...(idle ? { parentIdle: true } : {}),
+      title: child.title,
+      updatedAt: child.updatedAt,
+      lastUserMessageAt: null,
+      activity:
+        child.status === "running"
+          ? "running"
+          : child.status === "failed"
+            ? "error"
+            : "idle",
+    };
+  }
   async workspace(id: string): Promise<Workspace | null> {
     const value = await this.api.workspaces.ref(id).refresh();
     return value ? normalize(value) : null;
   }
   /**
-   * Read one agent's conversation evidence. `archivedTimeline` is opt-in because Paseo
-   * re-projects an archived agent's whole history on every read (7.2-19.3s for pi), which
-   * must not sit in the periodic refresh path; only the archive recheck asks for it.
+   * Read one agent's conversation evidence. `recheck` is opt-in. Paseo loads an agent before
+   * it answers any per-agent request, so a refresh reads active agents only: an idle agent, an
+   * archived one and a child of an idle parent answer from recorded bounds. An archived history
+   * is also re-projected on every read (7.2-19.3s for pi). Only the archive recheck reads them.
    */
   async conversation(
     agent: Agent,
     now: number,
-    options: { archivedTimeline?: boolean } = {},
+    options: { recheck?: boolean } = {},
   ): Promise<ConversationEvidence> {
     const isChild = Boolean(agent.parentAgentId && agent.subagentId);
     const parse = (value: string | null | undefined): number | null => {
@@ -466,8 +539,18 @@ export class PaseoHost implements Host {
         reason,
       };
     };
-    if (agent.archivedAt && !options.archivedTimeline)
+    if (agent.archivedAt && !options.recheck)
       return evidenceFor(recordedLower, null);
+    if (!options.recheck && !isChild && !isActiveAgent(agent))
+      return evidenceFor(recordedLower, null);
+    if (!options.recheck && agent.parentIdle)
+      return {
+        displayAt: null,
+        display: "unknown",
+        gateAt: null,
+        gate: "unknown",
+        reason: null,
+      };
     let window: ConversationWindow;
     try {
       const read = isChild

@@ -11,6 +11,7 @@ import {
   defaultStartWorkGroup,
   groupKind,
   isArchiveDue,
+  isActiveActivity,
   isDraftGroup,
   isTerminalGroup,
   labelKey,
@@ -50,6 +51,12 @@ interface WorkspaceConversation {
   gate: ConversationGate;
   reason: ConversationReason | null;
   agents: ConversationAgent[];
+  /**
+   * The recorded time at which this workspace would become due, set only when the single thing
+   * keeping its gate unknown is an idle parent whose children were deliberately not listed.
+   * It schedules an archive recheck and never authorizes an archive.
+   */
+  recheckAt: string | null;
 }
 /** Most severe first, so one reason is stored per task. */
 const REASON_ORDER: ConversationReason[] = [
@@ -60,6 +67,36 @@ const REASON_ORDER: ConversationReason[] = [
   "truncated-window",
 ];
 
+/**
+ * What makes two views of a workspace's agents the same for an archive check. An idle parent's
+ * children come and go with a recheck's listing, so they and its listing state are left out;
+ * a change among them reaches the check through the workspace's change epoch instead.
+ */
+function agentRows(agents: readonly Agent[]): string {
+  const idle = new Set(
+    agents
+      .filter(
+        (a) =>
+          !a.parentAgentId && !a.archivedAt && !isActiveActivity(a.activity),
+      )
+      .map((a) => a.id),
+  );
+  return JSON.stringify(
+    agents
+      .filter((a) => !(a.parentAgentId && idle.has(a.parentAgentId)))
+      .map((a) => [
+        a.id,
+        a.updatedAt,
+        a.lastUserMessageAt,
+        a.activity,
+        a.archivedAt,
+        idle.has(a.id) ? "idle" : a.childEnumeration,
+        a.parentAgentId,
+        a.subagentId,
+      ])
+      .sort(),
+  );
+}
 const labelsEqual = (a: string[], b: string[]) =>
   JSON.stringify(a.map(labelKey).sort()) ===
   JSON.stringify(b.map(labelKey).sort());
@@ -113,6 +150,12 @@ export class Workboard {
   private workspaceEpochs = new Map<string, number>();
   private bindingInFlight = new Set<string>();
   private queuedStarts = new Map<string, number>();
+  /**
+   * Per workspace, when an idle parent's skipped children are the only thing keeping its gate
+   * unknown: the recorded time it becomes due. Rebuilt by every reconcile, so a restart loses
+   * nothing; it only schedules a recheck and never authorizes an archive.
+   */
+  private recheckHints = new Map<string, string>();
   private archiveDeferrals = new Map<
     string,
     {
@@ -341,8 +384,15 @@ export class Workboard {
       if (previous && this.archiveDeferred(previous, workspace, agents))
         continue;
       const evidence = await this.observe(agents, previous, this.now());
+      if (evidence.recheckAt)
+        this.recheckHints.set(workspace.id, evidence.recheckAt);
+      else this.recheckHints.delete(workspace.id);
       if (previous && this.archiveDeferrals.has(previous.id)) {
-        if (evidence.gate === "unknown")
+        // A scheduled recheck keeps its own backoff: its gate is unknown by design, and
+        // deferring again here would push the retry further out on every refresh.
+        if (evidence.recheckAt) {
+          // keep the deferral as it is
+        } else if (evidence.gate === "unknown")
           await this.deferArchive(
             previous,
             "conversation-unknown",
@@ -534,7 +584,7 @@ export class Workboard {
     agents: readonly Agent[],
     previous: Task | undefined,
     now: number,
-    options: { archivedTimeline?: boolean } = {},
+    options: { recheck?: boolean } = {},
   ): Promise<WorkspaceConversation> {
     const readings: Array<{
       agent: Agent;
@@ -562,6 +612,12 @@ export class Workboard {
     let lower: number | null = null;
     let upper: number | null = null;
     let blocked = false;
+    // Whether anything besides a deliberately skipped idle parent keeps the gate unknown.
+    let hardBlocked = false;
+    let skipped = false;
+    const recordedById = new Map(
+      (previous?.conversationAgents ?? []).map((entry) => [entry.id, entry]),
+    );
     for (const { agent, conversation } of readings) {
       const isChild = Boolean(agent.parentAgentId && agent.subagentId);
       if (conversation.reason) reasons.add(conversation.reason);
@@ -569,8 +625,10 @@ export class Workboard {
         isChild &&
         conversation.gate === "unknown" &&
         (conversation.display !== "none" || conversation.reason !== null)
-      )
+      ) {
         blocked = true;
+        if (!agent.parentIdle || options.recheck) hardBlocked = true;
+      }
       if (
         agent.childEnumeration === "refused" ||
         agent.childEnumeration === "unavailable"
@@ -578,6 +636,14 @@ export class Workboard {
         reasons.add("child-enumeration-unavailable");
         // Parent activity does not bound a child that could not be listed.
         blocked = true;
+        hardBlocked = true;
+      }
+      if (agent.childEnumeration === "skipped") {
+        reasons.add("child-enumeration-unavailable");
+        blocked = true;
+        skipped = true;
+        // A recheck lists every idle parent first, so a skipped one there is an error.
+        if (options.recheck) hardBlocked = true;
       }
       const time = conversation.displayAt
         ? Date.parse(conversation.displayAt)
@@ -606,21 +672,43 @@ export class Workboard {
       .filter(({ agent }) => Boolean(agent.parentAgentId && agent.subagentId))
       .map(({ agent, conversation }) => ({
         id: agent.id,
-        lastObservedAt: conversation.displayAt,
+        // A child that was not read keeps the time it was last observed at.
+        lastObservedAt:
+          conversation.displayAt ??
+          recordedById.get(agent.id)?.lastObservedAt ??
+          null,
         seenWhileLive: live.has(agent.parentAgentId!),
       }));
     const current = new Set(readings.map(({ agent }) => agent.id));
+    const skippedParents = new Set(
+      readings
+        .filter(({ agent }) => agent.childEnumeration === "skipped")
+        .map(({ agent }) => agent.id),
+    );
+    // Recorded children that are absent from this inventory have not vanished while their
+    // parent is idle: they are missing only because that parent was not listed.
+    const unlisted = (entry: ConversationAgent) =>
+      skippedParents.has(entry.id.split("/provider/")[0]);
     for (const entry of recorded) {
       if (current.has(entry.id)) continue;
       agentsEvidence.push(entry);
-      // Its last read cannot cover new messages between that read and removal.
-      blocked = true;
-      reasons.add("child-enumeration-unavailable");
+      if (!unlisted(entry)) {
+        // Its last read cannot cover new messages between that read and removal.
+        blocked = true;
+        hardBlocked = true;
+        reasons.add("child-enumeration-unavailable");
+      }
       const time = entry.lastObservedAt
         ? Date.parse(entry.lastObservedAt)
         : null;
       if (time !== null && Number.isFinite(time))
         lower = Math.max(lower ?? time, time);
+    }
+    for (const { agent, conversation } of readings) {
+      if (!agent.parentIdle || conversation.displayAt) continue;
+      const kept = recordedById.get(agent.id)?.lastObservedAt;
+      const time = kept ? Date.parse(kept) : NaN;
+      if (Number.isFinite(time)) lower = Math.max(lower ?? time, time);
     }
     if (lower !== null) upper = Math.max(upper ?? lower, lower);
     // Derived after the vanished children folded in: their reasons and their time decide whether
@@ -667,6 +755,10 @@ export class Workboard {
       gate,
       reason: exact || noConversation ? null : reason,
       agents: agentsEvidence,
+      recheckAt:
+        skipped && !hardBlocked && upper !== null
+          ? new Date(upper).toISOString()
+          : null,
     };
   }
   /**
@@ -676,26 +768,52 @@ export class Workboard {
   private async verifyConversation(
     candidate: Task,
     agents: readonly Agent[],
-  ): Promise<string | null> {
-    let gate: number | null = null;
+  ): Promise<{ gate: string | null; agents: readonly Agent[] }> {
+    let checked = agents;
     try {
-      // The archive candidate is the one place that pays for an archived agent's timeline,
-      // and a vanished child already forces an unknown gate.
-      const evidence = await this.observe(agents, candidate, this.now(), {
-        archivedTimeline: true,
+      // The recheck is the one place that loads an idle agent: it lists every idle parent's
+      // children and reads the idle histories, and a failed or overtaken listing rejects.
+      checked = await this.host.recheckAgents(agents);
+      const evidence = await this.observe(checked, candidate, this.now(), {
+        recheck: true,
+      });
+      // Keep what was learned as display evidence, so a refresh does not make the same
+      // candidate read the same history again. It never moves backwards and never gates.
+      await this.store.update((data) => {
+        const task = data.tasks.find((t) => t.id === candidate.id);
+        if (!task || task.workspaceId !== candidate.workspaceId) return;
+        const before = new Map(task.conversationAgents.map((e) => [e.id, e]));
+        const later = (a: string | null, b: string | null) =>
+          a === null
+            ? b
+            : b === null
+              ? a
+              : Date.parse(a) >= Date.parse(b)
+                ? a
+                : b;
+        task.conversationAgents = evidence.agents.map((entry) => ({
+          ...entry,
+          lastObservedAt: later(
+            before.get(entry.id)?.lastObservedAt ?? null,
+            entry.lastObservedAt,
+          ),
+        }));
+        for (const [id, entry] of before)
+          if (!task.conversationAgents.some((e) => e.id === id))
+            task.conversationAgents.push(entry);
       });
       const at = archiveGate({
         conversationGateAt: evidence.gateAt,
         conversationGateEvidence: evidence.gate,
       });
-      if (at === null) return null;
-      gate = Date.parse(at);
+      const gate = at === null ? NaN : Date.parse(at);
+      return {
+        gate: Number.isFinite(gate) ? new Date(gate).toISOString() : null,
+        agents: checked,
+      };
     } catch {
-      return null;
+      return { gate: null, agents };
     }
-    return gate === null || !Number.isFinite(gate)
-      ? null
-      : new Date(gate).toISOString();
   }
   private async syncPins(
     inventory: Inventory,
@@ -1465,18 +1583,7 @@ export class Workboard {
         workspace.workspaceDirectory,
         workspace.gitRuntime?.isPaseoOwnedWorktree,
       ],
-      [...agents]
-        .sort((a, b) => a.id.localeCompare(b.id))
-        .map((agent) => [
-          agent.id,
-          agent.updatedAt,
-          agent.lastUserMessageAt,
-          agent.activity,
-          agent.archivedAt,
-          agent.childEnumeration,
-          agent.parentAgentId,
-          agent.subagentId,
-        ]),
+      agentRows(agents),
     ]);
   }
   private archiveDeferred(
@@ -1578,10 +1685,10 @@ export class Workboard {
         !task.archived &&
         !task.binding &&
         task.issue !== "archive-restored-workspace-unavailable" &&
-        archiveGate(task) !== null &&
+        (archiveGate(task) ?? this.recheckHints.get(id) ?? null) !== null &&
         isArchiveDue(
           kind,
-          archiveGate(task),
+          archiveGate(task) ?? this.recheckHints.get(id) ?? null,
           this.now(),
           archiveDelayFor(settings, kind),
         ) &&
@@ -1616,14 +1723,14 @@ export class Workboard {
         this.store.current.settings.groups,
         this.store.current.settings.defaultStartGroup,
       );
-      const agents = inventory.agents.filter(
+      let agents: readonly Agent[] = inventory.agents.filter(
         (agent) => agent.workspaceId === id,
       );
+      // A child of an idle parent is judged after the recheck lists it fresh: the cached
+      // status may be a completion this host never saw.
       if (
         agents.some(
-          (a) =>
-            !a.archivedAt &&
-            (a.activity === "running" || a.activity === "waiting"),
+          (a) => !a.archivedAt && !a.parentIdle && isActiveActivity(a.activity),
         ) ||
         workspace.status === "running" ||
         workspace.status === "needs_input"
@@ -1631,7 +1738,13 @@ export class Workboard {
         await this.deferArchive(candidate, "agent-busy", workspace, agents);
         continue;
       }
-      const gate = await this.verifyConversation(candidate, agents);
+      const verified = await this.verifyConversation(candidate, agents);
+      const gate = verified.gate;
+      agents = verified.agents;
+      if (agents.some((a) => !a.archivedAt && isActiveActivity(a.activity))) {
+        await this.deferArchive(candidate, "agent-busy", workspace, agents);
+        continue;
+      }
       if (gate === null) {
         await this.deferArchive(
           candidate,
@@ -1652,6 +1765,8 @@ export class Workboard {
           ),
         )
       ) {
+        // Newer evidence moves the next check: the recorded time now includes it.
+        if (gate) this.recheckHints.set(id, gate);
         this.archiveDeferrals.delete(candidate.id);
         continue;
       }
@@ -1691,19 +1806,7 @@ export class Workboard {
         const fresh = await this.host.inventory();
         const current = fresh.workspaces.find((w) => w.id === id);
         const currentAgents = fresh.agents.filter((a) => a.workspaceId === id);
-        const fingerprint = (items: typeof agents) =>
-          JSON.stringify(
-            items
-              .map((a) => [
-                a.id,
-                a.updatedAt,
-                a.lastUserMessageAt,
-                a.activity,
-                a.archivedAt,
-                a.childEnumeration,
-              ])
-              .sort(),
-          );
+        const fingerprint = (items: readonly Agent[]) => agentRows(items);
         if (
           !current ||
           current.archivingAt ||

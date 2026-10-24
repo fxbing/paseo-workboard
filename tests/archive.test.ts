@@ -947,9 +947,7 @@ it("defers an unknown verification timeline and retries after the deadline", asy
   let clock = test.now();
   const board = new Workboard(test.host, test.store, () => clock);
   test.host.conversation = vi.fn(async (_agent, _now, options) =>
-    options?.archivedTimeline
-      ? observed(null)
-      : observed("2026-08-01T00:00:00Z"),
+    options?.recheck ? observed(null) : observed("2026-08-01T00:00:00Z"),
   );
   try {
     await board.start();

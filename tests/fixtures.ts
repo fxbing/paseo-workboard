@@ -62,6 +62,7 @@ export function fixture(initial: Partial<Data> = {}) {
     workspace: async (id) =>
       structuredClone(inventory.workspaces.find((w) => w.id === id) ?? null),
     conversation: agentEvidence(),
+    recheckAgents: vi.fn(async (agents) => [...agents]),
     create: vi.fn(async (_source, title, key) => {
       if (created.has(key)) return created.get(key)!;
       const id = `w${created.size + 1}`;

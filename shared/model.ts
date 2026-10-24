@@ -483,6 +483,9 @@ export const activitySchema = z.enum([
   "attention",
   "error",
 ]);
+/** Running and waiting agents hold a provider process; everything else is at rest. */
+export const isActiveActivity = (activity: z.infer<typeof activitySchema>) =>
+  activity === "running" || activity === "waiting";
 export const pinStateSchema = z
   .enum(["none", "automatic", "manual"])
   .default("none");
