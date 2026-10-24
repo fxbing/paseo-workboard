@@ -2487,6 +2487,7 @@ it("L06 compact row keeps request warnings singular and activity metadata on one
     },
     changeRequestUnavailable: true,
     conversationDisplayEvidence: "unknown",
+    agents: [{ id: "a1", title: "Run", activity: "idle", archived: true }],
   } as Card;
   const row = taskComponent(value, { presentation: "row", compact: true });
   let tree = row.render();
@@ -2521,6 +2522,22 @@ it("L06 compact row keeps request warnings singular and activity metadata on one
   expect(byLabel(tree, t.checks.failure)).toBeDefined();
   expect(byLabel(tree, t.reviews.changes_requested)).toBeDefined();
   expect(warningCount()).toBe(1);
+});
+
+it("shows No Agents instead of unverified time for agentless bound workspaces", () => {
+  const value = {
+    ...card("one", "review", "w"),
+    conversationDisplayEvidence: "unknown",
+  } as Card;
+  for (const presentation of ["card", "row"] as const) {
+    const tree = taskComponent(value, { presentation }).render();
+    const texts = elements(tree)
+      .filter((element) => element.type === Text)
+      .map((element) => text(element));
+    expect(texts).toContain(t.noAgents);
+    expect(texts).not.toContain(t.unknownConversation);
+    expect(texts).not.toContain(t.activity.idle);
+  }
 });
 
 it("L07 latest move feedback survives filtering and collapse, then undoes the newest move without reviving an older one", async () => {
