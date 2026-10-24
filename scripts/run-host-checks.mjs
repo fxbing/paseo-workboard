@@ -136,6 +136,12 @@ try {
   assert(status.daemonVersion, "Paseo did not report its version");
   run("paseo", ["plugin", "install", "--home", home, plugin], 120_000);
   run("npm", ["run", "test:integration"], 300_000);
+  // Idle Agents must stay unloaded: seed some, restart the daemon so none is loaded, then
+  // let Workboard start and refresh and check that it resumed none of them.
+  run("node", ["scripts/check-idle-wake.mjs", "seed"], 120_000);
+  run("paseo", ["daemon", "stop", "--home", home], 45_000);
+  run("paseo", ["daemon", "start", "--home", home, "--timeout", "30"], 45_000);
+  run("node", ["scripts/check-idle-wake.mjs", "verify"], 240_000);
   if (process.argv[2] === "--ui") run("npm", ["run", "test:ui"], 300_000);
 } catch (error) {
   failure = error;
