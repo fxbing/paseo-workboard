@@ -39,6 +39,23 @@ export function hasNoAgents(card: Card): boolean {
   return card.workspaceId !== null && card.agents.length === 0;
 }
 
+/**
+ * Whether the card's provider children went unlisted only because every agent is idle, which a
+ * refresh leaves alone on purpose, as opposed to a listing that failed or an archived parent.
+ */
+export function childrenSkippedForIdle(card: Card): boolean {
+  return (
+    card.conversationReason === "child-enumeration-unavailable" &&
+    card.agents.length > 0 &&
+    card.agents.every(
+      (agent) =>
+        !agent.archived &&
+        agent.activity !== "running" &&
+        agent.activity !== "waiting",
+    )
+  );
+}
+
 export function attentionReasons(card: Card): string[] {
   const reasons: string[] = [];
   if (["waiting", "error", "attention"].includes(card.activity))

@@ -9,6 +9,7 @@ import {
 import {
   cardsForStage,
   attentionReasons,
+  childrenSkippedForIdle,
   groupDeleteReason,
   groupTasks,
   mappingPreview,
@@ -655,4 +656,21 @@ it("returns exactly the due candidates and proposed deadlines used by preview co
   expect(disabled.candidates.map(({ card }) => card.id)).toEqual(["canceled"]);
   expect(disabled).toMatchObject({ due: 1, dueDone: 0, dueCanceled: 1 });
   expect(mappingPreview([], settings, Date.now()).candidates).toEqual([]);
+});
+
+describe("children skipped for idle agents", () => {
+  const unlisted = (activity: Card["activity"], archived = false) =>
+    card({
+      conversationReason: "child-enumeration-unavailable",
+      agents: [{ id: "a", title: "A", activity, archived }],
+    });
+  it("tells an idle parent from a failed listing or an archived parent", () => {
+    expect(childrenSkippedForIdle(unlisted("idle"))).toBe(true);
+    expect(childrenSkippedForIdle(unlisted("running"))).toBe(false);
+    expect(childrenSkippedForIdle(unlisted("waiting"))).toBe(false);
+    expect(childrenSkippedForIdle(unlisted("idle", true))).toBe(false);
+    expect(
+      childrenSkippedForIdle(card({ conversationReason: "replay-timestamp" })),
+    ).toBe(false);
+  });
 });

@@ -307,6 +307,8 @@ const zh = {
     "child-enumeration-unavailable": "无法枚举 provider 子 agent",
     "child-timeline-unreadable": "子 agent 时间线读取失败",
   },
+  childrenNotListedIdle:
+    "Agent 处于空闲状态，刷新时不会唤醒它来列出 provider 子 agent；归档前才会检查",
   archiveConfirmedByUser: "归档结果已由用户确认",
   mutationErrors: {
     "card-order-changed": "列内任务顺序或成员已改变，请刷新后重试。",
@@ -753,6 +755,8 @@ const en: typeof zh = {
     "child-timeline-unreadable":
       "A provider child's timeline could not be read",
   },
+  childrenNotListedIdle:
+    "The agent is idle, so a refresh does not wake it to list its provider children; they are checked before archive",
   archiveConfirmedByUser: "Archive outcome confirmed by user",
   mutationErrors: {
     "card-order-changed":

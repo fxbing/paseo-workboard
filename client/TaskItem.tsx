@@ -9,7 +9,12 @@ import {
   type Board,
   type Card,
 } from "../shared/model";
-import { attentionReasons, hasNoAgents, shortDate } from "./board-utils";
+import {
+  attentionReasons,
+  childrenSkippedForIdle,
+  hasNoAgents,
+  shortDate,
+} from "./board-utils";
 import { strings } from "./strings";
 import { groupColor, supplementalColor } from "./colors";
 import { HintButton } from "./Hint";
@@ -102,7 +107,9 @@ export function TaskItem({
             ? t.conversationAtMost.replace("{date}", displayedDate)
             : displayedDate;
   const reason = card.conversationReason
-    ? t.conversationReasons[card.conversationReason]
+    ? childrenSkippedForIdle(card)
+      ? t.childrenNotListedIdle
+      : t.conversationReasons[card.conversationReason]
     : null;
   const terminal = isTerminalGroup(card.stage, board.settings.groups);
   const issue =
