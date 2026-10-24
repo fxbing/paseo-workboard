@@ -88,7 +88,7 @@ for first-time contributors with new GitHub accounts.
 
 CI runs TypeScript and unit tests on Ubuntu, Windows, and macOS with Node 22.22.2,
 plus formatting and package checks on Ubuntu. Separate Ubuntu 24.04 jobs install the
-actual npm tarball into disposable Paseo **0.11.0** and **0.12.0** hosts and run
+actual npm tarball into disposable Paseo **0.11.0**, **0.12.0**, and **0.13.0** hosts and run
 integration tests and Chromium UI smoke tests. Browser failures retain traces
 and screenshots alongside isolated daemon logs. The stable `check` job requires
 every matrix job to succeed, including when a dependency fails or is skipped.

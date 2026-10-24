@@ -54,7 +54,7 @@ npm run format:check
 
 PR 会自动触发 CI。对于使用新 GitHub 账号的首次贡献者，GitHub 仍可能要求维护者批准。
 
-CI 在 Ubuntu、Windows 和 macOS 上使用 Node 22.22.2 运行 TypeScript 与单元测试，并在 Ubuntu 上执行格式和包检查。独立的 Ubuntu 24.04 任务会将实际 npm tarball 安装到一次性的 Paseo **0.11.0** 和 **0.12.0** 宿主，运行集成测试和 Chromium UI 冒烟测试。浏览器失败时保留 trace、截图和隔离 daemon 日志。固定的 `check` 任务要求所有矩阵任务成功；依赖失败或跳过也不会通过。仓库维护者应将 `check` 设为 `main` 的必选检查，workflow 本身不能启用分支保护。相同的本地入口和 UI 覆盖边界见[集成指南](tests/integration/README.zh-CN.md)。
+CI 在 Ubuntu、Windows 和 macOS 上使用 Node 22.22.2 运行 TypeScript 与单元测试，并在 Ubuntu 上执行格式和包检查。独立的 Ubuntu 24.04 任务会将实际 npm tarball 安装到一次性的 Paseo **0.11.0**、**0.12.0** 和 **0.13.0** 宿主，运行集成测试和 Chromium UI 冒烟测试。浏览器失败时保留 trace、截图和隔离 daemon 日志。固定的 `check` 任务要求所有矩阵任务成功；依赖失败或跳过也不会通过。仓库维护者应将 `check` 设为 `main` 的必选检查，workflow 本身不能启用分支保护。相同的本地入口和 UI 覆盖边界见[集成指南](tests/integration/README.zh-CN.md)。
 
 Bug 修复应包含在问题版本失败、修复后通过的回归测试；归档和活动状态改动按相关性覆盖历史缺失或回放、Agent 移除、重启等场景。单测绿灯只证明已覆盖的场景。检查 PR 当前 head 的实际运行结果；等待批准、跳过或没有运行都不算通过。
 
