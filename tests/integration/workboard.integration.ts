@@ -21,6 +21,10 @@ const pluginId = "paseo-workboard";
 const fixtureId = "workboard-fixture";
 const root = process.env.WORKBOARD_INTEGRATION_HOME;
 let home = "";
+// With the test-only clock offset the daemon judges time 40 days ahead, so the Agents these
+// tests create (always recent) are old enough to archive. That run executes only the
+// end-to-end archive group below; the main group assumes the real clock (see the README).
+const offsetRun = Boolean(process.env.WORKBOARD_TEST_CLOCK_OFFSET_MS);
 let client: DaemonClient;
 
 type Status = { home: string; listen: string; daemonVersion: string };
@@ -154,7 +158,7 @@ afterAll(async () => {
   await client?.close();
 });
 
-describe("isolated Paseo workboard", () => {
+describe.skipIf(offsetRun)("isolated Paseo workboard", () => {
   test("persists custom groups, follows native labels and deletes only after tasks move out", async () => {
     const initial = await readyBoard();
     const stamp = Date.now();
@@ -1192,3 +1196,199 @@ describe("isolated Paseo workboard", () => {
     expect(await exists(worktree)).toBe(true);
   });
 });
+
+describe.runIf(offsetRun)(
+  "isolated Paseo workboard with a clock offset",
+  () => {
+    test("archives an old idle fixture conversation after the recheck reads its history", async () => {
+      const directory = path.join(
+        home,
+        "integration-archive",
+        String(Date.now()),
+      );
+      await mkdir(directory, { recursive: true });
+      const workspace = await client.createWorkspace({
+        source: { kind: "directory", path: directory },
+        title: "integration old conversation",
+      });
+      const workspaceId = workspace.workspace?.id;
+      if (!workspaceId)
+        throw new Error("Paseo did not create the fixture workspace");
+      const agent = await client.createAgent({
+        provider: fixtureId,
+        model: "fixture-model",
+        cwd: directory,
+        workspaceId,
+      });
+      const agentId = agent.id;
+      // A fresh Agent starts with history:"skip". Refresh reopens the persisted,
+      // still-active provider session with history:"replay" without archiving it.
+      await client.refreshAgent(agentId);
+      const history = await client.fetchAgentTimeline(agentId, {
+        direction: "tail",
+        limit: 20,
+      });
+      expect(
+        history.entries
+          .filter(
+            (entry) =>
+              entry.item.type === "user_message" ||
+              entry.item.type === "assistant_message",
+          )
+          .map((entry) => entry.timestamp),
+      ).toEqual(["2025-01-02T03:04:05.000Z", "2025-01-02T03:04:06.000Z"]);
+      await client.setWorkspaceLabel({
+        workspaceId,
+        label: { name: "task:done", color: "emerald" },
+        assigned: true,
+      });
+
+      await updateSettings({
+        archiveDoneEnabled: true,
+        archiveCanceledEnabled: true,
+      });
+      const archived = await eventually(
+        snapshot,
+        (board) =>
+          board.cards.some(
+            (card) =>
+              card.workspaceId === workspaceId &&
+              card.archived?.status === "archived",
+          ),
+        "old fixture conversation was not archived",
+      );
+      expect(
+        archived.cards.find((card) => card.workspaceId === workspaceId)
+          ?.archived?.status,
+      ).toBe("archived");
+    });
+
+    test("archives a clean, upstreamed Paseo managed worktree after the recheck and removes it", async () => {
+      await updateSettings({
+        archiveDoneEnabled: false,
+        archiveCanceledEnabled: false,
+      });
+      const root = path.join(
+        home,
+        "integration-managed-worktree",
+        String(Date.now()),
+      );
+      const remote = path.join(root, "remote.git");
+      const seed = path.join(root, "seed");
+      await mkdir(root, { recursive: true });
+      await git(["init", "--bare", remote]);
+      await git(["init", "--initial-branch=main", seed]);
+      await git(
+        ["config", "core.hooksPath", path.join(home, "git-templates")],
+        seed,
+      );
+      const emptyConfig = path.join(home, "git-templates", "disabled-config");
+      await git(["config", "core.excludesFile", emptyConfig], seed);
+      await git(["config", "core.attributesFile", emptyConfig], seed);
+      await git(["config", "core.autocrlf", "false"], seed);
+      await git(["config", "commit.gpgsign", "false"], seed);
+      await git(["config", "user.name", "Test"], seed);
+      await git(["config", "user.email", "test@example.invalid"], seed);
+      await writeFile(
+        path.join(seed, "README.md"),
+        "workboard managed-worktree fixture\n",
+        "utf8",
+      );
+      await git(["add", "README.md"], seed);
+      await git(["commit", "-m", "seed fixture"], seed);
+      await git(["remote", "add", "origin", remote], seed);
+      await git(["push", "-u", "origin", "main"], seed);
+
+      const source = await client.createWorkspace({
+        source: { kind: "directory", path: seed },
+        title: "integration worktree source",
+      });
+      const projectId = source.workspace?.projectId;
+      if (!projectId)
+        throw new Error("Paseo did not register the seed project");
+      const slug = `workboard-managed-${Date.now()}`;
+      const created = await client.createPaseoWorktree({
+        cwd: seed,
+        projectId,
+        worktreeSlug: slug,
+        action: "branch-off",
+        refName: "main",
+      });
+      const workspace = created.workspace;
+      if (!workspace)
+        throw new Error(
+          `Paseo did not create the managed worktree: ${created.error ?? "unknown error"}`,
+        );
+      expect(workspace.workspaceKind).toBe("worktree");
+      expect(workspace.gitRuntime?.isPaseoOwnedWorktree).toBe(true);
+      const worktree = workspace.workspaceDirectory;
+      const branch = await git(["branch", "--show-current"], worktree);
+      expect(branch).not.toBe("");
+      await git(["push", "-u", "origin", branch], worktree);
+
+      const agent = await client.createAgent({
+        provider: fixtureId,
+        model: "fixture-model",
+        cwd: worktree,
+        workspaceId: workspace.id,
+      });
+      await client.refreshAgent(agent.id);
+      const history = await client.fetchAgentTimeline(agent.id, {
+        direction: "tail",
+        limit: 20,
+      });
+      expect(
+        history.entries
+          .filter(
+            (entry) =>
+              entry.item.type === "user_message" ||
+              entry.item.type === "assistant_message",
+          )
+          .map((entry) => entry.timestamp),
+      ).toEqual(["2025-01-02T03:04:05.000Z", "2025-01-02T03:04:06.000Z"]);
+      const fresh = await eventually(
+        () => client.fetchWorkspaces({ filter: { idPrefix: workspace.id } }),
+        (result) =>
+          result.entries.some(
+            (item) =>
+              item.id === workspace.id &&
+              item.gitRuntime?.isPaseoOwnedWorktree === true,
+          ),
+        "managed worktree ownership was not present in a fresh native inventory",
+      );
+      expect(
+        fresh.entries.find((item) => item.id === workspace.id)?.gitRuntime
+          ?.isPaseoOwnedWorktree,
+      ).toBe(true);
+      await client.setWorkspaceLabel({
+        workspaceId: workspace.id,
+        label: { name: "task:done", color: "emerald" },
+        assigned: true,
+      });
+      await updateSettings({
+        archiveDoneEnabled: true,
+        archiveCanceledEnabled: true,
+      });
+      const archived = await eventually(
+        snapshot,
+        (board) =>
+          board.cards.some(
+            (card) =>
+              card.workspaceId === workspace.id &&
+              card.archived?.status === "archived",
+          ),
+        "managed worktree was not automatically archived",
+      );
+      expect(
+        archived.cards.find((card) => card.workspaceId === workspace.id)
+          ?.archived?.status,
+      ).toBe("archived");
+      expect(
+        (await client.fetchWorkspaces()).entries.some(
+          (item) => item.id === workspace.id,
+        ),
+      ).toBe(false);
+      expect(await exists(worktree)).toBe(false);
+    });
+  },
+);

@@ -142,6 +142,13 @@ try {
   run("paseo", ["daemon", "stop", "--home", home], 45_000);
   run("paseo", ["daemon", "start", "--home", home, "--timeout", "30"], 45_000);
   run("node", ["scripts/check-idle-wake.mjs", "verify"], 240_000);
+  // Agents the tests create are always recent, so a second daemon judges time 40 days ahead
+  // (honored only in this marked home): the end-to-end archive tests and the UI archive
+  // confirmation need a due idle workspace.
+  run("paseo", ["daemon", "stop", "--home", home], 45_000);
+  env.WORKBOARD_TEST_CLOCK_OFFSET_MS = String(40 * 24 * 60 * 60 * 1000);
+  run("paseo", ["daemon", "start", "--home", home, "--timeout", "30"], 45_000);
+  run("npm", ["run", "test:integration"], 300_000);
   if (process.argv[2] === "--ui") run("npm", ["run", "test:ui"], 300_000);
 } catch (error) {
   failure = error;

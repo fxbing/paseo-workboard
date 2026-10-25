@@ -82,14 +82,18 @@ async function seedOldDoneTask(): Promise<string> {
   await expect
     .poll(
       async () => {
-        const card = (await snapshotIfReady())?.cards.find(
+        const board = await snapshotIfReady();
+        const card = board?.cards.find(
           (item) => item.workspaceId === workspaceId,
         );
+        // An idle Agent is not read by a refresh, so the card carries its recorded activity
+        // as a scheduled recheck time. Judge it by the server's clock, which the host run
+        // sets ahead of real time so the fixture Agent counts as old.
+        const now = Date.now() + (board?.clockOffsetMs ?? 0);
         return (
           card?.stage === "done" &&
-          card.conversationGateAt !== null &&
-          Date.parse(card.conversationGateAt) <
-            Date.now() - 31 * 24 * 60 * 60 * 1000
+          card.recheckAt != null &&
+          Date.parse(card.recheckAt) < now - 31 * 24 * 60 * 60 * 1000
         );
       },
       { timeout: 20_000 },
