@@ -424,3 +424,52 @@ it("explains skipped children only when skipping is the sole reason they are una
     mixed.board.dispose();
   }
 });
+
+// Author review: a deferral on an idle candidate is cleared once the candidate is no longer due.
+it("clears an idle candidate's warning when a longer period makes it not due", async () => {
+  const test = idleBoard({
+    agents: [agent("parent", OLD)],
+    history: { parent: [OLD] },
+  });
+  test.host.safety = async () => "git-dirty";
+  try {
+    await test.board.start();
+    expect(test.archive).not.toHaveBeenCalled();
+    expect(test.board.snapshot().cards[0].issue).toBe("git-dirty");
+    const before = test.board.snapshot();
+    const saved = await test.board.mutate({
+      action: "settings",
+      revision: before.revision,
+      expectedSettings: before.settings,
+      settings: { ...before.settings, archiveDoneAfterDays: 100 },
+    });
+    expect(saved.cards[0].issue).toBe(null);
+    test.advance(10 * 60_000);
+    await test.board.refresh();
+    expect(test.board.snapshot().cards[0].issue).toBe(null);
+    expect(test.archive).not.toHaveBeenCalled();
+  } finally {
+    test.board.dispose();
+  }
+});
+
+it("keeps an idle candidate's warning while its schedule is still due", async () => {
+  const test = idleBoard({
+    agents: [agent("parent", OLD)],
+    history: { parent: [OLD] },
+  });
+  test.host.safety = async () => "git-dirty";
+  try {
+    await test.board.start();
+    const before = test.board.snapshot();
+    const saved = await test.board.mutate({
+      action: "settings",
+      revision: before.revision,
+      expectedSettings: before.settings,
+      settings: { ...before.settings, archiveDoneAfterDays: 40 },
+    });
+    expect(saved.cards[0].issue).toBe("git-dirty");
+  } finally {
+    test.board.dispose();
+  }
+});

@@ -392,10 +392,29 @@ export class Workboard {
         this.recheckHints.set(workspace.id, evidence.recheckAt);
       else this.recheckHints.delete(workspace.id);
       if (previous && this.archiveDeferrals.has(previous.id)) {
+        const kind = groupKind(
+          resolveStage(
+            workspace.labels,
+            prior.settings.groups,
+            prior.settings.defaultStartGroup,
+          ),
+          prior.settings.groups,
+        );
         // A scheduled recheck keeps its own backoff: its gate is unknown by design, and
-        // deferring again here would push the retry further out on every refresh.
-        if (evidence.recheckAt) {
-          // keep the deferral as it is
+        // deferring again here would push the retry further out on every refresh. Its
+        // scheduled time still shows whether the deferral applies at all.
+        const scheduled =
+          evidence.gate === "unknown" ? evidence.recheckAt : null;
+        if (scheduled !== null) {
+          if (
+            !isArchiveDue(
+              kind,
+              scheduled,
+              this.now(),
+              archiveDelayFor(prior.settings, kind),
+            )
+          )
+            this.archiveDeferrals.delete(previous.id);
         } else if (evidence.gate === "unknown")
           await this.deferArchive(
             previous,
@@ -403,25 +422,15 @@ export class Workboard {
             workspace,
             agents,
           );
-        else {
-          const kind = groupKind(
-            resolveStage(
-              workspace.labels,
-              prior.settings.groups,
-              prior.settings.defaultStartGroup,
-            ),
-            prior.settings.groups,
-          );
-          if (
-            !isArchiveDue(
-              kind,
-              evidence.gateAt,
-              this.now(),
-              archiveDelayFor(prior.settings, kind),
-            )
+        else if (
+          !isArchiveDue(
+            kind,
+            evidence.gateAt,
+            this.now(),
+            archiveDelayFor(prior.settings, kind),
           )
-            this.archiveDeferrals.delete(previous.id);
-        }
+        )
+          this.archiveDeferrals.delete(previous.id);
       }
       observations.set(workspace.id, evidence);
     }
@@ -1640,7 +1649,13 @@ export class Workboard {
         : task.lastStage;
       const kind = groupKind(stage, data.settings.groups);
       const delay = archiveDelayFor(data.settings, kind);
-      const gate = archiveGate(task);
+      // An idle task's scheduled recheck time stands in for the unknown stored gate when
+      // judging applicability; it only ever clears a deferral, never authorizes an archive.
+      const gate =
+        archiveGate(task) ??
+        (task.workspaceId
+          ? (this.recheckHints.get(task.workspaceId) ?? null)
+          : null);
       // Missing evidence is not proof that an enabled rule is no longer due.
       if (
         delay !== null &&
