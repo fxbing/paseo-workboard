@@ -7,12 +7,6 @@ const MARKER_NAME = ".paseo-workboard-integration";
 const MARKER_VALUE = "paseo-workboard-integration-v1";
 export const CLOCK_OFFSET_ENV = "WORKBOARD_TEST_CLOCK_OFFSET_MS";
 
-/**
- * The clock Workboard runs on. It is the real clock unless a test asks for an offset, and a
- * test can ask only inside the marked integration home: the offset variable alone is never
- * enough, so a stray variable cannot make archive decisions run in the future for a personal
- * daemon. Any unmet condition silently falls back to the real clock.
- */
 /** The home must be a disposable one: inside the system temporary directory. */
 function inTemporaryDirectory(home: string): boolean {
   try {
@@ -29,6 +23,12 @@ function inTemporaryDirectory(home: string): boolean {
   }
 }
 
+/**
+ * The clock Workboard runs on. It is the real clock unless a test asks for an offset, and a
+ * test can ask only inside the marked integration home: the offset variable alone is never
+ * enough, so a stray variable cannot make archive decisions run in the future for a personal
+ * daemon. Any unmet condition silently falls back to the real clock.
+ */
 export function workboardClock(
   env: Record<string, string | undefined> = process.env,
   readMarker: (file: string) => string = (file) => readFileSync(file, "utf8"),
