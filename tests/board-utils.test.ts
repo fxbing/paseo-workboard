@@ -659,18 +659,24 @@ it("returns exactly the due candidates and proposed deadlines used by preview co
 });
 
 describe("children skipped for idle agents", () => {
-  const unlisted = (activity: Card["activity"], archived = false) =>
+  const unlisted = (
+    recheckAt: string | null,
+    reason = "child-enumeration-unavailable",
+  ) =>
     card({
-      conversationReason: "child-enumeration-unavailable",
-      agents: [{ id: "a", title: "A", activity, archived }],
+      conversationReason: reason as Card["conversationReason"],
+      recheckAt,
+      agents: [{ id: "a", title: "A", activity: "idle", archived: false }],
     });
-  it("tells an idle parent from a failed listing or an archived parent", () => {
-    expect(childrenSkippedForIdle(unlisted("idle"))).toBe(true);
-    expect(childrenSkippedForIdle(unlisted("running"))).toBe(false);
-    expect(childrenSkippedForIdle(unlisted("waiting"))).toBe(false);
-    expect(childrenSkippedForIdle(unlisted("idle", true))).toBe(false);
+  it("follows the server's scheduled-recheck state, not the agents' activity", () => {
+    expect(childrenSkippedForIdle(unlisted("2026-08-01T00:00:00.000Z"))).toBe(
+      true,
+    );
+    expect(childrenSkippedForIdle(unlisted(null))).toBe(false);
     expect(
-      childrenSkippedForIdle(card({ conversationReason: "replay-timestamp" })),
+      childrenSkippedForIdle(
+        unlisted("2026-08-01T00:00:00.000Z", "replay-timestamp"),
+      ),
     ).toBe(false);
   });
 });

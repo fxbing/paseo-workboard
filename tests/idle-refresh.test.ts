@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { mappingPreview } from "../client/board-utils";
+import { childrenSkippedForIdle, mappingPreview } from "../client/board-utils";
 import { newTask } from "../shared/model";
 import { agent, idleBoard, type FakeChild } from "./idle-host";
 
@@ -380,5 +380,47 @@ it("does not list a recent idle workspace in the confirmation", async () => {
     expect(preview.due).toBe(0);
   } finally {
     test.board.dispose();
+  }
+});
+
+// Author review: the skipped explanation comes from the evidence, not from every agent being idle.
+it("explains skipped children only when skipping is the sole reason they are unavailable", async () => {
+  const idleOnly = idleBoard({
+    agents: [agent("parent", OLD)],
+    labels: ["task:in-progress"],
+  });
+  const mixed = idleBoard({
+    agents: [agent("other", OLD)],
+    labels: ["task:in-progress"],
+    // A child of a parent that no longer exists: nothing can bound its history.
+    data: {
+      tasks: [
+        {
+          ...recordedTask(OLD),
+          lastStage: "in-progress" as const,
+          conversationAgents: [
+            {
+              id: "gone/provider/child",
+              lastObservedAt: OLD,
+              seenWhileLive: true,
+            },
+          ],
+        },
+      ],
+    },
+  });
+  try {
+    await idleOnly.board.start();
+    await mixed.board.start();
+    const only = idleOnly.board.snapshot().cards[0];
+    expect(only.recheckAt).not.toBeNull();
+    expect(childrenSkippedForIdle(only)).toBe(true);
+    const other = mixed.board.snapshot().cards[0];
+    expect(other.conversationReason).toBe("child-enumeration-unavailable");
+    expect(other.recheckAt).toBeNull();
+    expect(childrenSkippedForIdle(other)).toBe(false);
+  } finally {
+    idleOnly.board.dispose();
+    mixed.board.dispose();
   }
 });

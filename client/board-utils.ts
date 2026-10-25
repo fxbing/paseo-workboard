@@ -40,19 +40,14 @@ export function hasNoAgents(card: Card): boolean {
 }
 
 /**
- * Whether the card's provider children went unlisted only because every agent is idle, which a
- * refresh leaves alone on purpose, as opposed to a listing that failed or an archived parent.
+ * Whether the card's provider children are unlisted only because an idle parent was left alone
+ * on purpose. The server decides that from the conversation evidence (a schedule exists only
+ * when nothing else keeps the gate unknown); the client does not infer it from agent activity.
  */
 export function childrenSkippedForIdle(card: Card): boolean {
   return (
     card.conversationReason === "child-enumeration-unavailable" &&
-    card.agents.length > 0 &&
-    card.agents.every(
-      (agent) =>
-        !agent.archived &&
-        agent.activity !== "running" &&
-        agent.activity !== "waiting",
-    )
+    card.recheckAt != null
   );
 }
 
