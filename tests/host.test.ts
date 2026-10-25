@@ -418,6 +418,60 @@ it.each(["snapshot", "error", "upsert", "remove"] as const)(
   },
 );
 
+it.each(["snapshot", "error", "upsert", "remove"] as const)(
+  "rejects an archive recheck's listing that %s invalidated while it was in flight",
+  async (event) => {
+    const started = deferred<void>();
+    const listing = deferred<ProviderChild[]>();
+    const stale: ProviderChild = {
+      id: "child",
+      title: "Child",
+      status: "completed",
+      updatedAt: "2026-09-22T00:00:00.000Z",
+    };
+    const subagents = vi
+      .fn(async (): Promise<ProviderChild[]> => [])
+      .mockImplementationOnce(() => {
+        started.resolve();
+        return listing.promise;
+      });
+    const observers: SubscriptionObserver<unknown>[] = [];
+    // An idle parent is never listed by a refresh, so only the recheck lists it.
+    const host = providerHost(
+      { ...parentAgent, status: "idle" },
+      { subagents } as unknown as PaseoCompat,
+      vi.fn(),
+      observers,
+    );
+    try {
+      const before = await host.inventory();
+      expect(subagents).not.toHaveBeenCalled();
+      const pending = host.recheckAgents(before.agents);
+      const outcome = pending.then(
+        () => "listed",
+        () => "rejected",
+      );
+      await started.promise;
+      invalidateChildListing(observers, event);
+      listing.resolve([stale]);
+      // A response from before the invalidation is not a complete inventory...
+      expect(await outcome).toBe("rejected");
+      // ...and is not kept as one: the next refresh has no trace of it.
+      const after = await host.inventory();
+      expect(after.agents.map((agent) => agent.id)).not.toContain(
+        "parent/provider/child",
+      );
+      // A later recheck lists again and succeeds.
+      expect(
+        (await host.recheckAgents(after.agents)).map((agent) => agent.id),
+      ).toEqual(["parent"]);
+      expect(subagents).toHaveBeenCalledTimes(2);
+    } finally {
+      host.dispose();
+    }
+  },
+);
+
 it("invalidates earlier parents when a subscription restores during a later parent's listing", async () => {
   const started = deferred<void>();
   const listing = deferred<ProviderChild[]>();
