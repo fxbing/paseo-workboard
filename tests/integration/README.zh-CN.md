@@ -14,7 +14,9 @@ npm run test:host
 
 runner 会打包当前 checkout，将解包后的 tarball（不含开发依赖）安装到新建且带 marker 的 home，并运行集成套件。它自动选择 loopback 端口、禁用 relay，结束后停止 daemon 并删除 home。停止失败时保留 home 用于排查，不使用任何已有的 Paseo home 或 daemon。
 
-集成套件之后，runner 还会检查 Workboard 不会唤醒空闲 Agent（`scripts/check-idle-wake.mjs`）：创建空闲的 fixture Agent，重启 daemon 使它们都未加载，让 Workboard 启动并完成一次定时刷新，然后在 daemon 日志里出现 `clientId: plugin:paseo-workboard` 的 `Agent resumed from persistence` 时判定失败。脚本自己发出的对照请求必须记录一次这样的恢复，所以措辞不同的宿主会失败，而不是悄悄通过。fixture provider 没有 provider 子 Agent，空闲 parent 的子 Agent 只由单元测试覆盖；套件的 Agent 总是刚创建的，所以也无法端到端归档空闲 fixture。
+集成套件之后，runner 还会检查 Workboard 不会唤醒空闲 Agent（`scripts/check-idle-wake.mjs`）：创建空闲的 fixture Agent，重启 daemon 使它们都未加载，让 Workboard 启动并完成一次定时刷新，然后在 daemon 日志里出现 `clientId: plugin:paseo-workboard` 的 `Agent resumed from persistence` 时判定失败。脚本自己发出的对照请求必须记录一次这样的恢复，所以措辞不同的宿主会失败，而不是悄悄通过。fixture provider 没有 provider 子 Agent，空闲 parent 的子 Agent 只由单元测试覆盖；套件的 Agent 总是刚创建的，所以在真实时钟下也无法端到端归档空闲 fixture。
+
+因此 runner 随后会以 `WORKBOARD_TEST_CLOCK_OFFSET_MS`（40 天）重启 daemon，再运行一遍套件（此模式只运行端到端归档组），带 `--ui` 时再运行浏览器测试。偏移只影响 Workboard 自己的时钟，使空闲 fixture 被视为旧对话；它只在 Paseo home 是带 `.paseo-workboard-integration` 标记的临时目录时生效，否则静默使用真实时钟。要在自己带标记的测试 home 里运行该组，请用该变量启动 daemon，并为 `npm run test:integration` 导出同一变量；不要对个人 daemon 设置它。
 
 同时使用无头 Chromium 操作真实 Paseo Web UI：
 
