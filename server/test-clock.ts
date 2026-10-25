@@ -34,6 +34,7 @@ export function workboardClock(
   readMarker: (file: string) => string = (file) => readFileSync(file, "utf8"),
   real: () => number = Date.now,
   temporary: (home: string) => boolean = inTemporaryDirectory,
+  paths: Pick<typeof path, "isAbsolute" | "join"> = path,
 ): { now: () => number; offsetMs: number } {
   const realClock = { now: real, offsetMs: 0 };
   const raw = env[CLOCK_OFFSET_ENV];
@@ -42,12 +43,12 @@ export function workboardClock(
     !raw ||
     !/^\d{1,13}$/.test(raw) ||
     !home ||
-    !path.isAbsolute(home) ||
+    !paths.isAbsolute(home) ||
     !temporary(home)
   )
     return realClock;
   try {
-    if (readMarker(path.join(home, MARKER_NAME)).trim() !== MARKER_VALUE)
+    if (readMarker(paths.join(home, MARKER_NAME)).trim() !== MARKER_VALUE)
       return realClock;
   } catch {
     return realClock;

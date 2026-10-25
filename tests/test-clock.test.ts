@@ -1,37 +1,38 @@
+import { homedir, tmpdir } from "node:os";
+import path from "node:path";
 import { expect, it } from "vitest";
 import { CLOCK_OFFSET_ENV, workboardClock } from "../server/test-clock";
 
 const MARKER = "paseo-workboard-integration-v1\n";
-const read = (content: string | null) => (file: string) => {
-  expect(file).toBe("/tmp/fixture-home/.paseo-workboard-integration");
-  if (content === null) throw new Error("ENOENT");
-  return content;
-};
+const MARKER_NAME = ".paseo-workboard-integration";
+// Resolved on the running platform, so it is absolute and uses its own separators.
+const HOME = path.resolve(tmpdir(), "fixture-home");
+const read =
+  (content: string | null, home = HOME, join = path.join) =>
+  (file: string) => {
+    expect(file).toBe(join(home, MARKER_NAME));
+    if (content === null) throw new Error("ENOENT");
+    return content;
+  };
 const now = () => 1_000;
 const temporary = () => true;
-const env = (extra: Record<string, string>) => ({
-  PASEO_HOME: "/tmp/fixture-home",
+const env = (extra: Record<string, string>, home = HOME) => ({
+  PASEO_HOME: home,
   ...extra,
 });
+const offset = { [CLOCK_OFFSET_ENV]: "5000" };
 
 it("shifts the clock only with both the offset variable and the integration marker", () => {
-  const offset = { [CLOCK_OFFSET_ENV]: "5000" };
   expect(workboardClock(env(offset), read(MARKER), now, temporary).now()).toBe(
     6_000,
   );
 });
 it("keeps the real clock when only the offset variable is set", () => {
-  const offset = { [CLOCK_OFFSET_ENV]: "5000" };
   expect(workboardClock(env(offset), read(null), now, temporary).now()).toBe(
     1_000,
   );
   expect(
-    workboardClock(
-      { [CLOCK_OFFSET_ENV]: "5000" },
-      read(MARKER),
-      now,
-      temporary,
-    ).now(),
+    workboardClock({ [CLOCK_OFFSET_ENV]: "5000" }, read(MARKER), now).now(),
   ).toBe(1_000);
 });
 it("keeps the real clock when only the marker exists", () => {
@@ -40,7 +41,6 @@ it("keeps the real clock when only the marker exists", () => {
   );
 });
 it("keeps the real clock when the marker content is wrong or the offset is invalid", () => {
-  const offset = { [CLOCK_OFFSET_ENV]: "5000" };
   expect(
     workboardClock(env(offset), read("other\n"), now, temporary).now(),
   ).toBe(1_000);
@@ -55,16 +55,14 @@ it("keeps the real clock when the marker content is wrong or the offset is inval
     ).toBe(1_000);
   expect(
     workboardClock(
-      { [CLOCK_OFFSET_ENV]: "5000", PASEO_HOME: "relative/home" },
+      { ...offset, PASEO_HOME: "relative/home" },
       () => MARKER,
       now,
       temporary,
     ).now(),
   ).toBe(1_000);
 });
-
 it("reports the offset it applies, and zero otherwise", () => {
-  const offset = { [CLOCK_OFFSET_ENV]: "5000" };
   expect(
     workboardClock(env(offset), read(MARKER), now, temporary).offsetMs,
   ).toBe(5_000);
@@ -75,18 +73,51 @@ it("reports the offset it applies, and zero otherwise", () => {
     0,
   );
 });
-
 it("keeps the real clock outside a temporary directory", () => {
-  const offset = { [CLOCK_OFFSET_ENV]: "5000" };
   expect(
     workboardClock(env(offset), read(MARKER), now, () => false).now(),
   ).toBe(1_000);
-  // The real check refuses a home outside the system temporary directory.
+  // The real check refuses a home outside the system temporary directory (a parent of it,
+  // such as the user's home, is outside it).
   expect(
     workboardClock(
-      { ...offset, PASEO_HOME: "/usr/local" },
+      env(offset, path.resolve(homedir())),
       () => MARKER,
       now,
+    ).now(),
+  ).toBe(1_000);
+});
+it("holds under Windows path semantics", () => {
+  const home = String.raw`C:\Users\x\AppData\Local\Temp\paseo-workboard.AbC123`;
+  const win = path.win32;
+  expect(win.isAbsolute(home)).toBe(true);
+  expect(
+    workboardClock(
+      env(offset, home),
+      read(MARKER, home, win.join),
+      now,
+      temporary,
+      win,
+    ).now(),
+  ).toBe(6_000);
+  // A relative path is refused under Windows semantics as well.
+  expect(
+    workboardClock(
+      env(offset, String.raw`Users\x\Temp\paseo-workboard.AbC123`),
+      () => MARKER,
+      now,
+      temporary,
+      win,
+    ).now(),
+  ).toBe(1_000);
+  // And the wrong marker still refuses.
+  expect(
+    workboardClock(
+      env(offset, home),
+      read("other\n", home, win.join),
+      now,
+      temporary,
+      win,
     ).now(),
   ).toBe(1_000);
 });
