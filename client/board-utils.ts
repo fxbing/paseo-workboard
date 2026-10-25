@@ -197,6 +197,8 @@ type ArchiveCandidate = {
   days: number;
   conversationAt: string;
   dueAt: string;
+  /** The time is only a scheduled recheck, not a bound on the conversation. */
+  scheduled: boolean;
 };
 
 export function mappingPreview(
@@ -222,7 +224,8 @@ export function mappingPreview(
     const kind = groupKind(stage, settings.groups);
     // A scheduled idle recheck may archive right after the rule is enabled, so it belongs in
     // the confirmation; the hint itself never authorizes anything.
-    const conversationAt = archiveGate(card) ?? card.recheckAt ?? null;
+    const gate = archiveGate(card);
+    const conversationAt = gate ?? card.recheckAt ?? null;
     const days = archiveDelayFor(settings, kind);
     const dueAt = archiveDueAt(conversationAt, days);
     if (
@@ -234,7 +237,14 @@ export function mappingPreview(
       !card.binding &&
       isArchiveDue(kind, conversationAt, now, days)
     )
-      candidates.push({ card, kind, days, conversationAt, dueAt });
+      candidates.push({
+        card,
+        kind,
+        days,
+        conversationAt,
+        dueAt,
+        scheduled: gate === null,
+      });
   }
   return {
     affected,

@@ -190,6 +190,8 @@ const zh = {
   archiveCandidatesEmpty: "按新设置，目前没有到期任务。",
   archiveCandidateDue: "等待 {days} 天 · 到期时间：{date}",
   archiveCandidateExact: "最后一次已验证对话：{date}",
+  archiveCandidateScheduled:
+    "记录的活动时间已到复核时间；最后一次对话时间尚未验证。",
   archiveCandidateUpperBound:
     "最后对话不晚于：{date}（以已记录活动时间保守计算）",
   enableAutoArchive: "保存自动归档设置",
@@ -630,6 +632,8 @@ const en: typeof zh = {
   archiveCandidatesEmpty: "No tasks are currently due under the new settings.",
   archiveCandidateDue: "{days}-day delay · Due: {date}",
   archiveCandidateExact: "Last verified conversation: {date}",
+  archiveCandidateScheduled:
+    "Recorded activity is due for recheck; the last conversation time has not been verified.",
   archiveCandidateUpperBound:
     "Last conversation no later than: {date} (conservative recorded-activity bound)",
   enableAutoArchive: "Save automatic archive settings",

@@ -1645,3 +1645,57 @@ it.each(["zh", "en"] as const)(
     }
   },
 );
+
+it.each(["zh", "en"] as const)(
+  "labels an idle recheck candidate as scheduled, not as a conversation bound, in %s",
+  async (language) => {
+    const localized = strings(language);
+    const settings = settingsSchema.parse({ archiveDoneEnabled: false });
+    const at = "2026-01-01T00:00:00.000Z";
+    const scheduled = {
+      ...newTask("task", "Idle task", at, "done"),
+      workspaceId: "workspace",
+      lastConversationAt: at,
+      conversationStatus: "known" as const,
+      conversationDisplayEvidence: "upper-bound" as const,
+      conversationGateEvidence: "unknown" as const,
+      conversationGateAt: null,
+      conversationReason: "child-enumeration-unavailable" as const,
+      stage: "done" as const,
+      labels: ["task:done"],
+      managedLabels: ["task:done"],
+      changeRequest: null,
+      changeRequestUnavailable: false,
+      activity: "idle" as const,
+      pinState: "none" as const,
+      dueAt: null,
+      recheckAt: at,
+      agents: [],
+    };
+    const initial = board(settings, [scheduled]);
+    const mutate = vi.fn();
+    const toggle = findByTestId(
+      renderSettings(initial, mutate, localized),
+      "workboard-auto-archive-done",
+    );
+    await (
+      toggle.props as { onValueChange(nextValue: boolean): Promise<void> }
+    ).onValueChange(true);
+    const list = findByTestId(
+      renderSettings(initial, mutate, localized),
+      "workboard-archive-candidates",
+    );
+    const date = new Intl.DateTimeFormat(localized.locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(at));
+    expect(elementText(list)).toContain(localized.archiveCandidateScheduled);
+    expect(elementText(list)).not.toContain(
+      localized.archiveCandidateUpperBound.replace("{date}", date),
+    );
+    expect(elementText(list)).not.toContain(
+      localized.archiveCandidateExact.replace("{date}", date),
+    );
+    expect(mutate).not.toHaveBeenCalled();
+  },
+);

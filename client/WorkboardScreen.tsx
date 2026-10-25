@@ -2764,7 +2764,7 @@ export function SettingsPage({
               testID="workboard-archive-candidates"
             >
               {archivePreview.candidates.map(
-                ({ card, kind, days, conversationAt, dueAt }) => (
+                ({ card, kind, days, conversationAt, dueAt, scheduled }) => (
                   <View
                     key={card.id}
                     role="listitem"
@@ -2786,13 +2786,15 @@ export function SettingsPage({
                       {t.stages[kind]}
                     </Text>
                     <Text style={{ color: theme.colors.foregroundMuted }}>
-                      {(card.conversationGateEvidence === "exact"
-                        ? t.archiveCandidateExact
-                        : t.archiveCandidateUpperBound
-                      ).replace(
-                        "{date}",
-                        archiveDate.format(new Date(conversationAt)),
-                      )}
+                      {scheduled
+                        ? t.archiveCandidateScheduled
+                        : (card.conversationGateEvidence === "exact"
+                            ? t.archiveCandidateExact
+                            : t.archiveCandidateUpperBound
+                          ).replace(
+                            "{date}",
+                            archiveDate.format(new Date(conversationAt)),
+                          )}
                     </Text>
                     <Text style={{ color: theme.colors.foregroundMuted }}>
                       {t.archiveCandidateDue
