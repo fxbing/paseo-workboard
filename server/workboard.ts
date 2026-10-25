@@ -173,6 +173,8 @@ export class Workboard {
     private store: Store,
     private now: () => number = Date.now,
     private interval = 60000,
+    /** Reported to clients so their due-date arithmetic uses this clock; 0 outside tests. */
+    private clockOffsetMs = 0,
   ) {}
   private serial<T>(run: () => Promise<T>): Promise<T> {
     const work = this.queue.then(() => {
@@ -299,6 +301,7 @@ export class Workboard {
       connected: this.connected,
       error: this.error,
       refreshedAt: this.refreshedAt,
+      clockOffsetMs: this.clockOffsetMs,
       settings: data.settings,
       cardOrderByStage: data.cardOrderByStage,
       projects: this.inventory.projects,

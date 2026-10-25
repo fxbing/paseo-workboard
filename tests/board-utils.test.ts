@@ -7,6 +7,7 @@ import {
   type Card,
 } from "../shared/model";
 import {
+  boardNow,
   cardsForStage,
   attentionReasons,
   childrenSkippedForIdle,
@@ -678,5 +679,15 @@ describe("children skipped for idle agents", () => {
         unlisted("2026-08-01T00:00:00.000Z", "replay-timestamp"),
       ),
     ).toBe(false);
+  });
+});
+
+describe("board clock", () => {
+  it("judges due dates by the server's clock, not the browser's alone", () => {
+    const real = Date.now();
+    expect(boardNow({})).toBeGreaterThanOrEqual(real);
+    expect(boardNow({ clockOffsetMs: 3_600_000 })).toBeGreaterThanOrEqual(
+      real + 3_600_000,
+    );
   });
 });

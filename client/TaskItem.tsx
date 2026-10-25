@@ -11,6 +11,7 @@ import {
 } from "../shared/model";
 import {
   attentionReasons,
+  boardNow,
   childrenSkippedForIdle,
   hasNoAgents,
   shortDate,
@@ -477,7 +478,9 @@ export function TaskItem({
   );
   if (presentation === "row") {
     const overdue =
-      terminal && card.dueAt && new Date(card.dueAt).getTime() < Date.now();
+      terminal &&
+      card.dueAt &&
+      new Date(card.dueAt).getTime() < boardNow(board);
     const projectSummary = (
       <Text
         numberOfLines={1}
@@ -838,13 +841,13 @@ export function TaskItem({
             styles.cardMeta,
             {
               color:
-                new Date(card.dueAt).getTime() < Date.now()
+                new Date(card.dueAt).getTime() < boardNow(board)
                   ? theme.colors.statusWarning
                   : theme.colors.foregroundMuted,
             },
           ]}
         >
-          {new Date(card.dueAt).getTime() < Date.now()
+          {new Date(card.dueAt).getTime() < boardNow(board)
             ? t.overdue
             : t.expires.replace("{date}", shortDate(card.dueAt, t.locale))}
         </Text>

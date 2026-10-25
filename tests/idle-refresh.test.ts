@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { childrenSkippedForIdle, mappingPreview } from "../client/board-utils";
 import { newTask } from "../shared/model";
+import { Workboard } from "../server/workboard";
 import { agent, idleBoard, type FakeChild } from "./idle-host";
 
 afterEach(() => vi.useRealTimers());
@@ -470,6 +471,18 @@ it("keeps an idle candidate's warning while its schedule is still due", async ()
     });
     expect(saved.cards[0].issue).toBe("git-dirty");
   } finally {
+    test.board.dispose();
+  }
+});
+
+it("reports the server clock's offset in the snapshot", async () => {
+  const test = idleBoard({ agents: [agent("parent", OLD)] });
+  const shifted = new Workboard(test.host, test.store, test.now, 60_000, 7_000);
+  try {
+    expect(shifted.snapshot().clockOffsetMs).toBe(7_000);
+    expect(test.board.snapshot().clockOffsetMs).toBe(0);
+  } finally {
+    shifted.dispose();
     test.board.dispose();
   }
 });

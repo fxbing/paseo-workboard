@@ -36,6 +36,7 @@ import {
   type Mutation,
 } from "../shared/rpc";
 import {
+  boardNow,
   groupDeleteReason,
   mappingPreview,
   shortDate,
@@ -2319,7 +2320,7 @@ export function SettingsPage({
       : confirmed;
   const settings = current.settings;
   const groups = settings.groups;
-  const preview = mappingPreview(board.cards, settings, Date.now());
+  const preview = mappingPreview(board.cards, settings, boardNow(board));
   const controlDisabled = (id: string) =>
     disabled || !!pendingMutationIds?.has(`settings:${id}`);
   const archiveControlDisabled = (id: string) =>
@@ -2331,7 +2332,11 @@ export function SettingsPage({
       : null;
   if (archiveChange && !archiveConfirmation) setArchiveChange(null);
   const archivePreview = archiveConfirmation
-    ? mappingPreview(board.cards, archiveConfirmation.nextSettings, Date.now())
+    ? mappingPreview(
+        board.cards,
+        archiveConfirmation.nextSettings,
+        boardNow(board),
+      )
     : null;
   const archiveDate = new Intl.DateTimeFormat(t.locale, {
     dateStyle: "medium",
@@ -2383,7 +2388,7 @@ export function SettingsPage({
   ) => {
     if (archiveControlDisabled(control) || archiveConfirmation)
       return undefined;
-    const now = Date.now();
+    const now = boardNow(board);
     const nextPreview = mappingPreview(board.cards, nextSettings, now);
     const before = mappingPreview(board.cards, settings, now);
     if (

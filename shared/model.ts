@@ -535,6 +535,8 @@ export const boardSchema = z.object({
   connected: z.boolean(),
   error: z.string().nullable(),
   refreshedAt: z.string().nullable(),
+  /** The server clock's offset from real time: 0, except in the marked integration home. */
+  clockOffsetMs: z.number().optional(),
   settings: settingsSchema,
   cards: z.array(cardSchema),
   cardOrderByStage: cardOrderByStageSchema,

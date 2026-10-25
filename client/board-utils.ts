@@ -35,6 +35,11 @@ const attentionIssues = new Set([
   "directory-unavailable",
 ]);
 
+/** The time the server judges due dates by: the real clock, plus its test-only offset. */
+export function boardNow(board: Pick<Board, "clockOffsetMs">): number {
+  return Date.now() + (board.clockOffsetMs ?? 0);
+}
+
 export function hasNoAgents(card: Card): boolean {
   return card.workspaceId !== null && card.agents.length === 0;
 }

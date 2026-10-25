@@ -25,7 +25,12 @@ import {
   type GroupColor,
   type StageKind,
 } from "../shared/model";
-import { groupDeleteReason, groupTasks, mappingPreview } from "./board-utils";
+import {
+  boardNow,
+  groupDeleteReason,
+  groupTasks,
+  mappingPreview,
+} from "./board-utils";
 import { groupColor, groupColorValue } from "./colors";
 import { groupTitle, strings } from "./strings";
 import { ConfirmationModal } from "./ConfirmationModal";
@@ -258,7 +263,7 @@ export function GroupEditor({
         mappingPreview(
           board.cards,
           { ...board.settings, groups: withGroup(candidate) },
-          Date.now(),
+          boardNow(board),
         )
       }
       autoArchive={
