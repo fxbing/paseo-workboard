@@ -8,7 +8,7 @@
 // that is not a marked temporary directory.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { mkdir, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
