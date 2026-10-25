@@ -512,6 +512,12 @@ export const cardSchema = taskSchema.extend({
   activity: activitySchema,
   pinState: pinStateSchema,
   dueAt: z.string().nullable(),
+  /**
+   * Computed, never stored. When an idle parent's skipped children are the only thing keeping
+   * this workspace's archive gate unknown, the recorded time at which it would be rechecked.
+   * It schedules a recheck and never authorizes an archive.
+   */
+  recheckAt: z.string().nullable().optional(),
   agents: z.array(
     z.object({
       id: z.string(),

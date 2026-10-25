@@ -350,6 +350,10 @@ export class Workboard {
             task.workspaceId && archiveDelay !== null
               ? archiveDueAt(archiveGate(task), archiveDelay)
               : null,
+          recheckAt:
+            task.workspaceId && !task.archived
+              ? (this.recheckHints.get(task.workspaceId) ?? null)
+              : null,
           agents: agents.map((a) => ({
             id: a.id,
             title: a.title ?? a.id,

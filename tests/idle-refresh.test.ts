@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { mappingPreview } from "../client/board-utils";
 import { newTask } from "../shared/model";
 import { agent, idleBoard, type FakeChild } from "./idle-host";
 
@@ -320,6 +321,63 @@ it("keeps archived parents out of the idle recheck", async () => {
     await test.board.start();
     expect(test.calls().lists).toEqual([]);
     expect(test.archive).not.toHaveBeenCalled();
+  } finally {
+    test.board.dispose();
+  }
+});
+
+const setDone = (test: ReturnType<typeof idleBoard>, enabled: boolean) => {
+  const before = test.board.snapshot();
+  return test.board.mutate({
+    action: "settings",
+    revision: before.revision,
+    expectedSettings: before.settings,
+    settings: { ...before.settings, archiveDoneEnabled: enabled },
+  });
+};
+
+// Author review: the settings confirmation counts idle workspaces the server may recheck.
+it("lists an old idle workspace in the confirmation before the rule is enabled, and the scan then archives it", async () => {
+  const test = idleBoard({
+    agents: [agent("parent", OLD)],
+    history: { parent: [OLD] },
+    archive: false,
+  });
+  try {
+    await test.board.start();
+    expect(test.calls()).toEqual(none);
+    const board = test.board.snapshot();
+    expect(board.cards[0].conversationGateEvidence).toBe("unknown");
+    const preview = mappingPreview(
+      board.cards,
+      { ...board.settings, archiveDoneEnabled: true },
+      test.now(),
+    );
+    expect(preview.dueDone).toBe(1);
+    expect(preview.candidates[0].card.workspaceId).toBe("old");
+    expect(test.archive).not.toHaveBeenCalled();
+    await setDone(test, true);
+    await test.board.refresh();
+    expect(test.archive).toHaveBeenCalledExactlyOnceWith("old");
+  } finally {
+    test.board.dispose();
+  }
+});
+
+it("does not list a recent idle workspace in the confirmation", async () => {
+  const test = idleBoard({
+    agents: [agent("parent", "2026-09-22T00:00:00.000Z")],
+    archive: false,
+  });
+  try {
+    await test.board.start();
+    const board = test.board.snapshot();
+    const preview = mappingPreview(
+      board.cards,
+      { ...board.settings, archiveDoneEnabled: true },
+      test.now(),
+    );
+    expect(preview.due).toBe(0);
   } finally {
     test.board.dispose();
   }

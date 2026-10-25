@@ -220,7 +220,9 @@ export function mappingPreview(
     );
     if (stage !== card.stage) affected += 1;
     const kind = groupKind(stage, settings.groups);
-    const conversationAt = archiveGate(card);
+    // A scheduled idle recheck may archive right after the rule is enabled, so it belongs in
+    // the confirmation; the hint itself never authorizes anything.
+    const conversationAt = archiveGate(card) ?? card.recheckAt ?? null;
     const days = archiveDelayFor(settings, kind);
     const dueAt = archiveDueAt(conversationAt, days);
     if (

@@ -74,11 +74,13 @@ export function idleBoard(options: {
   history?: Record<string, string[]>;
   data?: Partial<Data>;
   labels?: string[];
+  /** Whether the Done and Canceled archive rules start enabled. Defaults to true. */
+  archive?: boolean;
 }) {
   const test = fixture({
     settings: settingsSchema.parse({
-      archiveDoneEnabled: true,
-      archiveCanceledEnabled: true,
+      archiveDoneEnabled: options.archive ?? true,
+      archiveCanceledEnabled: options.archive ?? true,
       pinInProgressWorkspaces: false,
     }),
     ...options.data,
