@@ -1142,6 +1142,15 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
                   serverId: board.serverId,
                 });
             }}
+            onOpenAgent={
+              props.navigation?.openAgent && card.workspaceId
+                ? (agentId) =>
+                    props.navigation!.openAgent({
+                      agentId,
+                      serverId: board.serverId,
+                    })
+                : undefined
+            }
             onEdit={() =>
               setDraft({
                 task: card,
