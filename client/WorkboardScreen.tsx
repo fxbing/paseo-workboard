@@ -110,6 +110,7 @@ export function WorkboardScreen(
 }
 
 function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
+  const [surfaceWidth, setSurfaceWidth] = useState<number | null>(null);
   const callSnapshot = useRpc(snapshotRpc);
   const callMutation = useRpc(mutateRpc);
   const cache = useQueryClient();
@@ -122,6 +123,11 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
   const [viewPreferences, setViewPreferences] = useState(() =>
     loadViewPreferences(props.host.id),
   );
+  const taskLayoutCompact =
+    props.layout.compact ||
+    (viewPreferences.mode === "list" &&
+      surfaceWidth !== null &&
+      surfaceWidth < 900);
   const viewPreferencesRef = useRef(viewPreferences);
   const [quickDrafts, setQuickDrafts] = useState<
     Record<string, { title: string; error: boolean }>
@@ -531,6 +537,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
     : undefined;
   return (
     <View
+      onLayout={(event) => setSurfaceWidth(event.nativeEvent.layout.width)}
       style={[styles.screen, { backgroundColor: props.theme.colors.surface0 }]}
     >
       <View
@@ -1063,7 +1070,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
           ...board.settings,
           groupOrder: optimisticOrder ?? board.settings.groupOrder,
         })}
-        compact={props.layout.compact}
+        compact={taskLayoutCompact}
         stage={
           board.settings.groups.find((group) => group.id === selectedStage)
             ?.id ??
@@ -1126,7 +1133,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
               pendingMutationIds.has(`priority:${card.id}`) ||
               pendingMutationIds.has(`card-order:${card.stage}`)
             }
-            compact={props.layout.compact}
+            compact={taskLayoutCompact}
             showDragHandle={showDragHandle}
             onUndo={
               moveUndos.has(card.id) ? () => undoMove(card.id) : undefined

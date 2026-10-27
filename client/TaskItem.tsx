@@ -110,13 +110,14 @@ export function TaskItem({
       ? request.checksStatus
       : null;
   const checkCounts = request?.checkCounts;
-  const checkCountParts = checkCounts
-    ? (["success", "failure", "pending", "skipped", "cancelled"] as const)
-        .filter((status) => checkCounts[status] > 0)
-        .map((status) =>
-          t.checkCounts[status].replace("{count}", String(checkCounts[status])),
-        )
+  const countedStatuses = checkCounts
+    ? (
+        ["success", "failure", "pending", "skipped", "cancelled"] as const
+      ).filter((status) => checkCounts[status] > 0)
     : [];
+  const checkCountParts = countedStatuses.map((status) =>
+    t.checkCounts[status].replace("{count}", String(checkCounts![status])),
+  );
   const checksText = checkCountParts.length
     ? `CI ${checkCountParts.join(" ")}`
     : checkStatus
@@ -182,59 +183,29 @@ export function TaskItem({
     <>
       {request && (
         <View style={styles.changeRequest}>
-          <ExternalLink
-            href={request.url}
-            accessibilityLabel={`${requestLabel} · ${t.changeRequestStates[request.state]}: ${request.title}`}
-            onError={() => toast.error(t.openChangeRequestError)}
-          >
-            <View style={styles.requestLink}>
-              <Icon
-                name={changeRequestIcon(request.state)}
-                size={14}
-                color={changeRequestColor(request.state, theme)}
-              />
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.requestTitle,
-                  { color: theme.colors.foreground },
-                ]}
-              >
-                {requestLabel}
-              </Text>
-            </View>
-          </ExternalLink>
           <View style={styles.requestStatuses}>
-            {checksText && (
-              <HintButton
-                hint={checksText}
-                accessibilityRole="button"
-                accessibilityLabel={checksText}
-                style={styles.requestStatusAction}
-              >
-                {checkStatus && (
-                  <View style={styles.requestStatusIcon}>
-                    <Icon
-                      name={checksIcon(checkStatus)}
-                      size={14}
-                      color={checksColor(checkStatus, theme)}
-                    />
-                  </View>
-                )}
+            <ExternalLink
+              href={request.url}
+              accessibilityLabel={`${requestLabel} · ${t.changeRequestStates[request.state]}: ${request.title}`}
+              onError={() => toast.error(t.openChangeRequestError)}
+            >
+              <View style={styles.requestLink}>
+                <Icon
+                  name={changeRequestIcon(request.state)}
+                  size={14}
+                  color={changeRequestColor(request.state, theme)}
+                />
                 <Text
+                  numberOfLines={1}
                   style={[
-                    styles.requestStatusText,
-                    {
-                      color: checkStatus
-                        ? checksColor(checkStatus, theme)
-                        : theme.colors.foregroundMuted,
-                    },
+                    styles.requestTitle,
+                    { color: theme.colors.foreground },
                   ]}
                 >
-                  {checksText}
+                  {requestLabel}
                 </Text>
-              </HintButton>
-            )}
+              </View>
+            </ExternalLink>
             {request.reviewDecision && (
               <HintButton
                 hint={t.reviews[request.reviewDecision]}
@@ -257,6 +228,42 @@ export function TaskItem({
                 >
                   {t.reviews[request.reviewDecision]}
                 </Text>
+              </HintButton>
+            )}
+          </View>
+          <View style={styles.requestStatuses}>
+            {checksText && (
+              <HintButton
+                hint={checksText}
+                accessibilityRole="button"
+                accessibilityLabel={checksText}
+                style={[styles.requestStatusAction, styles.checkCounts]}
+              >
+                {countedStatuses.length
+                  ? countedStatuses.map((status) => (
+                      <View key={status} style={styles.checkCount}>
+                        <Icon
+                          name={checksIcon(status)}
+                          size={14}
+                          color={checksColor(status, theme)}
+                        />
+                        <Text
+                          style={[
+                            styles.requestStatusText,
+                            { color: checksColor(status, theme) },
+                          ]}
+                        >
+                          {checkCounts![status]}
+                        </Text>
+                      </View>
+                    ))
+                  : checkStatus && (
+                      <Icon
+                        name={checksIcon(checkStatus)}
+                        size={14}
+                        color={checksColor(checkStatus, theme)}
+                      />
+                    )}
               </HintButton>
             )}
           </View>
@@ -607,7 +614,7 @@ export function TaskItem({
         ]}
       >
         <View style={[styles.rowMain]}>
-          {priorityPicker}
+          <View style={styles.rowPriority}>{priorityPicker}</View>
           <View style={styles.rowTitleBlock}>
             <HintButton
               hint={isDraft ? t.edit : t.openWorkspace}
@@ -978,23 +985,35 @@ function changeRequestColor(
         : theme.colors.foregroundMuted;
 }
 function checksIcon(
-  status: Exclude<NonNullable<Card["changeRequest"]>["checksStatus"], "none">,
+  status:
+    | Exclude<NonNullable<Card["changeRequest"]>["checksStatus"], "none">
+    | "skipped"
+    | "cancelled",
 ) {
   return status === "success"
     ? "CircleCheck"
     : status === "failure"
       ? "CircleX"
-      : "CircleDot";
+      : status === "skipped"
+        ? "CircleMinus"
+        : status === "cancelled"
+          ? "Ban"
+          : "CircleDot";
 }
 function checksColor(
-  status: Exclude<NonNullable<Card["changeRequest"]>["checksStatus"], "none">,
+  status:
+    | Exclude<NonNullable<Card["changeRequest"]>["checksStatus"], "none">
+    | "skipped"
+    | "cancelled",
   theme: PluginSurfaceProps["theme"],
 ) {
   return status === "success"
     ? theme.colors.statusSuccess
     : status === "failure"
       ? theme.colors.statusDanger
-      : theme.colors.statusWarning;
+      : status === "pending"
+        ? theme.colors.statusWarning
+        : theme.colors.foregroundMuted;
 }
 function reviewIcon(
   status: NonNullable<Card["changeRequest"]>["reviewDecision"],
@@ -1036,7 +1055,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexWrap: "wrap",
   },
-  rowRequest: { flex: 1, minWidth: 80 },
+  rowRequest: { flex: 1.5, minWidth: 240 },
+  rowPriority: { alignSelf: "center" },
   rowActivityCompact: { flexWrap: "nowrap" },
   rowTimeCompact: { flexShrink: 1, minWidth: 0 },
   rowControls: { flexDirection: "row", alignItems: "center" },
@@ -1072,10 +1092,8 @@ const styles = StyleSheet.create({
   cardTitle: { fontWeight: "600", fontSize: 14, lineHeight: 18 },
   cardMeta: { fontSize: 12, lineHeight: 16 },
   changeRequest: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 12,
+    alignItems: "flex-start",
+    gap: 0,
   },
   requestLink: {
     flexDirection: "row",
@@ -1105,6 +1123,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  checkCounts: {
+    flexWrap: "wrap",
+    columnGap: 8,
+    alignContent: "flex-start",
+    alignItems: "flex-start",
+  },
+  checkCount: { flexDirection: "row", alignItems: "center", gap: 4 },
   requestStatusText: { fontSize: 12, lineHeight: 16, flexShrink: 1 },
   requestStatusIcon: { width: 14, height: 14, flexShrink: 0 },
   pinAction: {

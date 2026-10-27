@@ -295,6 +295,29 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it("uses the measured surface width for List rows without changing Board layout", () => {
+  const screen = host();
+  byID(screen.render(), "workboard-view-list").props.onPress();
+  for (const [width, compact] of [
+    [899, true],
+    [900, false],
+    [700, true],
+  ] as const) {
+    find(screen.render(), (e) => !!e.props.onLayout).props.onLayout({
+      nativeEvent: { layout: { width } },
+    });
+    const list = named(screen.render(), "ListView");
+    expect(list.props.compact).toBe(compact);
+    expect(list.props.renderCard(list.props.cards[0]).props.compact).toBe(
+      compact,
+    );
+  }
+  byID(screen.render(), "workboard-view-board").props.onPress();
+  const view = named(screen.render(), "BoardView");
+  expect(view.props.compact).toBe(false);
+  expect(view.props.renderCard(view.props.cards[0]).props.compact).toBe(false);
+});
+
 it("X-01 keeps unrelated cards, columns and quick-create active while one control writes, and suppresses duplicate submissions", async () => {
   const pending = deferred<Board>();
   runtime.mutation.mockReturnValue(pending.promise);
@@ -2644,7 +2667,8 @@ it("L06 compact row keeps request warnings singular and activity metadata on one
         element.type === Text && text(element) === t.changeRequestUnavailable,
     ).length;
   expect(warningCount()).toBe(1);
-  expect(text(tree)).toContain(t.checks.failure);
+  expect(text(tree)).not.toContain(t.checks.failure);
+  expect(byLabel(tree, t.checks.failure).props.hint).toBe(t.checks.failure);
   expect(text(tree)).toContain(t.reviews.changes_requested);
 
   const activity = find(tree, (element) => {
@@ -2678,7 +2702,7 @@ it.each([
   ["row", false, "en", "changes_requested", "Changes requested"],
   ["row", true, "zh", "pending", "待评审"],
 ] as const)(
-  "shows visible CI counts and review text in %s (compact %s, %s), including with details open",
+  "shows icon-only CI counts and review text in %s (compact %s, %s), including with details open",
   (presentation, compact, locale, reviewDecision, reviewText) => {
     const checksText =
       locale === "zh"
@@ -2709,32 +2733,26 @@ it.each([
       t: strings(locale),
     });
     const assertSummary = (tree: ReactNode) => {
-      const visibleText = text(tree);
-      for (const label of [checksText, reviewText]) {
-        expect(visibleText.split(label)).toHaveLength(2);
-        const visible = elements(tree).filter(
-          (e) => e.type === Text && text(e) === label,
-        );
-        expect(visible).toHaveLength(1);
-        expect(visible[0].props.numberOfLines).toBeUndefined();
-        const control = byLabel(tree, label);
-        expect(control.props.hint).toBe(label);
-        expect(flattenStyle(control.props.style)).toMatchObject({
-          minWidth: 36,
-          minHeight: 36,
-        });
-        const iconContainer = find(
-          control,
-          (element) =>
-            element.type === View && element.props.children?.props?.size === 14,
-        );
-        expect(flattenStyle(iconContainer.props.style)).toMatchObject({
-          width: 14,
-          height: 14,
-          flexShrink: 0,
-        });
-      }
-      expect(visibleText).not.toContain(strings(locale).checks.failure);
+      const control = byLabel(tree, checksText);
+      expect(control.props.hint).toBe(checksText);
+      expect(flattenStyle(control.props.style)).toMatchObject({
+        minWidth: 36,
+        minHeight: 36,
+      });
+      expect(
+        elements(control)
+          .filter((e) => e.type === Text)
+          .map((e) => text(e)),
+      ).toEqual(["1", "2", "1", "1", "1"]);
+      expect(
+        elements(control)
+          .filter((e) => e.props.size === 14)
+          .map((e) => e.props.name),
+      ).toEqual(["CircleCheck", "CircleX", "CircleDot", "CircleMinus", "Ban"]);
+      expect(text(tree)).not.toContain(checksText);
+      expect(text(tree).split(reviewText)).toHaveLength(2);
+      expect(byLabel(tree, reviewText).props.hint).toBe(reviewText);
+      expect(text(tree)).not.toContain(strings(locale).checks.failure);
     };
     assertSummary(task.render());
     byLabel(task.render(), strings(locale).details).props.onPress();
@@ -2770,11 +2788,13 @@ it.each([
     for (const expanded of [false, true]) {
       if (expanded) byLabel(task.render(), localized.details).props.onPress();
       const visibleText = text(task.render());
-      for (const label of [
+      expect(visibleText).not.toContain(localized.checks.failure);
+      expect(byLabel(task.render(), localized.checks.failure).props.hint).toBe(
         localized.checks.failure,
-        localized.reviews.changes_requested,
-      ])
-        expect(visibleText.split(label)).toHaveLength(2);
+      );
+      expect(
+        visibleText.split(localized.reviews.changes_requested),
+      ).toHaveLength(2);
       expect(visibleText).toContain(localized.issues["git-dirty"]);
       expect(visibleText).toContain(localized.overdue);
       if (presentation === "row" || expanded)
@@ -2783,7 +2803,7 @@ it.each([
   },
 );
 
-it("omits zero CI categories, falls back to aggregate text and hides absent CI and review data", () => {
+it("omits zero CI categories, falls back to an aggregate icon and hides absent CI and review data", () => {
   const value = card("one", "review", "w");
   value.changeRequest = {
     forge: "github",
@@ -2801,14 +2821,22 @@ it("omits zero CI categories, falls back to aggregate text and hides absent CI a
       cancelled: 0,
     },
   };
-  expect(text(taskComponent(value).render())).toContain("CI 1成功");
+  const countControl = byLabel(taskComponent(value).render(), "CI 1成功");
+  expect(text(countControl)).toBe("1");
+  expect(
+    elements(countControl)
+      .filter((e) => e.props.size === 14)
+      .map((e) => e.props.name),
+  ).toEqual(["CircleCheck"]);
   expect(text(taskComponent(value).render())).not.toMatch(
     /0成功|0失败|0进行中|0跳过|0已取消/,
   );
   value.changeRequest.checkCounts = null;
   for (const status of ["success", "failure", "pending"] as const) {
     value.changeRequest.checksStatus = status;
-    expect(text(taskComponent(value).render())).toContain(t.checks[status]);
+    const tree = taskComponent(value).render();
+    expect(byLabel(tree, t.checks[status]).props.hint).toBe(t.checks[status]);
+    expect(text(tree)).not.toContain(t.checks[status]);
   }
   for (const status of ["none", null] as const) {
     value.changeRequest.checksStatus = status;
