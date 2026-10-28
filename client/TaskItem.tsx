@@ -1036,10 +1036,10 @@ function reviewColor(
 }
 const styles = StyleSheet.create({
   row: {
-    minHeight: 52,
+    minHeight: 44,
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 2,
     gap: 3,
   },
   rowCompact: { minHeight: 68 },
@@ -1126,8 +1126,8 @@ const styles = StyleSheet.create({
   checkCounts: {
     flexWrap: "wrap",
     columnGap: 8,
-    alignContent: "flex-start",
-    alignItems: "flex-start",
+    alignContent: "center",
+    alignItems: "center",
   },
   checkCount: { flexDirection: "row", alignItems: "center", gap: 4 },
   requestStatusText: { fontSize: 12, lineHeight: 16, flexShrink: 1 },

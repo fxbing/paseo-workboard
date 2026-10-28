@@ -96,12 +96,14 @@ export function PriorityPicker({
           opacity: disabled ? 0.5 : 1,
         }}
       >
-        <PriorityBadge
-          value={value}
-          priorityStyles={priorityStyles}
-          theme={theme}
-          t={t}
-        />
+        <View style={{ maxWidth: "100%", flexShrink: 1 }}>
+          <PriorityBadge
+            value={value}
+            priorityStyles={priorityStyles}
+            theme={theme}
+            t={t}
+          />
+        </View>
       </Pressable>
       <Modal
         open={open}
