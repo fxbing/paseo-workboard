@@ -199,6 +199,37 @@ describe.skipIf(offsetRun)("isolated Paseo workboard", () => {
       "keep:example",
       "task:todo",
     ]);
+    card = changed.cards.find((c) => c.id === card.id)!;
+    const toP3 = await rpc<Board>("workboard.mutate", {
+      action: "priority",
+      taskId: card.id,
+      updatedAt: card.updatedAt,
+      priority: "p3",
+      expectedLabels: ["P1"],
+    });
+    card = toP3.cards.find((c) => c.id === card.id)!;
+    expect(card.priority).toBe("p3");
+    expect(card.priorityWrite).toBeNull();
+    expect(
+      (await client.fetchWorkspaces()).entries
+        .find((w) => w.id === workspaceId)!
+        .labels?.sort(),
+    ).toEqual(["P3", "keep:example", "task:todo"]);
+    const backToP1 = await rpc<Board>("workboard.mutate", {
+      action: "priority",
+      taskId: card.id,
+      updatedAt: card.updatedAt,
+      priority: "p1",
+      expectedLabels: ["P3"],
+    });
+    card = backToP1.cards.find((c) => c.id === card.id)!;
+    expect(card.priority).toBe("p1");
+    expect(card.priorityWrite).toBeNull();
+    expect(
+      (await client.fetchWorkspaces()).entries
+        .find((w) => w.id === workspaceId)!
+        .labels?.sort(),
+    ).toEqual(["P1", "keep:example", "task:todo"]);
     await client.setWorkspaceLabel({
       workspaceId,
       label: { name: "P1", color: "red" },

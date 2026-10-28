@@ -22,7 +22,6 @@ import {
   resolvePriority,
   priorityLabels,
   PRIORITY_LABELS,
-  DEFAULT_PRIORITY_STYLES,
   type Priority,
   settingsSchema,
   statusLabels,
@@ -47,6 +46,13 @@ import type {
   Workspace,
 } from "./host";
 import type { Store } from "./store";
+
+const PRIORITY_LABEL_COLORS: Record<Priority, string> = {
+  p0: "red",
+  p1: "orange",
+  p2: "blue",
+  p3: "teal",
+};
 
 /** One workspace's combined conversation evidence. */
 interface WorkspaceConversation {
@@ -1874,7 +1880,7 @@ export class Workboard {
       const labels = await this.host.setLabel(
         id,
         operation.name,
-        DEFAULT_PRIORITY_STYLES[priority].color,
+        PRIORITY_LABEL_COLORS[priority],
         operation.assigned,
       );
       check();
