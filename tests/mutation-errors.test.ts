@@ -71,14 +71,16 @@ it.each(["zh", "en"] as const)(
       ...Object.keys(t.bootErrors),
     ]) {
       const value = mutationErrorText(new Error(code), t);
-      expect(value, code).not.toBe(t.loadError);
+      expect(value, code).not.toBe(t.confirmationFailed);
       expect(value, code).not.toBe("");
       if (language === "zh") expect(value, code).not.toBe(code);
     }
     expect(mutationErrorText(new Error("private host error"), t)).toBe(
-      t.loadError,
+      t.confirmationFailed,
     );
-    expect(mutationErrorText(null, t)).toBe(t.loadError);
-    expect(mutationErrorText(new Error("constructor"), t)).toBe(t.loadError);
+    expect(mutationErrorText(null, t)).toBe(t.confirmationFailed);
+    expect(mutationErrorText(new Error("constructor"), t)).toBe(
+      t.confirmationFailed,
+    );
   },
 );

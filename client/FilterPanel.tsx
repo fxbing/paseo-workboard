@@ -1,5 +1,5 @@
 import { StyleSheet, View } from "react-native";
-import { SettingsCard, SettingsSelect } from "@getpaseo/plugin/client/ui";
+import type { PluginTheme } from "@getpaseo/plugin";
 import {
   ACTIVITY_FILTERS,
   DATE_RANGES,
@@ -7,56 +7,75 @@ import {
   type BoardFilters,
 } from "./filters";
 import type { strings } from "./strings";
+import { ToolbarSelect } from "./ToolbarSelect";
+import { design } from "./design";
 
 export function FilterPanel({
   filters,
   onChange,
   t,
+  theme,
 }: {
   filters: BoardFilters;
   onChange(patch: Partial<BoardFilters>): void;
   t: ReturnType<typeof strings>;
+  theme: PluginTheme;
 }) {
   return (
     <View style={styles.panel}>
-      <SettingsCard>
-        <SettingsSelect
-          label={t.agentFilter}
-          value={filters.activity}
-          options={ACTIVITY_FILTERS.map((value) => ({
-            value,
-            label: value === "all" ? t.allStates : t.activity[value],
-          }))}
-          onValueChange={(activity: BoardFilters["activity"]) =>
-            onChange({ activity })
-          }
-        />
-        <SettingsSelect
-          label={t.requestFilter}
-          value={filters.changeRequest}
-          options={REQUEST_FILTERS.map((value) => ({
-            value,
-            label: t.requestFilters[value],
-          }))}
-          onValueChange={(changeRequest: BoardFilters["changeRequest"]) =>
-            onChange({ changeRequest })
-          }
-        />
-        <SettingsSelect
-          label={t.dateFilter}
-          value={filters.dateRange}
-          options={DATE_RANGES.map((value) => ({
-            value,
-            label: t.dateRanges[value],
-          }))}
-          onValueChange={(dateRange: BoardFilters["dateRange"]) =>
-            onChange({ dateRange })
-          }
-        />
-      </SettingsCard>
+      <ToolbarSelect
+        id="workboard-filter-activity"
+        title={t.agentFilter}
+        label={`${t.agentFilter}: ${filters.activity === "all" ? t.allStates : t.activity[filters.activity]}`}
+        value={filters.activity}
+        options={ACTIVITY_FILTERS.map((value) => ({
+          value,
+          label: value === "all" ? t.allStates : t.activity[value],
+        }))}
+        onSelect={(activity) =>
+          onChange({ activity: activity as BoardFilters["activity"] })
+        }
+        theme={theme}
+      />
+      <ToolbarSelect
+        id="workboard-filter-request"
+        title={t.requestFilter}
+        label={`${t.requestFilter}: ${t.requestFilters[filters.changeRequest]}`}
+        value={filters.changeRequest}
+        options={REQUEST_FILTERS.map((value) => ({
+          value,
+          label: t.requestFilters[value],
+        }))}
+        onSelect={(changeRequest) =>
+          onChange({
+            changeRequest: changeRequest as BoardFilters["changeRequest"],
+          })
+        }
+        theme={theme}
+      />
+      <ToolbarSelect
+        id="workboard-filter-date"
+        title={t.dateFilter}
+        label={`${t.dateFilter}: ${t.dateRanges[filters.dateRange]}`}
+        value={filters.dateRange}
+        options={DATE_RANGES.map((value) => ({
+          value,
+          label: t.dateRanges[value],
+        }))}
+        onSelect={(dateRange) =>
+          onChange({ dateRange: dateRange as BoardFilters["dateRange"] })
+        }
+        theme={theme}
+      />
     </View>
   );
 }
 const styles = StyleSheet.create({
-  panel: { paddingHorizontal: 12, paddingTop: 8, maxWidth: 640, width: "100%" },
+  panel: {
+    paddingHorizontal: design.space.md,
+    paddingTop: design.space.xs,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: design.space.xs,
+  },
 });

@@ -11,12 +11,12 @@ Workboard brings active workspaces into one board, with one task per workspace. 
 ## Features
 
 - **Workspaces and drafts together.** Existing workspaces appear automatically. Drafts need only a title, with no workspace, directory, or Agent required.
-- **Board and list views.** Both layouts share tasks, filters, and the saved default order, with separate collapsed groups. Priority sorting is enabled by default in both views; Settings can restore the saved default order.
+- **Board and list views.** Both layouts share tasks, filters, and the saved default order, with separate collapsed groups. Priority sorting is enabled by default in both views; the toolbar sorting control or Settings can restore the saved default order. All status groups, including Done, Canceled and custom groups, use vertical columns. Cards expose status and Open or Start work actions directly.
 - **Status linked to workspace labels.** Move a task between groups or change its managed label in Paseo. Both update the same status while preserving unrelated labels. Exclusive status labels, enabled by default for new installations, replace a previous managed label when a new one can be identified.
 - **Activity at a glance.** See Agent activity, conversation dates, and PR/MR information supplied by Paseo, with CI status icons with counts and review text in both layouts, including compact lists. Filter by project, activity, PR/MR condition, attention, or last conversation date.
 - **A configurable workflow.** Customize groups and their defaults, reorder tasks and groups by dragging or keyboard controls, and optionally pin in-progress workspaces in the sidebar.
 - **Optional automatic archiving.** Configure Done and Canceled rules independently to archive eligible workspaces after their respective delays from their last verified conversation, with activity and Git safety checks. Disabled by default.
-- **Project lanes and priorities.** Group the board by project, set task priorities, and switch between priority sorting and the saved default order. Customize priority names and colors in Settings. Priorities are P0–P3, with P0 highest and P2 as the unlabeled default. Native P0/P1/P2/P3 labels sync both ways and remain exclusive.
+- **Project lanes and priorities.** Group the board by project, expand or collapse all visible project lanes, set task priorities, and switch between priority sorting and the saved default order. Customize priority names and colors in Settings. Priorities are P0–P3, with P0 highest and P2 as the unlabeled default. Native P0/P1/P2/P3 labels sync both ways and remain exclusive.
 
 The interface follows Paseo's desktop/Web language and theme, with English and Chinese text and dates.
 
@@ -60,7 +60,7 @@ This tracks the default branch, which may include changes newer than the latest 
 
 1. **Find your workspaces.** Active workspaces appear as tasks. With the default settings, workspaces without a managed status label enter **Inbox**; importing them does not write a label.
 2. **Capture an idea.** Create a title-only draft. It starts in the configured draft group, **To do** by default, without creating a workspace or Agent.
-3. **Start work.** Create a workspace or attach an existing one. Start a conversation from the native workspace when needed; Workboard does not send a prompt for you.
+3. **Start work.** Select a project: Git projects default to a Git worktree created and named by Paseo; non-Git projects use their project directory without path entry. You can change the creation method. A custom directory and attaching an existing workspace remain available. Start a conversation from the native workspace when needed; Workboard does not send a prompt for you.
 4. **Track progress.** Move tasks between groups using the status menu or drag handle. Use **Settings** to adjust groups, defaults, sidebar pinning, and automatic archiving.
 
 The [user guide](docs/user-guide.md) covers filters, ordering, undo, draft recovery, and settings.

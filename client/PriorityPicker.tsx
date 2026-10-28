@@ -1,3 +1,4 @@
+import { design, typography } from "./design";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
@@ -45,7 +46,12 @@ export function PriorityBadge({
       <Icon name="Flag" size={13} color={color} />
       <Text
         numberOfLines={1}
-        style={{ color, fontSize: 12, fontWeight: "600", flexShrink: 1 }}
+        style={{
+          color,
+          fontSize: typography.meta.fontSize,
+          fontWeight: "600",
+          flexShrink: 1,
+        }}
       >
         {style.name
           ? `${PRIORITY_LABELS[value]} · ${style.name}`
@@ -86,7 +92,7 @@ export function PriorityPicker({
         disabled={disabled || saving || !onChange}
         onPress={() => setOpen(true)}
         style={{
-          minHeight: 36,
+          minHeight: design.control.minHeight,
           maxWidth: 112,
           alignSelf: "flex-start",
           flexDirection: "row",
@@ -133,7 +139,7 @@ export function PriorityPicker({
                 style={{
                   minHeight: 40,
                   padding: 10,
-                  borderRadius: 6,
+                  borderRadius: design.radius.control,
                   backgroundColor:
                     priority === value
                       ? theme.colors.surface2

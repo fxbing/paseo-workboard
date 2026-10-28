@@ -1,3 +1,4 @@
+import { design, typography } from "./design";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -123,11 +124,15 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
   const [viewPreferences, setViewPreferences] = useState(() =>
     loadViewPreferences(props.host.id),
   );
+  const toolbarCompact =
+    props.layout.compact || (surfaceWidth !== null && surfaceWidth < 1050);
+  const narrowSurface =
+    props.layout.compact || (surfaceWidth !== null && surfaceWidth < 560);
   const taskLayoutCompact =
-    props.layout.compact ||
+    narrowSurface ||
     (viewPreferences.mode === "list" &&
       surfaceWidth !== null &&
-      surfaceWidth < 900);
+      surfaceWidth < 1100);
   const viewPreferencesRef = useRef(viewPreferences);
   const [quickDrafts, setQuickDrafts] = useState<
     Record<string, { title: string; error: boolean }>
@@ -137,6 +142,8 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
   const [selectedStage, setSelectedStage] = useState<Stage | null>(null);
   const [draft, setDraft] = useState<DraftForm>(null);
   const [starting, setStarting] = useState<StartForm>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+  useEffect(() => setStartError(null), [starting?.card.id]);
   const [statusCard, setStatusCard] = useState<Card | null>(null);
   const [archivingDraft, setArchivingDraft] = useState<Card | null>(null);
   const [detachingDraft, setDetachingDraft] = useState<{
@@ -267,6 +274,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
       pendingMutationId = "taskId" in mutation
         ? `${mutation.action}:${mutation.taskId}`
         : mutation.action,
+      onError?: (message: string) => void,
     ) => {
       if (mutationPending.current.has(pendingMutationId)) {
         toast.error(t.mutationPending);
@@ -286,7 +294,9 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         );
         return next;
       } catch (error) {
-        toast.error(mutationErrorText(error, t));
+        const message = mutationErrorText(error, t);
+        toast.error(message);
+        onError?.(message);
         return undefined;
       } finally {
         mutationPending.current.delete(pendingMutationId);
@@ -532,6 +542,68 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
       : projectBoard
         ? ProjectBoardView
         : BoardView;
+  const sortControl = (
+    <ToolbarSelect
+      id="workboard-sort-menu"
+      title={t.sorting}
+      label={
+        viewPreferences.priorityFirst !== false
+          ? t.priorityFirst
+          : t.defaultSort
+      }
+      value={viewPreferences.priorityFirst !== false ? "priority" : "default"}
+      options={[
+        { value: "priority", label: t.priorityFirst },
+        { value: "default", label: t.defaultSort },
+      ]}
+      onSelect={(value) =>
+        updateViewPreferences({ priorityFirst: value === "priority" })
+      }
+      theme={props.theme}
+    />
+  );
+  const archiveControl = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${t.archive} (${archived.length})`}
+      onPress={() => setPage("archive")}
+      style={({ pressed }) => [
+        styles.toolbarButton,
+        pressed && { backgroundColor: props.theme.colors.surface2 },
+      ]}
+    >
+      <Icon
+        name="Archive"
+        size={16}
+        color={props.theme.colors.foregroundMuted}
+      />
+      <Text
+        style={[
+          styles.controlText,
+          { color: props.theme.colors.foregroundMuted },
+        ]}
+      >
+        {toolbarCompact ? archived.length : `${t.archive} (${archived.length})`}
+      </Text>
+    </Pressable>
+  );
+  const settingsControl = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={t.settings}
+      onPress={() => setPage("settings")}
+      style={({ pressed }) => [
+        styles.toolbarButton,
+        pressed && { backgroundColor: props.theme.colors.surface2 },
+      ]}
+    >
+      <Icon
+        name="Settings"
+        size={16}
+        color={props.theme.colors.foregroundMuted}
+      />
+    </Pressable>
+  );
   const latestMove = latestMoveUndoId
     ? moveUndos.get(latestMoveUndoId)
     : undefined;
@@ -546,7 +618,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         <View
           style={[
             styles.toolbarLeading,
-            props.layout.compact && styles.toolbarLeadingCompact,
+            narrowSurface && styles.toolbarLeadingCompact,
           ]}
         >
           <Pressable
@@ -581,12 +653,15 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
             setValue={(projectId) => updateFilters({ projectId })}
             t={t}
             theme={props.theme}
-            compact={props.layout.compact}
+            compact={toolbarCompact}
           />
+          {narrowSurface && archiveControl}
+          {narrowSurface && settingsControl}
         </View>
         <View
           style={[
             styles.search,
+            narrowSurface && styles.searchNarrow,
             {
               borderColor: props.theme.colors.border,
               backgroundColor: props.theme.colors.surface1,
@@ -713,7 +788,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
                   : props.theme.colors.foreground
               }
             />
-            {!props.layout.compact && (
+            {!toolbarCompact && (
               <Text
                 style={[
                   styles.controlText,
@@ -755,7 +830,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
                   : props.theme.colors.foreground
               }
             />
-            {props.layout.compact ? (
+            {toolbarCompact ? (
               filterCount > 0 && (
                 <View
                   testID="workboard-filter-count"
@@ -789,52 +864,41 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
               </Text>
             )}
           </HintButton>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${t.archive} (${archived.length})`}
-            onPress={() => setPage("archive")}
-            style={({ pressed }) => [
-              styles.toolbarButton,
-              pressed && { backgroundColor: props.theme.colors.surface2 },
-            ]}
-          >
-            <Icon
-              name="Archive"
-              size={16}
-              color={props.theme.colors.foregroundMuted}
-            />
-            <Text
-              style={[
-                styles.controlText,
-                { color: props.theme.colors.foregroundMuted },
-              ]}
-            >
-              {props.layout.compact
-                ? archived.length
-                : `${t.archive} (${archived.length})`}
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t.settings}
-            onPress={() => setPage("settings")}
-            style={({ pressed }) => [
-              styles.toolbarButton,
-              pressed && { backgroundColor: props.theme.colors.surface2 },
-            ]}
-          >
-            <Icon
-              name="Settings"
-              size={16}
-              color={props.theme.colors.foregroundMuted}
-            />
-          </Pressable>
+          {!narrowSurface && archiveControl}
+          {!narrowSurface && settingsControl}
         </View>
       </View>
+      {(narrowSurface || viewPreferences.mode === "list" || projectBoard) && (
+        <View style={styles.viewOptions}>
+          <Text
+            style={[
+              typography.meta,
+              { color: props.theme.colors.foregroundMuted, flex: 1 },
+            ]}
+          >
+            {t.taskCount.replace(
+              "{count}",
+              String(cards.length - conflicts.length),
+            )}
+          </Text>
+          {sortControl}
+        </View>
+      )}
+      {allCards.length === 0 && !writesDisabled && (
+        <Text
+          style={[
+            styles.emptyIntro,
+            { color: props.theme.colors.foregroundMuted },
+          ]}
+        >
+          {t.emptyBoardHint}
+        </Text>
+      )}
       {latestMove && (
         <View testID="workboard-move-feedback" style={styles.filterSummary}>
           <Text
             accessibilityLiveRegion="polite"
+            numberOfLines={2}
             style={[
               styles.cardMeta,
               { color: props.theme.colors.foreground, flex: 1 },
@@ -874,7 +938,71 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         </View>
       )}
       {filtersOpen && (
-        <FilterPanel filters={filters} onChange={updateFilters} t={t} />
+        <FilterPanel
+          filters={filters}
+          onChange={updateFilters}
+          t={t}
+          theme={props.theme}
+        />
+      )}
+      {hasActiveFilter && (
+        <View style={styles.activeFilters}>
+          {[
+            filters.activity !== "all"
+              ? {
+                  key: "activity",
+                  label: `${t.agentFilter}: ${t.activity[filters.activity]}`,
+                  clear: () => updateFilters({ activity: "all" }),
+                }
+              : null,
+            filters.changeRequest !== "all"
+              ? {
+                  key: "request",
+                  label: `${t.requestFilter}: ${t.requestFilters[filters.changeRequest]}`,
+                  clear: () => updateFilters({ changeRequest: "all" }),
+                }
+              : null,
+            filters.dateRange !== "any"
+              ? {
+                  key: "date",
+                  label: `${t.dateFilter}: ${t.dateRanges[filters.dateRange]}`,
+                  clear: () => updateFilters({ dateRange: "any" }),
+                }
+              : null,
+          ]
+            .filter((item) => item !== null)
+            .map((item) => (
+              <Pressable
+                key={item.key}
+                accessibilityRole="button"
+                accessibilityLabel={`${t.clearFilters}: ${item.label}`}
+                onPress={item.clear}
+                style={({ pressed }) => [
+                  styles.filterChip,
+                  {
+                    borderColor: props.theme.colors.border,
+                    backgroundColor: pressed
+                      ? props.theme.colors.surface2
+                      : props.theme.colors.surface1,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    typography.meta,
+                    { color: props.theme.colors.foreground, flexShrink: 1 },
+                  ]}
+                >
+                  {item.label}
+                </Text>
+                <Icon
+                  name="X"
+                  size={13}
+                  color={props.theme.colors.foregroundMuted}
+                />
+              </Pressable>
+            ))}
+        </View>
       )}
       {(hasActiveFilter || filtersOpen) && (
         <View style={styles.filterSummary}>
@@ -962,6 +1090,11 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
             ? undefined
             : (projectId: string | null) =>
                 setDraft({ title: "", description: "", projectId })
+        }
+        navigationActions={
+          !narrowSurface && !projectBoard && viewPreferences.mode === "board"
+            ? sortControl
+            : undefined
         }
         priorityFirst={viewPreferences.priorityFirst ?? true}
         collapsed={
@@ -1234,18 +1367,29 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         disabled={writesDisabled || startPending}
         pending={startPending}
         stage={starting?.stage}
-        card={starting?.card ?? null}
+        card={
+          starting
+            ? (board.cards.find((card) => card.id === starting.card.id) ??
+              starting.card)
+            : null
+        }
+        error={startError}
         board={board}
         t={t}
         theme={props.theme}
         onClose={() => setStarting(null)}
-        onStart={(target, stage) =>
-          void mutate({
-            action: "start",
-            taskId: starting!.card.id,
-            target,
-            stage,
-          }).then((next) => {
+        onStart={(target, stage) => {
+          setStartError(null);
+          void mutate(
+            {
+              action: "start",
+              taskId: starting!.card.id,
+              target,
+              stage,
+            },
+            undefined,
+            setStartError,
+          ).then((next) => {
             if (!next) return;
             const workspaceId =
               target.kind === "existing"
@@ -1258,8 +1402,8 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
                 serverId: next.serverId,
               });
             setStarting(null);
-          })
-        }
+          });
+        }}
       />
       {archivingDraft && (
         <ConfirmationModal
@@ -1760,6 +1904,7 @@ function TaskModal({
 function StartModal({
   disabled,
   pending,
+  error,
   stage,
   card,
   board,
@@ -1770,6 +1915,7 @@ function StartModal({
 }: {
   disabled: boolean;
   pending: boolean;
+  error: string | null;
   card: Card | null;
   stage?: Stage;
   board: Board;
@@ -1783,29 +1929,31 @@ function StartModal({
 }) {
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [projectId, setProjectId] = useState("");
-  const [sourceKind, setSourceKind] = useState<"directory" | "worktree">(
-    "directory",
-  );
+  const [sourceKind, setSourceKind] = useState<
+    "project" | "directory" | "worktree"
+  >("project");
   const [existing, setExisting] = useState("");
   const [directory, setDirectory] = useState("");
   const [worktreeSlug, setWorktreeSlug] = useState("");
   useEffect(() => {
     if (!card) return;
+    const initialProject = board.projects.find(
+      (project) => project.id === card.projectId,
+    );
     setMode("new");
     setProjectId(card.projectId ?? "");
-    setSourceKind("directory");
+    setSourceKind(initialProject?.isGit ? "worktree" : "project");
     setExisting("");
-    setDirectory(
-      board.projects.find((project) => project.id === card.projectId)
-        ?.directory ?? "",
-    );
+    setDirectory(initialProject?.directory ?? "");
     setWorktreeSlug("");
-  }, [card]);
+  }, [card?.id]);
   if (!card) return null;
   const existingCards = board.cards.filter(
     (item) => item.workspaceId && !item.archived && !item.binding,
   );
   const project = board.projects.find((item) => item.id === projectId);
+  const sourceDirectory =
+    sourceKind === "project" ? (project?.directory ?? "") : directory.trim();
   const targetStage =
     card.binding?.stage ??
     stage ??
@@ -1820,13 +1968,19 @@ function StartModal({
     card.binding ||
     (mode === "existing"
       ? existing
-      : sourceKind === "directory"
-        ? directory.trim()
-        : project?.isGit);
+      : sourceKind === "worktree"
+        ? project?.isGit
+        : sourceDirectory);
   const missing = [
     !hasTarget ? t.noStartGroup : null,
     !card.binding && mode === "existing" && !existing
       ? t.startNeedsWorkspace
+      : null,
+    !card.binding &&
+    mode === "new" &&
+    sourceKind === "project" &&
+    !sourceDirectory
+      ? t.startNeedsProject
       : null,
     !card.binding &&
     mode === "new" &&
@@ -1847,13 +2001,13 @@ function StartModal({
     if (card.binding) onStart(card.binding.target, targetStage);
     else if (mode === "existing" && existing)
       onStart({ kind: "existing", workspaceId: existing }, targetStage);
-    else if (sourceKind === "directory" && directory.trim())
+    else if (sourceKind !== "worktree" && sourceDirectory)
       onStart(
         {
           kind: "new",
           source: {
             kind: "directory",
-            path: directory.trim(),
+            path: sourceDirectory,
             projectId: projectId || undefined,
           },
         },
@@ -1879,6 +2033,23 @@ function StartModal({
       onOpenChange={(open) => !open && !pending && onClose()}
     >
       <Modal.Content>
+        <Text
+          numberOfLines={3}
+          style={[
+            typography.title,
+            { color: theme.colors.foreground, marginBottom: 8 },
+          ]}
+        >
+          {card.title}
+        </Text>
+        <Text
+          style={[
+            typography.meta,
+            { color: theme.colors.foregroundMuted, marginBottom: 12 },
+          ]}
+        >
+          {t.startWorkspaceHint}
+        </Text>
         {card.binding ? (
           <Text style={{ color: theme.colors.foregroundMuted }}>
             {t.resumeBinding}
@@ -1966,41 +2137,33 @@ function StartModal({
               </ScrollView>
             ) : (
               <>
-                <Text style={{ color: theme.colors.foregroundMuted }}>
-                  {t.selectProject}
-                </Text>
-                <ScrollView style={styles.choiceList}>
-                  {board.projects.map((item) => (
-                    <Pressable
-                      accessibilityRole="button"
-                      {...toggleButtonState(item.id === projectId)}
-                      key={item.id}
-                      disabled={disabled}
-                      onPress={() => {
-                        setProjectId(item.id);
-                        setDirectory(item.directory);
-                        if (!item.isGit) setSourceKind("directory");
-                      }}
-                      style={[
-                        styles.choice,
-                        disabled && styles.disabledControl,
-                        item.id === projectId && {
-                          backgroundColor: theme.colors.surface2,
-                        },
-                      ]}
-                    >
-                      <Text style={{ color: theme.colors.foreground }}>
-                        {item.name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
+                <SettingsSelect
+                  testID="workboard-start-project"
+                  label={t.selectProject}
+                  value={project?.id ?? ""}
+                  options={[
+                    { value: "", label: t.selectProject },
+                    ...board.projects.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                    })),
+                  ]}
+                  disabled={disabled}
+                  onValueChange={(id) => {
+                    const selected = board.projects.find(
+                      (item) => item.id === id,
+                    );
+                    setProjectId(id);
+                    setDirectory(selected?.directory ?? "");
+                    setSourceKind(selected?.isGit ? "worktree" : "project");
+                  }}
+                />
                 <View style={styles.modeRow}>
                   <Pressable
                     accessibilityRole="button"
-                    {...toggleButtonState(sourceKind === "directory")}
+                    {...toggleButtonState(sourceKind === "project")}
                     disabled={disabled}
-                    onPress={() => setSourceKind("directory")}
+                    onPress={() => setSourceKind("project")}
                     style={[
                       styles.toolbarButton,
                       disabled && styles.disabledControl,
@@ -2009,12 +2172,12 @@ function StartModal({
                     <Text
                       style={{
                         color:
-                          sourceKind === "directory"
+                          sourceKind === "project"
                             ? theme.colors.foreground
                             : theme.colors.foregroundMuted,
                       }}
                     >
-                      {t.directory}
+                      {t.projectDirectory}
                     </Text>
                   </Pressable>
                   <Pressable
@@ -2038,8 +2201,51 @@ function StartModal({
                       {t.worktree}
                     </Text>
                   </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    {...toggleButtonState(sourceKind === "directory")}
+                    disabled={disabled}
+                    onPress={() => setSourceKind("directory")}
+                    style={[
+                      styles.toolbarButton,
+                      disabled && styles.disabledControl,
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color:
+                          sourceKind === "directory"
+                            ? theme.colors.foreground
+                            : theme.colors.foregroundMuted,
+                      }}
+                    >
+                      {t.customDirectory}
+                    </Text>
+                  </Pressable>
                 </View>
-                {sourceKind === "directory" ? (
+                {sourceKind === "project" ? (
+                  <View style={{ gap: design.space.xs }}>
+                    <Text
+                      style={[
+                        typography.meta,
+                        { color: theme.colors.foregroundMuted },
+                      ]}
+                    >
+                      {t.projectDirectoryHint}
+                    </Text>
+                    {project ? (
+                      <Text
+                        selectable
+                        style={[
+                          typography.meta,
+                          { color: theme.colors.foregroundMuted },
+                        ]}
+                      >
+                        {project.directory}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : sourceKind === "directory" ? (
                   <TextInput
                     accessibilityLabel={t.directory}
                     editable={!disabled}
@@ -2056,21 +2262,31 @@ function StartModal({
                     ]}
                   />
                 ) : (
-                  <TextInput
-                    accessibilityLabel={t.worktreeName}
-                    editable={!disabled}
-                    value={worktreeSlug}
-                    onChangeText={setWorktreeSlug}
-                    placeholder={t.worktreeName}
-                    placeholderTextColor={theme.colors.foregroundMuted}
-                    style={[
-                      styles.input,
-                      {
-                        color: theme.colors.foreground,
-                        borderColor: theme.colors.border,
-                      },
-                    ]}
-                  />
+                  <View style={{ gap: design.space.sm }}>
+                    <Text
+                      style={[
+                        typography.meta,
+                        { color: theme.colors.foregroundMuted },
+                      ]}
+                    >
+                      {t.worktreeAutoHint}
+                    </Text>
+                    <TextInput
+                      accessibilityLabel={t.worktreeName}
+                      editable={!disabled}
+                      value={worktreeSlug}
+                      onChangeText={setWorktreeSlug}
+                      placeholder={t.worktreeName}
+                      placeholderTextColor={theme.colors.foregroundMuted}
+                      style={[
+                        styles.input,
+                        {
+                          color: theme.colors.foreground,
+                          borderColor: theme.colors.border,
+                        },
+                      ]}
+                    />
+                  </View>
                 )}
               </>
             )}
@@ -2083,6 +2299,14 @@ function StartModal({
             style={{ color: theme.colors.statusWarning }}
           >
             {missing.join("\n")}
+          </Text>
+        )}
+        {error && (
+          <Text
+            accessibilityRole="alert"
+            style={[typography.meta, { color: theme.colors.statusDanger }]}
+          >
+            {error}
           </Text>
         )}
         <View style={styles.modalActions}>
@@ -2145,6 +2369,15 @@ function StageModal({
   return (
     <Modal open title={t.status} onOpenChange={(open) => !open && onClose()}>
       <Modal.Content>
+        <Text
+          numberOfLines={3}
+          style={[
+            typography.title,
+            { color: theme.colors.foreground, margin: 12 },
+          ]}
+        >
+          {card.title}
+        </Text>
         <ScrollView style={styles.choiceList}>
           {groups.map((group) => (
             <Pressable
@@ -2955,7 +3188,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginLeft: 8,
+    marginLeft: 0,
   },
   screen: { flex: 1, minHeight: 0 },
   filterSummary: {
@@ -2979,7 +3212,32 @@ const styles = StyleSheet.create({
     gap: 8,
     minWidth: 0,
   },
-  toolbarLeadingCompact: { width: "100%" },
+  toolbarLeadingCompact: { flexGrow: 1 },
+  searchNarrow: { flexBasis: "100%", maxWidth: "100%" },
+  viewOptions: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    minHeight: 36,
+    gap: 8,
+  },
+  activeFilters: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    paddingHorizontal: 12,
+  },
+  filterChip: {
+    minHeight: 36,
+    maxWidth: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+  },
+  emptyIntro: { ...typography.meta, paddingHorizontal: 12, paddingVertical: 8 },
   toolbarActions: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -2991,14 +3249,14 @@ const styles = StyleSheet.create({
   toolbarButton: {
     minHeight: 36,
     minWidth: 36,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    borderRadius: design.radius.control,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
   },
-  controlText: { fontSize: 14, lineHeight: 20 },
+  controlText: typography.body,
   projectPicker: { minWidth: 0, maxWidth: 180, flexShrink: 1 },
   projectPickerCompact: { flex: 1, maxWidth: "100%" },
   projectTrigger: { borderWidth: 1 },
@@ -3013,7 +3271,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 16,
   },
-  heading: { fontSize: 18, lineHeight: 24, fontWeight: "600" },
+  heading: typography.heading,
   primary: { fontWeight: "600", textDecorationLine: "underline" },
   search: {
     flexGrow: 1,
@@ -3091,7 +3349,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   cardTitle: { fontWeight: "600", fontSize: 14, lineHeight: 18 },
-  cardMeta: { fontSize: 12, lineHeight: 16 },
+  cardMeta: typography.meta,
   cardFooter: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -3165,7 +3423,7 @@ export function mutationErrorText(
   error: unknown,
   t: ReturnType<typeof strings>,
 ): string {
-  if (!(error instanceof Error)) return t.loadError;
+  if (!(error instanceof Error)) return t.confirmationFailed;
   const messages: Record<string, string> = {
     ...t.issues,
     ...t.mutationErrors,
@@ -3174,5 +3432,5 @@ export function mutationErrorText(
   };
   return Object.hasOwn(messages, error.message)
     ? messages[error.message]
-    : t.loadError;
+    : t.confirmationFailed;
 }

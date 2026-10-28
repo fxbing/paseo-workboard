@@ -1,3 +1,4 @@
+import { design } from "./design";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Animated,
@@ -1013,34 +1014,36 @@ function ListTask(props: TaskProps) {
         />
       </View>
       <View style={styles.taskContent}>{props.children}</View>
-      <View style={styles.moveButtons}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${props.t.moveCardUp}: ${props.card.title}`}
-          disabled={props.disabled || !props.canMoveUp}
-          onPress={() => props.onReorderKey(-1)}
-          style={styles.miniButton}
-        >
-          <Icon
-            name="ChevronUp"
-            size={13}
-            color={props.theme.colors.foregroundMuted}
-          />
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${props.t.moveCardDown}: ${props.card.title}`}
-          disabled={props.disabled || !props.canMoveDown}
-          onPress={() => props.onReorderKey(1)}
-          style={styles.miniButton}
-        >
-          <Icon
-            name="ChevronDown"
-            size={13}
-            color={props.theme.colors.foregroundMuted}
-          />
-        </Pressable>
-      </View>
+      {(props.canMoveUp || props.canMoveDown) && (
+        <View style={styles.moveButtons}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${props.t.moveCardUp}: ${props.card.title}`}
+            disabled={props.disabled || !props.canMoveUp}
+            onPress={() => props.onReorderKey(-1)}
+            style={styles.miniButton}
+          >
+            <Icon
+              name="ChevronUp"
+              size={13}
+              color={props.theme.colors.foregroundMuted}
+            />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${props.t.moveCardDown}: ${props.card.title}`}
+            disabled={props.disabled || !props.canMoveDown}
+            onPress={() => props.onReorderKey(1)}
+            style={styles.miniButton}
+          >
+            <Icon
+              name="ChevronDown"
+              size={13}
+              color={props.theme.colors.foregroundMuted}
+            />
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -1105,8 +1108,8 @@ const styles = StyleSheet.create({
   },
   dot: { width: 8, height: 8, borderRadius: 4 },
   handle: {
-    width: 30,
-    minHeight: 34,
+    width: design.control.minWidth,
+    minHeight: design.control.minHeight,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1119,8 +1122,12 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   taskContent: { flex: 1, minWidth: 0 },
-  moveButtons: { width: 24, alignItems: "center" },
-  miniButton: { paddingVertical: 3 },
+  moveButtons: { width: design.control.minWidth, alignItems: "center" },
+  miniButton: {
+    ...design.control,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   empty: { padding: 12, fontSize: 13 },
   collapsedHint: { paddingHorizontal: 36, paddingBottom: 8 },
   line: { position: "absolute", left: 0, right: 0, height: 2, zIndex: 2 },

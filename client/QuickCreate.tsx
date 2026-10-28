@@ -1,3 +1,4 @@
+import { design, typography } from "./design";
 import { useRef } from "react";
 import {
   Pressable,
@@ -116,14 +117,14 @@ const styles = StyleSheet.create({
     height: 36,
     paddingHorizontal: 9,
     paddingVertical: 0,
-    fontSize: 12,
+    fontSize: typography.meta.fontSize,
   },
   button: {
     width: 36,
     height: 36,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 6,
+    borderRadius: design.radius.control,
   },
-  error: { fontSize: 12, lineHeight: 16 },
+  error: { fontSize: typography.meta.fontSize, lineHeight: 16 },
 });

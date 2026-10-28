@@ -299,8 +299,8 @@ it("uses the measured surface width for List rows without changing Board layout"
   const screen = host();
   byID(screen.render(), "workboard-view-list").props.onPress();
   for (const [width, compact] of [
-    [899, true],
-    [900, false],
+    [1099, true],
+    [1100, false],
     [700, true],
   ] as const) {
     find(screen.render(), (e) => !!e.props.onLayout).props.onLayout({
@@ -615,7 +615,7 @@ it("X-05 automatically hides touch-opened hints with a controlled timer", () => 
   expect(text(provider.render())).not.toContain("Information");
 });
 
-it.each(["directory", "existing", "worktree", "target"])(
+it.each(["project", "directory", "existing", "worktree", "target"])(
   "X-08 explains the missing %s prerequisite above Start",
   (missing) => {
     if (missing === "worktree") {
@@ -647,6 +647,11 @@ it.each(["directory", "existing", "worktree", "target"])(
     const modal = mount(modalElement.type, modalProps);
     modal.render();
     let tree = modal.render();
+    if (missing === "directory")
+      find(
+        tree,
+        (e) => !!e.props.onPress && text(e) === t.customDirectory,
+      ).props.onPress();
     if (missing === "existing")
       find(
         tree,
@@ -696,7 +701,7 @@ it.each(["zh", "en"])(
     );
     await view.props.onStage(view.props.cards[0], "canceled");
     expect(runtime.toast.error).toHaveBeenLastCalledWith(
-      strings(language as "zh" | "en").loadError,
+      strings(language as "zh" | "en").confirmationFailed,
     );
   },
 );
@@ -1043,6 +1048,123 @@ it("TaskModal project choices show only the bound task's current project and dis
   expect(buttons[0].props["aria-pressed"]).toBe(true);
 });
 
+it.each([true, false])(
+  "starts in the selected project without a manual directory (Git: %s)",
+  (isGit) => {
+    runtime.query.data.projects = [
+      { id: "p", name: "Project", directory: "/fixture/project", isGit },
+    ];
+    const screen = host();
+    const view = named(screen.render(), "BoardView");
+    view.props.renderCard(view.props.cards[0]).props.onStart();
+    const element = named(screen.render(), "StartModal");
+    const submit = vi.fn();
+    const modal = mount(element.type, { ...element.props, onStart: submit });
+    modal.render();
+    expect(
+      elements(modal.render()).some(
+        (e) => e.props.accessibilityLabel === t.directory,
+      ),
+    ).toBe(false);
+    byID(modal.render(), "workboard-start-project").props.onValueChange("p");
+    const start = find(
+      modal.render(),
+      (e) => !!e.props.onPress && text(e) === t.start,
+    );
+    expect(start.props.disabled).toBe(false);
+    start.props.onPress();
+    expect(submit).toHaveBeenCalledWith(
+      {
+        kind: "new",
+        source: isGit
+          ? { kind: "worktree", projectId: "p", worktreeSlug: undefined }
+          : { kind: "directory", path: "/fixture/project", projectId: "p" },
+      },
+      "in-progress",
+    );
+  },
+);
+
+it("defaults preselected Git projects to worktrees and updates the default when switching projects", () => {
+  runtime.query.data.projects = [
+    { id: "git", name: "Git project", directory: "/fixture/git", isGit: true },
+    {
+      id: "plain",
+      name: "Plain project",
+      directory: "/fixture/plain",
+      isGit: false,
+    },
+  ];
+  runtime.query.data.cards[0].projectId = "git";
+  const screen = host();
+  const view = named(screen.render(), "BoardView");
+  view.props.renderCard(view.props.cards[0]).props.onStart();
+  const element = named(screen.render(), "StartModal");
+  const submit = vi.fn();
+  const modal = mount(element.type, { ...element.props, onStart: submit });
+  modal.render();
+  find(
+    modal.render(),
+    (e) => !!e.props.onPress && text(e) === t.start,
+  ).props.onPress();
+  expect(submit).toHaveBeenLastCalledWith(
+    {
+      kind: "new",
+      source: { kind: "worktree", projectId: "git", worktreeSlug: undefined },
+    },
+    "in-progress",
+  );
+  byID(modal.render(), "workboard-start-project").props.onValueChange("plain");
+  expect(
+    elements(modal.render()).some(
+      (e) => e.props.accessibilityLabel === t.directory,
+    ),
+  ).toBe(false);
+  find(
+    modal.render(),
+    (e) => !!e.props.onPress && text(e) === t.start,
+  ).props.onPress();
+  expect(submit).toHaveBeenLastCalledWith(
+    {
+      kind: "new",
+      source: { kind: "directory", path: "/fixture/plain", projectId: "plain" },
+    },
+    "in-progress",
+  );
+  byID(modal.render(), "workboard-start-project").props.onValueChange("git");
+  find(
+    modal.render(),
+    (e) => !!e.props.onPress && text(e) === t.start,
+  ).props.onPress();
+  expect(submit).toHaveBeenLastCalledWith(
+    {
+      kind: "new",
+      source: { kind: "worktree", projectId: "git", worktreeSlug: undefined },
+    },
+    "in-progress",
+  );
+  find(
+    modal.render(),
+    (e) => !!e.props.onPress && text(e) === t.projectDirectory,
+  ).props.onPress();
+  modal.props = {
+    ...modal.props,
+    board: { ...modal.props.board },
+    card: { ...modal.props.card },
+  };
+  find(
+    modal.render(),
+    (e) => !!e.props.onPress && text(e) === t.start,
+  ).props.onPress();
+  expect(submit).toHaveBeenLastCalledWith(
+    {
+      kind: "new",
+      source: { kind: "directory", path: "/fixture/git", projectId: "git" },
+    },
+    "in-progress",
+  );
+});
+
 it.each([
   {
     scenario: "a missing project with a stored name",
@@ -1159,20 +1281,19 @@ function taskComponent(value: Card, extra: any = {}) {
     ...extra,
   });
 }
-it("U03 card actions wrap in narrow columns with a two-pixel gap", () => {
+it("U03 direct status and workspace actions can wrap in narrow columns", () => {
   const tree = taskComponent(card("one", "review", "w")).render();
   const actions = find(
     tree,
     (e) =>
       Array.isArray(e.props.children) &&
       e.props.children.some(
-        (c: any) => c?.props?.accessibilityLabel === t.notes,
+        (c: any) => c?.props?.testID === "workboard-status-one",
       ),
   );
   expect(flattenStyle(actions.props.style)).toMatchObject({
-    gap: 2,
+    gap: 4,
     flexWrap: "wrap",
-    maxWidth: "100%",
   });
 });
 it.each(["hover", "focus"])(
@@ -1212,8 +1333,8 @@ it("U05 card warnings use the metadata font size", () => {
   ]) {
     const warning = find(tree, (e) => e.type === Text && text(e) === label);
     expect(flattenStyle(warning.props.style)).toMatchObject({
-      fontSize: 12,
-      lineHeight: 16,
+      fontSize: 13,
+      lineHeight: 18,
     });
   }
 });
@@ -1269,7 +1390,7 @@ it.each([false, true])(
         flattenStyle(e.props.style).alignItems === "flex-start",
     );
     expect(flattenStyle(title.props.style).paddingRight ?? 0).toBe(
-      compact ? 0 : 30,
+      compact ? 0 : 36,
     );
   },
 );
@@ -1539,7 +1660,7 @@ it.each([false, true])(
       100,
       50,
     );
-    first.props.onEnd(710, 50);
+    first.props.onEnd(810, 50);
     expect(test.props.onReorder).toHaveBeenLastCalledWith(
       ["todo", third, "inbox"],
       ["inbox", "todo", third],
@@ -1627,7 +1748,7 @@ it.each(["collapse", "resize", "scroll"])(
     } else {
       const scroll = find(
         test.view.render(),
-        (e) => e.props.horizontal === true,
+        (e) => e.props.testID === "workboard-columns",
       );
       scroll.props.onContentSizeChange(922);
       scroll.props.onScroll({ nativeEvent: { contentOffset: { x: 256 } } });
@@ -1951,6 +2072,10 @@ it.each([
     const submit = vi.fn();
     const modal = mount(element.type, { ...element.props, onStart: submit });
     modal.render();
+    find(
+      modal.render(),
+      (e) => !!e.props.onPress && text(e) === t.customDirectory,
+    ).props.onPress();
     const input = find(
       modal.render(),
       (e) => e.props.placeholder === t.directory,
@@ -2013,11 +2138,16 @@ it.each(["explicit", "binding", "no-group"])(
       };
     const modal = mount(element.type, props);
     modal.render();
-    if (source !== "binding")
+    if (source !== "binding") {
+      find(
+        modal.render(),
+        (e) => !!e.props.onPress && text(e) === t.customDirectory,
+      ).props.onPress();
       find(
         modal.render(),
         (e) => e.props.placeholder === t.directory,
       ).props.onChangeText("/fixture/new");
+    }
     const button = find(
       modal.render(),
       (e) =>
@@ -2067,6 +2197,10 @@ it("F05-R01 submits the second working group from StartModal to the real Workboa
     const element = named(screen.render(), "StartModal");
     const modal = mount(element.type, element.props);
     modal.render();
+    find(
+      modal.render(),
+      (e) => !!e.props.onPress && text(e) === t.customDirectory,
+    ).props.onPress();
     find(
       modal.render(),
       (e) => e.props.placeholder === t.directory,
@@ -2639,11 +2773,13 @@ it("L06 row keeps details and actions independent while surfacing critical statu
     } as Card,
     { presentation: "row", pending: true },
   ).render();
-  expect(byLabel(blocked, t.status).props.disabled).toBe(true);
+  expect(byID(blocked, `workboard-status-${value.id}`).props.disabled).toBe(
+    true,
+  );
   expect(byLabel(blocked, t.retry)).toBeDefined();
 });
 
-it("L06 compact row keeps request warnings singular and activity metadata on one truncatable line", () => {
+it("L06 compact row keeps request warnings singular and activity metadata readable by wrapping", () => {
   const value = {
     ...card("one", "review", "w"),
     changeRequest: {
@@ -2679,16 +2815,13 @@ it("L06 compact row keeps request warnings singular and activity metadata on one
       elements(element).some((child) => child.props.name === "MessageCircle")
     );
   });
-  expect(flattenStyle(activity.props.style).flexWrap).toBe("nowrap");
+  expect(flattenStyle(activity.props.style).flexWrap).toBe("wrap");
   const time = find(
     activity,
     (element) =>
       element.type === Text && text(element) === t.unknownConversation,
   );
-  expect(flattenStyle(time.props.style)).toMatchObject({
-    flexShrink: 1,
-    minWidth: 0,
-  });
+  expect(flattenStyle(time.props.style)).toMatchObject({ flexShrink: 0 });
 
   byLabel(tree, t.details).props.onPress();
   tree = row.render();
@@ -3233,9 +3366,11 @@ it("routes project grouping to the board and leaves the list in its original sta
   expect(named(screen.render(), "ProjectBoardView")).toBeDefined();
   byID(screen.render(), "workboard-view-list").props.onPress();
   expect(named(screen.render(), "ListView")).toBeDefined();
-  expect(elements(screen.render()).some((e) => e.type === ToolbarSelect)).toBe(
-    false,
-  );
+  expect(
+    elements(screen.render()).some(
+      (e) => e.type === ToolbarSelect && e.props.id === "workboard-group-menu",
+    ),
+  ).toBe(false);
   byID(screen.render(), "workboard-view-board").props.onPress();
   expect(named(screen.render(), "ProjectBoardView")).toBeDefined();
 });
@@ -3281,6 +3416,55 @@ it("project lanes retain full native order for mutations while scoping displayed
   expect(
     elements(next.render()).filter((e) => e.type === BoardView),
   ).toHaveLength(1);
+});
+
+it("bulk project folds persist and leave filtered-out projects unchanged", () => {
+  viewStorage();
+  runtime.query.data = board([
+    { ...card("one"), projectId: "p1", projectName: "One" },
+    { ...card("two"), projectId: "p2", projectName: "Two" },
+  ]);
+  const screen = host();
+  find(
+    screen.render(),
+    (e) => e.type === ToolbarSelect && e.props.id === "workboard-group-menu",
+  ).props.onSelect("project");
+  const renderLanes = () =>
+    mount(
+      ProjectBoardView,
+      named(screen.render(), "ProjectBoardView").props,
+    ).render();
+  find(
+    renderLanes(),
+    (e) => !!e.props.onPress && text(e) === t.collapseAll,
+  ).props.onPress();
+  expect(
+    elements(renderLanes()).filter((e) => e.type === BoardView),
+  ).toHaveLength(0);
+  const reloaded = host();
+  expect([
+    ...named(reloaded.render(), "ProjectBoardView").props.collapsed,
+  ]).toEqual(["project:id:p1", "project:id:p2"]);
+  const props = named(screen.render(), "ProjectBoardView").props;
+  const filtered = mount(ProjectBoardView, {
+    ...props,
+    cards: [props.cards[0]],
+  });
+  find(
+    filtered.render(),
+    (e) => !!e.props.onPress && text(e) === t.expandAll,
+  ).props.onPress();
+  expect([
+    ...named(screen.render(), "ProjectBoardView").props.collapsed,
+  ]).toEqual(["project:id:p2"]);
+  find(
+    renderLanes(),
+    (e) => !!e.props.onPress && text(e) === t.expandAll,
+  ).props.onPress();
+  expect(
+    elements(renderLanes()).filter((e) => e.type === BoardView),
+  ).toHaveLength(2);
+  expect(runtime.mutation).not.toHaveBeenCalled();
 });
 
 it("priority sorting stays inside status columns and never overwrites manual order", () => {
@@ -3593,8 +3777,8 @@ it("persists project folds and widths independently across interleaved lane edit
   expect(col(reloadedB, "review").props.collapsed).toBe(true);
   col(reloadedA, "todo").props.onToggleCollapsed();
   col(reloadedB, "review").props.onToggleCollapsed();
-  expect(col(reloadedA, "todo").props.width).toBe(266);
-  expect(col(reloadedB, "review").props.width).toBe(226);
+  expect(col(reloadedA, "todo").props.width).toBe(300);
+  expect(col(reloadedB, "review").props.width).toBe(260);
 });
 
 it("keeps a priority picker open after a rejected pending RPC, allows unrelated tasks and retries", async () => {
@@ -3782,3 +3966,134 @@ it.each(["Board", "List"])(
     expect(test.props.onReorderCards).not.toHaveBeenCalled();
   },
 );
+
+it("uses the actual narrow host surface for Board while retaining the same tasks", () => {
+  const screen = host();
+  find(screen.render(), (e) => !!e.props.onLayout).props.onLayout({
+    nativeEvent: { layout: { width: 480 } },
+  });
+  const view = named(screen.render(), "BoardView");
+  expect(view.props.compact).toBe(true);
+  expect(view.props.cards.map((item: Card) => item.id)).toEqual(["one", "two"]);
+});
+
+it("changes sorting from the toolbar without a native mutation or losing filters", () => {
+  const screen = host();
+  const sort = () => {
+    const tree = screen.render();
+    const view = elements(tree).find(
+      (e) => typeof e.type === "function" && e.type.name === "BoardView",
+    );
+    return (
+      view?.props.navigationActions ??
+      find(
+        tree,
+        (e) => e.type === ToolbarSelect && e.props.id === "workboard-sort-menu",
+      )
+    );
+  };
+  sort().props.onSelect("default");
+  expect(named(screen.render(), "BoardView").props.priorityFirst).toBe(false);
+  byID(screen.render(), "workboard-view-list").props.onPress();
+  sort().props.onSelect("priority");
+  expect(named(screen.render(), "ListView").props.priorityFirst).toBe(true);
+  expect(runtime.mutation).not.toHaveBeenCalled();
+});
+
+it("shows active filter values after the filter editor closes and clears only that condition", () => {
+  runtime.filters = {
+    ...DEFAULT_FILTERS,
+    activity: "running",
+    dateRange: "today",
+  };
+  const screen = host();
+  expect(text(screen.render())).toContain(
+    `${t.agentFilter}: ${t.activity.running}`,
+  );
+  byLabel(
+    screen.render(),
+    `${t.clearFilters}: ${t.agentFilter}: ${t.activity.running}`,
+  ).props.onPress();
+  expect(text(screen.render())).not.toContain(
+    `${t.agentFilter}: ${t.activity.running}`,
+  );
+  expect(text(screen.render())).toContain(
+    `${t.dateFilter}: ${t.dateRanges.today}`,
+  );
+});
+
+it.each(["card", "row"] as const)(
+  "exposes status directly in %s and retains binding guards",
+  (presentation) => {
+    const onStatus = vi.fn();
+    const value = card("one", "review", "w");
+    const item = taskComponent(value, { presentation, onStatus });
+    const status = byID(item.render(), "workboard-status-one");
+    expect(status.props.accessibilityLabel).toBe(
+      `${t.status}: ${t.stages.review} · one`,
+    );
+    status.props.onPress();
+    expect(onStatus).toHaveBeenCalledOnce();
+    for (const patch of [{ pending: true }, { disabled: true }]) {
+      expect(
+        byID(
+          taskComponent(value, { presentation, ...patch }).render(),
+          "workboard-status-one",
+        ).props.disabled,
+      ).toBe(true);
+    }
+  },
+);
+
+it("keeps a failed start open with its localized error and current binding intent", async () => {
+  runtime.mutation.mockRejectedValue(
+    new Error("Workspace binding is still pending"),
+  );
+  const screen = host();
+  const view = named(screen.render(), "BoardView");
+  view.props.renderCard(view.props.cards[0]).props.onStart();
+  let start = named(screen.render(), "StartModal");
+  start.props.onStart(
+    { kind: "new", source: { kind: "directory", path: "/fixture" } },
+    "in-progress",
+  );
+  await Promise.resolve();
+  await Promise.resolve();
+  start = named(screen.render(), "StartModal");
+  expect(start.props.error).toBe(
+    t.mutationErrors["Workspace binding is still pending"],
+  );
+  expect(start.props.card.id).toBe("one");
+  const dialog = mount(start.type, start.props);
+  expect(
+    elements(dialog.render())
+      .filter((e) => e.props.accessibilityRole === "alert")
+      .map(text),
+  ).toContain(start.props.error);
+  find(
+    dialog.render(),
+    (e) => !!e.props.onPress && text(e) === t.customDirectory,
+  ).props.onPress();
+  byLabel(dialog.render(), t.directory).props.onChangeText("/edited-target");
+  dialog.props = {
+    ...dialog.props,
+    card: { ...start.props.card, title: "Refreshed title" },
+  };
+  dialog.render();
+  expect(byLabel(dialog.render(), t.directory).props.value).toBe(
+    "/edited-target",
+  );
+  const binding = {
+    operationId: "fixture",
+    stage: "in-progress",
+    workspaceId: null,
+    target: { kind: "new", source: { kind: "directory", path: "/fixture" } },
+  };
+  runtime.query.data = board([
+    { ...card("one"), binding } as Card,
+    card("two"),
+  ]);
+  expect(named(screen.render(), "StartModal").props.card.binding).toEqual(
+    binding,
+  );
+});

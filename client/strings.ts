@@ -50,6 +50,7 @@ const zh = {
   groupKeyboardHint: "点击打开分组选项；Alt/Meta+左/右方向键调整顺序。",
   startNeedsWorkspace: "请选择要关联的 workspace。",
   startNeedsDirectory: "请输入 workspace 目录。",
+  startNeedsProject: "请选择项目；workspace 将使用项目目录。",
   startNeedsGitProject: "创建 worktree 需要选择 Git 项目。",
   undoMove: "撤销移动",
   undoMoveHint: "在 8 秒内放回移动前的分组；任务变化后不可撤销。",
@@ -58,6 +59,12 @@ const zh = {
   locale: "zh-CN",
   title: "Workboard",
   addTask: "新建任务",
+  openTask: "打开",
+  taskCount: "{count} 个任务",
+  emptyBoardHint:
+    "已有工作区会自动显示在这里。也可以先记下草稿，开始工作时再创建或关联工作区。",
+  startWorkspaceHint:
+    "这里只创建或关联工作区；进入工作区后再启动 Agent，不会自动发送提示词。",
   search: "搜索任务或项目",
   allProjects: "全部项目",
   unassigned: "未分配",
@@ -169,6 +176,11 @@ const zh = {
   chooseWorkspace: "选择 workspace",
   chooseSource: "选择创建方式",
   directory: "目录",
+  projectDirectory: "项目目录",
+  customDirectory: "指定其他目录",
+  projectDirectoryHint:
+    "使用所选项目的现有目录创建 workspace，无需手动填写路径。",
+  worktreeAutoHint: "Paseo 自动创建独立的 Git worktree；留空名称即可自动命名。",
   worktree: "Git worktree",
   worktreeName: "worktree 名称（可选）",
   noWorkspace: "草稿 · 未创建 workspace",
@@ -295,7 +307,7 @@ const zh = {
   mappingPreview: "修改映射会影响 {count} 个已绑定任务。",
   activity: {
     idle: "空闲",
-    running: "进行中",
+    running: "运行中",
     waiting: "等待输入",
     attention: "需要关注",
     error: "出错",
@@ -518,6 +530,7 @@ const en: typeof zh = {
     "Press to open group options; Alt/Meta+Left/Right Arrow reorders.",
   startNeedsWorkspace: "Select a workspace to attach.",
   startNeedsDirectory: "Enter a workspace directory.",
+  startNeedsProject: "Select a project to use its directory for the workspace.",
   startNeedsGitProject: "Select a Git project to create a worktree.",
   undoMove: "Undo move",
   undoMoveHint:
@@ -528,6 +541,12 @@ const en: typeof zh = {
   locale: "en",
   title: "Workboard",
   addTask: "New task",
+  openTask: "Open",
+  taskCount: "{count} tasks",
+  emptyBoardHint:
+    "Existing workspaces appear here automatically. Capture a draft now, then create or attach a workspace when you start.",
+  startWorkspaceHint:
+    "This creates or attaches a workspace. Start an Agent from the workspace; no prompt is sent automatically.",
   search: "Search tasks or projects",
   allProjects: "All projects",
   unassigned: "Unassigned",
@@ -646,6 +665,12 @@ const en: typeof zh = {
   chooseWorkspace: "Choose workspace",
   chooseSource: "Choose how to create it",
   directory: "Directory",
+  projectDirectory: "Project directory",
+  customDirectory: "Other directory",
+  projectDirectoryHint:
+    "Create a workspace in the selected project's existing directory. No path entry needed.",
+  worktreeAutoHint:
+    "Paseo creates an isolated Git worktree. Leave the name blank to name it automatically.",
   worktree: "Git worktree",
   worktreeName: "Worktree name (optional)",
   noWorkspace: "Draft · no workspace",

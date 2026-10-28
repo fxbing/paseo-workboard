@@ -1,7 +1,9 @@
+import { design, typography } from "./design";
 import { useEffect, useRef, useState } from "react";
 import {
   Modal,
   Pressable,
+  ScrollView,
   Text,
   View,
   useWindowDimensions,
@@ -44,14 +46,19 @@ export function ToolbarSelect({
     trigger.current?.focus();
   };
   const width = Math.min(190, Math.max(1, window.width - 16));
-  const height = options.length * 40 + 12;
+  const height = Math.min(
+    options.length * 40 + 12,
+    Math.max(1, window.height - 16),
+  );
   return (
     <>
       <Pressable
         ref={trigger}
         testID={id}
         accessibilityRole="button"
-        accessibilityLabel={`${title}: ${label}`}
+        accessibilityLabel={
+          label.startsWith(`${title}:`) ? label : `${title}: ${label}`
+        }
         accessibilityState={{ expanded: !!anchor }}
         aria-expanded={!!anchor}
         onPress={() => {
@@ -60,16 +67,21 @@ export function ToolbarSelect({
           );
         }}
         style={({ pressed }) => ({
-          minHeight: 36,
+          minHeight: design.control.minHeight,
           paddingHorizontal: 8,
-          borderRadius: 6,
+          borderRadius: design.radius.control,
           flexDirection: "row",
           alignItems: "center",
           gap: 5,
           backgroundColor: pressed ? theme.colors.surface2 : "transparent",
         })}
       >
-        <Text style={{ color: theme.colors.foregroundMuted, fontSize: 13 }}>
+        <Text
+          style={{
+            color: theme.colors.foregroundMuted,
+            fontSize: typography.meta.fontSize,
+          }}
+        >
           {label}
         </Text>
         <Icon
@@ -106,6 +118,7 @@ export function ToolbarSelect({
               style={{
                 position: "absolute",
                 width,
+                maxHeight: window.height - 16,
                 padding: 6,
                 borderRadius: 9,
                 borderWidth: 1,
@@ -131,47 +144,53 @@ export function ToolbarSelect({
                 ),
               }}
             >
-              {options.map((option) => (
-                <Pressable
-                  key={option.value}
-                  ref={option.value === value ? selected : undefined}
-                  testID={`${id}-option-${option.value}`}
-                  accessibilityRole="radio"
-                  accessibilityLabel={option.label}
-                  accessibilityState={{ checked: option.value === value }}
-                  aria-checked={option.value === value}
-                  onPress={() => {
-                    onSelect(option.value);
-                    close();
-                  }}
-                  style={({ pressed }) => ({
-                    minHeight: 40,
-                    paddingHorizontal: 10,
-                    borderRadius: 5,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                    backgroundColor: pressed
-                      ? theme.colors.surface2
-                      : "transparent",
-                  })}
-                >
-                  <View style={{ width: 14 }}>
-                    {option.value === value ? (
-                      <Icon
-                        name="Check"
-                        size={14}
-                        color={theme.colors.foreground}
-                      />
-                    ) : null}
-                  </View>
-                  <Text
-                    style={{ color: theme.colors.foreground, fontSize: 13 }}
+              <ScrollView>
+                {options.map((option) => (
+                  <Pressable
+                    key={option.value}
+                    ref={option.value === value ? selected : undefined}
+                    testID={`${id}-option-${option.value}`}
+                    accessibilityRole="radio"
+                    accessibilityLabel={option.label}
+                    accessibilityState={{ checked: option.value === value }}
+                    aria-checked={option.value === value}
+                    onPress={() => {
+                      onSelect(option.value);
+                      close();
+                    }}
+                    style={({ pressed }) => ({
+                      minHeight: 40,
+                      paddingHorizontal: 10,
+                      borderRadius: 5,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                      backgroundColor: pressed
+                        ? theme.colors.surface2
+                        : "transparent",
+                    })}
                   >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              ))}
+                    <View style={{ width: 14 }}>
+                      {option.value === value ? (
+                        <Icon
+                          name="Check"
+                          size={14}
+                          color={theme.colors.foreground}
+                        />
+                      ) : null}
+                    </View>
+                    <Text
+                      style={{
+                        color: theme.colors.foreground,
+                        fontSize: typography.meta.fontSize,
+                        flexShrink: 1,
+                      }}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
             </View>
           </View>
         </Modal>

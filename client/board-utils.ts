@@ -167,7 +167,7 @@ export function stageAtX(
   );
 }
 
-export const DEFAULT_COLUMN_WIDTH = 246;
+export const DEFAULT_COLUMN_WIDTH = 280;
 export const MIN_COLUMN_WIDTH = 220;
 export const MAX_COLUMN_WIDTH = 480;
 export const columnWidth = (value = DEFAULT_COLUMN_WIDTH) =>

@@ -1,3 +1,4 @@
+import { design, typography } from "./design";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Animated,
@@ -70,6 +71,7 @@ type Gesture = {
   filterKey?: string;
 };
 export type BoardViewProps = {
+  navigationActions?: ReactNode;
   hostId: string;
   layoutScope?: string;
   priorityFirst?: boolean;
@@ -646,6 +648,55 @@ export function BoardView(props: BoardViewProps) {
     <View style={styles.boardRoot}>
       {!compact && (
         <View style={styles.desktopNav}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabs}
+            style={{ flex: 1 }}
+          >
+            {groups.map((group) => (
+              <Pressable
+                key={group.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${t.groupLocator}: ${groupTitle(group, t)}`}
+                disabled={!!preview}
+                onPress={() => locateGroup(group.id)}
+                style={({ pressed }) => [
+                  styles.tab,
+                  {
+                    backgroundColor: pressed
+                      ? theme.colors.surface2
+                      : theme.colors.surface1,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.tabDot,
+                    { backgroundColor: props.groupColor(group) },
+                  ]}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    typography.meta,
+                    { color: theme.colors.foreground, flexShrink: 1 },
+                  ]}
+                >
+                  {groupTitle(group, t)}
+                </Text>
+                <Text
+                  style={[
+                    typography.meta,
+                    { color: theme.colors.foregroundMuted },
+                  ]}
+                >
+                  {displayCardsForStage(props, group.id).length}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          {props.navigationActions}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t.groupLocator}
@@ -773,32 +824,34 @@ export function BoardView(props: BoardViewProps) {
                       {...cardKeys(card)}
                     >
                       {renderCard(card, false)}
-                      <View style={{ flexDirection: "row", gap: 2 }}>
-                        {([-1, 1] as const).map((direction) => (
-                          <HintButton
-                            key={direction}
-                            hint={t.cardOrderHint}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${direction < 0 ? t.moveCardUp : t.moveCardDown}: ${card.title}`}
-                            disabled={
-                              disabled ||
-                              props.priorityFirst ||
-                              props.orderPending?.has(card.stage) ||
-                              !!card.archived ||
-                              !!card.binding ||
-                              !visible[index + direction]
-                            }
-                            onPress={() => moveCardRelative(card, direction)}
-                            style={styles.iconButton}
-                          >
-                            <Icon
-                              name={direction < 0 ? "ArrowUp" : "ArrowDown"}
-                              size={14}
-                              color={theme.colors.foregroundMuted}
-                            />
-                          </HintButton>
-                        ))}
-                      </View>
+                      {!props.priorityFirst && (
+                        <View style={{ flexDirection: "row", gap: 2 }}>
+                          {([-1, 1] as const).map((direction) => (
+                            <HintButton
+                              key={direction}
+                              hint={t.cardOrderHint}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${direction < 0 ? t.moveCardUp : t.moveCardDown}: ${card.title}`}
+                              disabled={
+                                disabled ||
+                                props.priorityFirst ||
+                                props.orderPending?.has(card.stage) ||
+                                !!card.archived ||
+                                !!card.binding ||
+                                !visible[index + direction]
+                              }
+                              onPress={() => moveCardRelative(card, direction)}
+                              style={styles.iconButton}
+                            >
+                              <Icon
+                                name={direction < 0 ? "ArrowUp" : "ArrowDown"}
+                                size={14}
+                                color={theme.colors.foregroundMuted}
+                              />
+                            </HintButton>
+                          ))}
+                        </View>
+                      )}
                     </View>
                   ),
                 )
@@ -815,6 +868,7 @@ export function BoardView(props: BoardViewProps) {
           </>
         ) : (
           <ScrollView
+            testID="workboard-columns"
             ref={scroller}
             horizontal
             scrollEnabled={preview?.kind !== "resize"}
@@ -1533,10 +1587,8 @@ function BoardColumn({
         collapsed && styles.columnCollapsed,
         {
           width,
-          backgroundColor: active
-            ? theme.colors.surface2
-            : theme.colors.surface1,
-          borderColor: active ? color : theme.colors.border,
+          backgroundColor: active ? `${color}20` : `${color}08`,
+          borderColor: active ? color : `${color}30`,
           opacity: moving ? 0.4 : 1,
         },
       ]}
@@ -1602,8 +1654,7 @@ function BoardColumn({
                 flex: 1,
                 minWidth: 0,
                 color: theme.colors.foreground,
-                fontWeight: "600",
-                fontSize: 13,
+                ...typography.title,
               }}
             >
               {groupTitle(group, t)}
@@ -1740,13 +1791,23 @@ function BoardColumn({
 const styles = StyleSheet.create({
   boardRoot: { flex: 1, minHeight: 0 },
   viewport: { flex: 1, minHeight: 0, overflow: "hidden" },
-  desktopNav: { minHeight: 36, alignItems: "flex-end", paddingRight: 12 },
+  desktopNav: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 12,
+  },
   columns: {
     padding: COLUMN_PADDING,
     gap: COLUMN_GAP,
     alignItems: "stretch",
   },
-  column: { borderWidth: 1, borderRadius: 10, padding: 8, gap: 6 },
+  column: {
+    borderWidth: design.borderWidth,
+    borderRadius: design.radius.panel,
+    padding: design.space.sm,
+    gap: design.space.sm,
+  },
   columnCollapsed: { alignSelf: "stretch" },
   columnHeader: {
     flexDirection: "row",
@@ -1761,7 +1822,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    minHeight: 30,
+    minHeight: 36,
   },
   columnTitleCollapsed: {
     flexDirection: "column",
@@ -1777,7 +1838,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 6,
   },
-  cards: { gap: 6, paddingBottom: 8 },
+  cards: { gap: design.space.sm, paddingBottom: design.space.sm },
   empty: { fontSize: 12, paddingVertical: 20, textAlign: "center" },
   emptyState: { alignItems: "center", paddingVertical: 12, gap: 4 },
   emptyActions: { flexDirection: "row", gap: 8 },
@@ -1820,8 +1881,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 1,
     top: 1,
-    width: 30,
-    height: 32,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,
@@ -1868,7 +1929,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "transparent",
   },
   tabDot: { width: 7, height: 7, borderRadius: 4, flexShrink: 0 },
-  tabText: { flexShrink: 1 },
+  tabText: { ...typography.meta, flexShrink: 1 },
   compactList: { padding: 10, gap: 7 },
   menuAction: {
     minHeight: 40,

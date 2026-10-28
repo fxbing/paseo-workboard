@@ -18,10 +18,11 @@ import {
   hasNoAgents,
   shortDate,
 } from "./board-utils";
-import { strings } from "./strings";
+import { strings, stageTitle } from "./strings";
 import { groupColor, supplementalColor } from "./colors";
 import { HintButton } from "./Hint";
 import { PriorityPicker } from "./PriorityPicker";
+import { design, typography } from "./design";
 
 function CardAction({
   theme,
@@ -277,46 +278,7 @@ export function TaskItem({
     </Text>
   );
   const actionButtons = (
-    <View style={presentation === "row" ? styles.rowMenu : styles.cardActions}>
-      {(isDraft || card.binding) && (
-        <CardAction
-          theme={theme}
-          hint={card.binding ? t.resumeBinding : t.startHint}
-          accessibilityRole="button"
-          accessibilityLabel={card.binding ? t.retry : t.start}
-          disabled={disabled}
-          onPress={() => {
-            setActionsOpen(false);
-            onStart();
-          }}
-          style={({ pressed }) => [
-            styles.startAction,
-            presentation === "row" && styles.rowMenuAction,
-            { opacity: disabled ? 0.5 : 1 },
-            pressed && { backgroundColor: theme.colors.surface2 },
-          ]}
-        >
-          <Icon
-            name="Play"
-            size={15}
-            color={
-              disabled ? theme.colors.foregroundMuted : theme.colors.foreground
-            }
-          />
-          <Text
-            style={[
-              styles.cardMeta,
-              {
-                color: disabled
-                  ? theme.colors.foregroundMuted
-                  : theme.colors.foreground,
-              },
-            ]}
-          >
-            {card.binding ? t.retry : t.start}
-          </Text>
-        </CardAction>
-      )}
+    <View style={styles.rowMenu}>
       {card.mergedDrafts.map((source) => (
         <CardAction
           theme={theme}
@@ -329,10 +291,7 @@ export function TaskItem({
             setActionsOpen(false);
             onDetachDraft(source.draftId);
           }}
-          style={[
-            styles.startAction,
-            presentation === "row" && styles.rowMenuAction,
-          ]}
+          style={[styles.startAction, styles.rowMenuAction]}
         >
           <Text
             numberOfLines={1}
@@ -358,81 +317,38 @@ export function TaskItem({
           }}
           style={({ pressed }) => [
             styles.iconAction,
-            presentation === "row" && styles.rowMenuAction,
+            styles.rowMenuAction,
             { opacity: disabled ? 0.5 : 1 },
             pressed && { backgroundColor: theme.colors.surface2 },
           ]}
         >
           <Icon name="X" size={15} color={theme.colors.foregroundMuted} />
-          {presentation === "row" && (
-            <Text style={[styles.cardMeta, { color: theme.colors.foreground }]}>
-              {t.cancelBinding}
-            </Text>
-          )}
-        </CardAction>
-      )}
-      {!isDraft && (
-        <CardAction
-          theme={theme}
-          hint={t.notes}
-          accessibilityRole="button"
-          accessibilityLabel={t.notes}
-          disabled={disabled}
-          onPress={() => {
-            setActionsOpen(false);
-            onEdit();
-          }}
-          style={({ pressed }) => [
-            styles.iconAction,
-            presentation === "row" && styles.rowMenuAction,
-            { opacity: disabled ? 0.5 : 1 },
-            pressed && { backgroundColor: theme.colors.surface2 },
-          ]}
-        >
-          <Icon
-            name="FileText"
-            size={15}
-            color={theme.colors.foregroundMuted}
-          />
-          {presentation === "row" && (
-            <Text style={[styles.cardMeta, { color: theme.colors.foreground }]}>
-              {t.notes}
-            </Text>
-          )}
+          <Text style={[styles.cardMeta, { color: theme.colors.foreground }]}>
+            {t.cancelBinding}
+          </Text>
         </CardAction>
       )}
       <CardAction
         theme={theme}
-        hint={t.status}
+        hint={isDraft ? t.edit : t.notes}
         accessibilityRole="button"
-        accessibilityLabel={t.status}
-        disabled={
-          disabled || pending || card.binding !== null || card.archived !== null
-        }
+        accessibilityLabel={isDraft ? t.edit : t.notes}
+        disabled={disabled}
         onPress={() => {
           setActionsOpen(false);
-          onStatus();
+          onEdit();
         }}
         style={({ pressed }) => [
           styles.iconAction,
-          presentation === "row" && styles.rowMenuAction,
-          {
-            opacity:
-              disabled || pending || card.binding || card.archived ? 0.5 : 1,
-          },
+          styles.rowMenuAction,
+          { opacity: disabled ? 0.5 : 1 },
           pressed && { backgroundColor: theme.colors.surface2 },
         ]}
       >
-        <Icon
-          name="ArrowRightLeft"
-          size={15}
-          color={theme.colors.foregroundMuted}
-        />
-        {presentation === "row" && (
-          <Text style={[styles.cardMeta, { color: theme.colors.foreground }]}>
-            {t.status}
-          </Text>
-        )}
+        <Icon name="FileText" size={15} color={theme.colors.foregroundMuted} />
+        <Text style={[styles.cardMeta, { color: theme.colors.foreground }]}>
+          {isDraft ? t.edit : t.notes}
+        </Text>
       </CardAction>
       {isDraft &&
         groupKind(card.stage, board.settings.groups) === "canceled" && (
@@ -448,7 +364,7 @@ export function TaskItem({
             }}
             style={({ pressed }) => [
               styles.iconAction,
-              presentation === "row" && styles.rowMenuAction,
+              styles.rowMenuAction,
               { opacity: disabled ? 0.5 : 1 },
               pressed && { backgroundColor: theme.colors.surface2 },
             ]}
@@ -458,19 +374,137 @@ export function TaskItem({
               size={15}
               color={theme.colors.foregroundMuted}
             />
-            {presentation === "row" && (
-              <Text
-                style={[styles.cardMeta, { color: theme.colors.foreground }]}
-              >
-                {t.archiveDraft}
-              </Text>
-            )}
+            <Text style={[styles.cardMeta, { color: theme.colors.foreground }]}>
+              {t.archiveDraft}
+            </Text>
           </CardAction>
         )}
     </View>
   );
+  const primaryActions = (
+    <View style={styles.primaryActions}>
+      <CardAction
+        theme={theme}
+        hint={t.status}
+        testID={`workboard-status-${card.id}`}
+        accessibilityRole="button"
+        accessibilityLabel={`${t.status}: ${stageTitle(card.stage, board.settings.groups, t)} · ${card.title}`}
+        disabled={
+          disabled || pending || card.binding !== null || card.archived !== null
+        }
+        onPress={onStatus}
+        style={[
+          styles.statusAction,
+          {
+            borderColor: group
+              ? `${groupColor(group, theme)}40`
+              : theme.colors.border,
+            backgroundColor: group
+              ? `${groupColor(group, theme)}0c`
+              : theme.colors.surface1,
+            opacity:
+              disabled || pending || card.binding || card.archived
+                ? design.disabledOpacity
+                : 1,
+          },
+        ]}
+      >
+        <Text
+          numberOfLines={1}
+          style={[
+            typography.meta,
+            {
+              flexShrink: 1,
+              color: group ? groupColor(group, theme) : theme.colors.foreground,
+            },
+          ]}
+        >
+          {stageTitle(card.stage, board.settings.groups, t)}
+        </Text>
+        <Icon
+          name="ChevronDown"
+          size={13}
+          color={
+            group ? groupColor(group, theme) : theme.colors.foregroundMuted
+          }
+        />
+      </CardAction>
+      <View style={styles.primaryActionEnd}>
+        <CardAction
+          theme={theme}
+          hint={
+            isDraft || card.binding
+              ? card.binding
+                ? t.resumeBinding
+                : t.startHint
+              : t.openWorkspace
+          }
+          accessibilityRole="button"
+          accessibilityLabel={
+            isDraft || card.binding
+              ? card.binding
+                ? t.retry
+                : t.start
+              : `${t.openWorkspace}: ${card.title}`
+          }
+          disabled={(isDraft || card.binding) && disabled}
+          onPress={isDraft || card.binding ? onStart : onOpen}
+          style={[
+            styles.startAction,
+            {
+              borderColor: theme.colors.border,
+              opacity:
+                (isDraft || card.binding) && disabled
+                  ? design.disabledOpacity
+                  : 1,
+            },
+          ]}
+        >
+          <Icon
+            name={isDraft || card.binding ? "Play" : "FolderOpen"}
+            size={15}
+            color={theme.colors.foreground}
+          />
+          <Text style={[typography.meta, { color: theme.colors.foreground }]}>
+            {isDraft || card.binding
+              ? card.binding
+                ? t.retry
+                : t.start
+              : t.openTask}
+          </Text>
+        </CardAction>
+        <CardAction
+          theme={theme}
+          hint={t.moreActions}
+          accessibilityRole="button"
+          accessibilityLabel={t.moreActions}
+          accessibilityState={{ expanded: actionsOpen }}
+          aria-expanded={actionsOpen}
+          onPress={() => setActionsOpen(true)}
+          style={[
+            styles.iconAction,
+            {
+              borderColor: theme.colors.border,
+              borderWidth: design.borderWidth,
+            },
+          ]}
+        >
+          <Icon
+            name="Ellipsis"
+            size={16}
+            color={theme.colors.foregroundMuted}
+          />
+        </CardAction>
+      </View>
+    </View>
+  );
   const details = (
     <>
+      {agentsOpen && (
+        <Text style={[typography.title, { color: theme.colors.foreground }]}>
+          {card.title}
+        </Text>
+      )}
       {agentsOpen && card.description && (
         <Text style={[styles.cardMeta, { color: theme.colors.foreground }]}>
           {card.description}
@@ -624,7 +658,7 @@ export function TaskItem({
               style={styles.cardTitlePressable}
             >
               <Text
-                numberOfLines={compact ? 2 : 1}
+                numberOfLines={2}
                 style={[styles.cardTitle, { color: theme.colors.foreground }]}
               >
                 {card.title}
@@ -635,10 +669,12 @@ export function TaskItem({
             <>
               {projectSummary}
               {activitySummary}
-              <View style={styles.rowRequest}>
-                {requestSummary}
-                {requestUnavailable}
-              </View>
+              {(request || card.changeRequestUnavailable) && (
+                <View style={styles.rowRequest}>
+                  {requestSummary}
+                  {requestUnavailable}
+                </View>
+              )}
             </>
           )}
           <View style={styles.rowControls}>
@@ -673,22 +709,7 @@ export function TaskItem({
                 />
               </CardAction>
             )}
-            <CardAction
-              theme={theme}
-              hint={t.moreActions}
-              accessibilityRole="button"
-              accessibilityLabel={t.moreActions}
-              accessibilityState={{ expanded: actionsOpen }}
-              aria-expanded={actionsOpen}
-              onPress={() => setActionsOpen(true)}
-              style={styles.iconAction}
-            >
-              <Icon
-                name="Ellipsis"
-                size={16}
-                color={theme.colors.foregroundMuted}
-              />
-            </CardAction>
+            {!compact && primaryActions}
           </View>
         </View>
         {compact && (
@@ -697,6 +718,7 @@ export function TaskItem({
             {activitySummary}
           </View>
         )}
+        {compact && primaryActions}
         {compact && requestUnavailable}
         {compact && requestSummary}
         {(issue || overdue || card.binding || reasons.length > 0) && (
@@ -741,7 +763,18 @@ export function TaskItem({
           title={t.moreActions}
           onOpenChange={setActionsOpen}
         >
-          <Modal.Content>{actionButtons}</Modal.Content>
+          <Modal.Content>
+            <Text
+              numberOfLines={3}
+              style={[
+                typography.title,
+                { color: theme.colors.foreground, marginBottom: 8 },
+              ]}
+            >
+              {card.title}
+            </Text>
+            {actionButtons}
+          </Modal.Content>
         </Modal>
       </View>
     );
@@ -760,9 +793,6 @@ export function TaskItem({
                 outlineStyle: "solid" as const,
               }
             : {}),
-          borderLeftColor: group
-            ? groupColor(group, theme)
-            : theme.colors.statusWarning,
         },
       ]}
     >
@@ -781,7 +811,7 @@ export function TaskItem({
         </HintButton>
       )}
       <View
-        style={[styles.cardTitleRow, { paddingRight: showDragHandle ? 30 : 0 }]}
+        style={[styles.cardTitleRow, { paddingRight: showDragHandle ? 36 : 0 }]}
       >
         <HintButton
           hint={isDraft ? t.edit : t.openWorkspace}
@@ -793,7 +823,7 @@ export function TaskItem({
           style={styles.cardTitlePressable}
         >
           <Text
-            numberOfLines={2}
+            numberOfLines={4}
             style={[
               styles.cardTitle,
               { color: theme.colors.foreground },
@@ -819,6 +849,15 @@ export function TaskItem({
       </View>
       <View style={styles.cardPriorityRow}>
         {priorityPicker}
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.cardMeta,
+            { color: theme.colors.foregroundMuted, flex: 1 },
+          ]}
+        >
+          {card.projectName || t.unassigned}
+        </Text>
         {card.pinState !== "none" && (
           <HintButton
             hint={pinHint}
@@ -830,91 +869,99 @@ export function TaskItem({
           </HintButton>
         )}
       </View>
-      <Text
-        numberOfLines={1}
-        style={[styles.cardMeta, { color: theme.colors.foregroundMuted }]}
-      >
-        {card.projectName || t.unassigned}
-        {normalLabels.length ? ` · ${normalLabels.join(" · ")}` : ""}
-      </Text>
+      {normalLabels.length > 0 && (
+        <Text
+          numberOfLines={1}
+          style={[styles.cardMeta, { color: theme.colors.foregroundMuted }]}
+        >
+          {normalLabels.join(" · ")}
+        </Text>
+      )}
+      {isDraft && card.description && (
+        <Text
+          numberOfLines={3}
+          style={[styles.cardMeta, { color: theme.colors.foregroundMuted }]}
+        >
+          {card.description}
+        </Text>
+      )}
       {requestSummary}
       {requestUnavailable}
-      <View style={styles.cardBottom}>
-        {isDraft ? (
-          <Text
-            style={[styles.cardMeta, { color: theme.colors.foregroundMuted }]}
-          >
-            {t.noWorkspace}
-          </Text>
-        ) : (
-          <HintButton
-            hint={
-              reasons.length
-                ? reasons.join(" · ")
-                : noAgents
-                  ? time
-                  : `${t.activity[card.activity]} · ${time}`
-            }
-            accessibilityRole="button"
-            accessibilityLabel={
-              reasons.length
-                ? `${t.attentionReason}: ${reasons.join(" · ")}`
-                : noAgents
-                  ? time
-                  : `${t.activity[card.activity]} · ${time}`
-            }
-            style={styles.cardFooter}
-          >
+      {isDraft ? (
+        <Text
+          style={[styles.cardMeta, { color: theme.colors.foregroundMuted }]}
+        >
+          {t.noWorkspace}
+        </Text>
+      ) : (
+        <CardAction
+          theme={theme}
+          hint={agentsOpen ? t.hideDetails : t.details}
+          accessibilityRole="button"
+          accessibilityLabel={agentsOpen ? t.hideDetails : t.details}
+          accessibilityState={{ expanded: agentsOpen }}
+          aria-expanded={agentsOpen}
+          onPress={() => setAgentsOpen((value) => !value)}
+          style={styles.activityBlock}
+        >
+          <View style={styles.activityLine}>
             <Icon
-              name="MessageCircle"
-              size={13}
+              name={card.activity === "running" ? "CircleDot" : "MessageCircle"}
+              size={15}
               color={activityColor(card.activity, theme)}
             />
             <Text
               style={[
                 styles.cardMeta,
-                { color: activityColor(card.activity, theme) },
+                { color: activityColor(card.activity, theme), flex: 1 },
               ]}
             >
-              {noAgents ? t.noAgents : t.activity[card.activity]}
+              {noAgents ? t.noAgents : `Agent: ${t.activity[card.activity]}`}
             </Text>
-            {!noAgents && (
+            <Icon
+              name={agentsOpen ? "ChevronUp" : "ChevronDown"}
+              size={14}
+              color={theme.colors.foregroundMuted}
+            />
+          </View>
+          {!noAgents && (
+            <View style={styles.activityLine}>
+              <Icon
+                name="Clock"
+                size={15}
+                color={theme.colors.foregroundMuted}
+              />
               <Text
                 style={[
                   styles.cardMeta,
-                  { color: theme.colors.foregroundMuted },
+                  { color: theme.colors.foregroundMuted, flex: 1 },
                 ]}
               >
                 {time}
               </Text>
-            )}
-          </HintButton>
-        )}
-        <View style={styles.cardActions}>
-          {!isDraft && (
-            <CardAction
-              theme={theme}
-              hint={agentsOpen ? t.hideDetails : t.details}
-              accessibilityRole="button"
-              accessibilityLabel={agentsOpen ? t.hideDetails : t.details}
-              accessibilityState={{ expanded: agentsOpen }}
-              aria-expanded={agentsOpen}
-              onPress={() => setAgentsOpen((value) => !value)}
-              style={({ pressed }) => [
-                styles.iconAction,
-                pressed && { backgroundColor: theme.colors.surface2 },
-              ]}
-            >
-              <Icon
-                name={agentsOpen ? "ChevronUp" : "ChevronDown"}
-                size={14}
-                color={theme.colors.foregroundMuted}
-              />
-            </CardAction>
+            </View>
           )}
+        </CardAction>
+      )}
+      {primaryActions}
+      <Modal
+        open={actionsOpen}
+        title={t.moreActions}
+        onOpenChange={setActionsOpen}
+      >
+        <Modal.Content>
+          <Text
+            numberOfLines={3}
+            style={[
+              typography.title,
+              { color: theme.colors.foreground, marginBottom: 8 },
+            ]}
+          >
+            {card.title}
+          </Text>
           {actionButtons}
-        </View>
-      </View>
+        </Modal.Content>
+      </Modal>
       {terminal && card.dueAt && (
         <Text
           style={[
@@ -958,7 +1005,7 @@ function activityColor(
     : activity === "attention" || activity === "waiting"
       ? theme.colors.statusWarning
       : activity === "running"
-        ? theme.colors.foreground
+        ? theme.colors.statusSuccess
         : theme.colors.foregroundMuted;
 }
 function changeRequestIcon(
@@ -1039,26 +1086,31 @@ const styles = StyleSheet.create({
     minHeight: 44,
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 10,
-    paddingVertical: 2,
-    gap: 3,
+    paddingVertical: 8,
+    gap: 8,
   },
   rowCompact: { minHeight: 68 },
   rowMain: { flexDirection: "row", alignItems: "center", gap: 12, minWidth: 0 },
-  rowCompactMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
-  rowProject: { flex: 1, minWidth: 0 },
+  rowCompactMeta: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  rowProject: { flex: 1, minWidth: 70 },
   rowTitleBlock: { flex: 2, minWidth: 0 },
   rowActivity: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    minWidth: 0,
+    minWidth: 170,
     flexWrap: "wrap",
   },
-  rowRequest: { flex: 1.5, minWidth: 240 },
+  rowRequest: { flex: 1, minWidth: 240 },
   rowPriority: { alignSelf: "center" },
-  rowActivityCompact: { flexWrap: "nowrap" },
-  rowTimeCompact: { flexShrink: 1, minWidth: 0 },
+  rowActivityCompact: { flexWrap: "wrap", flexGrow: 2, minWidth: 180 },
+  rowTimeCompact: { flexShrink: 0 },
   rowControls: { flexDirection: "row", alignItems: "center" },
   rowMenu: { gap: 4 },
   rowMenuAction: {
@@ -1071,11 +1123,9 @@ const styles = StyleSheet.create({
   },
   card: {
     borderWidth: 1,
-    borderLeftWidth: 3,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 8,
-    gap: 4,
+    borderRadius: design.radius.card,
+    padding: design.space.md,
+    gap: design.space.sm,
   },
   cardTitleRow: {
     flexDirection: "row",
@@ -1089,8 +1139,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 6,
   },
-  cardTitle: { fontWeight: "600", fontSize: 14, lineHeight: 18 },
-  cardMeta: { fontSize: 12, lineHeight: 16 },
+  cardTitle: typography.title,
+  cardMeta: typography.meta,
   changeRequest: {
     alignItems: "flex-start",
     gap: 0,
@@ -1102,8 +1152,7 @@ const styles = StyleSheet.create({
     minHeight: 36,
   },
   requestTitle: {
-    fontSize: 12,
-    lineHeight: 16,
+    ...typography.meta,
     fontWeight: "600",
   },
   requestStatuses: {
@@ -1130,7 +1179,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   checkCount: { flexDirection: "row", alignItems: "center", gap: 4 },
-  requestStatusText: { fontSize: 12, lineHeight: 16, flexShrink: 1 },
+  requestStatusText: { ...typography.meta, flexShrink: 1 },
   requestStatusIcon: { width: 14, height: 14, flexShrink: 0 },
   pinAction: {
     minWidth: 36,
@@ -1145,33 +1194,39 @@ const styles = StyleSheet.create({
     gap: 4,
     alignSelf: "flex-start",
   },
-  cardBottom: {
+  primaryActions: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 2,
+    gap: 4,
   },
-  cardFooter: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    flexShrink: 1,
-    alignItems: "center",
-    gap: 5,
-  },
-  cardActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  primaryActionEnd: { flexDirection: "row", alignItems: "center", gap: 4 },
+  statusAction: {
+    ...design.control,
+    flexGrow: 1,
     flexShrink: 1,
     maxWidth: "100%",
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderRadius: design.radius.control,
+    flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    justifyContent: "space-between",
+    gap: 4,
   },
+  activityBlock: {
+    minHeight: 36,
+    paddingVertical: 2,
+    gap: 6,
+    borderRadius: design.radius.control,
+  },
+  activityLine: { flexDirection: "row", alignItems: "center", gap: 8 },
   startAction: {
+    borderWidth: design.borderWidth,
     maxWidth: "100%",
     minHeight: 36,
     borderRadius: 6,
-    paddingHorizontal: 3,
+    paddingHorizontal: 8,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
