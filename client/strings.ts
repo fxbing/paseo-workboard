@@ -131,6 +131,13 @@ const zh = {
   resizeColumn: "调整列宽",
   resizeHint: "拖动调整宽度，双击恢复默认；方向键调整，Home 恢复默认。",
   resetColumnWidth: "恢复默认列宽",
+  columnWidths: "列宽",
+  widthCompact: "紧凑 · 220 px",
+  widthStandard: "标准 · 280 px",
+  widthWide: "宽 · 360 px",
+  resetDefaults: "恢复默认",
+  resetDefaultsHint:
+    "清空所有筛选，并将看板和所有项目泳道的列宽恢复为 280 px。",
   dropToGroup: "移至：{group} · Esc 取消",
   dropToStart: "移至：{group} · 松手后选择 workspace",
   dropHere: "松手移入此分组",
@@ -619,6 +626,13 @@ const en: typeof zh = {
   resizeHint:
     "Drag to resize, double-click to reset. Arrow keys resize; Home resets.",
   resetColumnWidth: "Reset column width",
+  columnWidths: "Column width",
+  widthCompact: "Compact · 220 px",
+  widthStandard: "Standard · 280 px",
+  widthWide: "Wide · 360 px",
+  resetDefaults: "Restore defaults",
+  resetDefaultsHint:
+    "Clear all filters and restore 280 px columns in the board and every project lane.",
   dropToGroup: "Move to: {group} · Esc to cancel",
   dropToStart: "Move to: {group} · Release to choose a workspace",
   dropHere: "Release to move into this group",

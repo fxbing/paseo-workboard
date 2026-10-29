@@ -39,6 +39,7 @@ import {
 } from "../shared/rpc";
 import {
   boardNow,
+  DEFAULT_COLUMN_WIDTH,
   groupDeleteReason,
   mappingPreview,
   shortDate,
@@ -507,6 +508,15 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
       projectId: projectId === "all" || projectId === "none" ? null : projectId,
     });
   const clearFilters = () => updateFilters(DEFAULT_FILTERS);
+  const setAllColumnWidths = (width: number) =>
+    updateViewPreferences({ columnLayout: { width, overrides: {} } });
+  const resetDefaults = () => {
+    clearFilters();
+    if (filterSave.current) clearTimeout(filterSave.current);
+    filterSave.current = null;
+    persistFilters();
+    setAllColumnWidths(DEFAULT_COLUMN_WIDTH);
+  };
   const notifyTaskSaved = (next: Board, editedId?: string, quick = false) => {
     const saved = editedId
       ? next.cards.find((card) => card.id === editedId)
@@ -760,8 +770,59 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
                 }
                 theme={props.theme}
               />
+              <ToolbarSelect
+                id="workboard-width-menu"
+                title={t.columnWidths}
+                label={t.columnWidths}
+                value={
+                  viewPreferences.columnLayout &&
+                  Object.values(viewPreferences.columnLayout.overrides).every(
+                    (widths) =>
+                      Object.values(widths).every(
+                        (width) =>
+                          width === viewPreferences.columnLayout!.width,
+                      ),
+                  )
+                    ? String(viewPreferences.columnLayout.width)
+                    : ""
+                }
+                options={[
+                  { value: "220", label: t.widthCompact },
+                  {
+                    value: String(DEFAULT_COLUMN_WIDTH),
+                    label: t.widthStandard,
+                  },
+                  { value: "360", label: t.widthWide },
+                ]}
+                onSelect={(width) => setAllColumnWidths(Number(width))}
+                theme={props.theme}
+              />
             </View>
           )}
+          <HintButton
+            hint={t.resetDefaultsHint}
+            testID="workboard-reset-defaults"
+            accessibilityRole="button"
+            accessibilityLabel={t.resetDefaults}
+            onPress={resetDefaults}
+            style={styles.toolbarButton}
+          >
+            <Icon
+              name="RotateCcw"
+              size={16}
+              color={props.theme.colors.foreground}
+            />
+            {!toolbarCompact && (
+              <Text
+                style={[
+                  styles.controlText,
+                  { color: props.theme.colors.foreground },
+                ]}
+              >
+                {t.resetDefaults}
+              </Text>
+            )}
+          </HintButton>
           <HintButton
             hint={t.attention}
             accessibilityRole="button"
@@ -1120,6 +1181,20 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         }
         key={props.host.id}
         hostId={props.host.id}
+        columnLayout={viewPreferences.columnLayout}
+        onColumnWidthsChange={(
+          layoutKey: string,
+          widths: Record<string, number>,
+        ) => {
+          const current = viewPreferencesRef.current.columnLayout;
+          if (current)
+            updateViewPreferences({
+              columnLayout: {
+                ...current,
+                overrides: { ...current.overrides, [layoutKey]: widths },
+              },
+            });
+        }}
         groupColor={(group) => groupColor(group, props.theme)}
         disabled={writesDisabled}
         pendingStages={new Set(optimisticStages.keys())}

@@ -3525,6 +3525,18 @@ it("toolbar dropdown selects and dismisses choices without changing saved card o
   byID(control.render(), "sort-backdrop").props.onPress();
   expect(onSelect).toHaveBeenCalledTimes(1);
   expect(() => byID(control.render(), "sort-options")).toThrow();
+  control.props.value = "";
+  byID(control.render(), "sort").props.onPress();
+  const unselected = control.render();
+  const optionFocus = vi.fn();
+  byID(unselected, "sort-option-default").props.ref.current = {
+    focus: optionFocus,
+  };
+  find(unselected, (e) => !!e.props.onShow).props.onShow();
+  expect(optionFocus).toHaveBeenCalledOnce();
+  expect(
+    byID(unselected, "sort-option-default").props.accessibilityState.checked,
+  ).toBe(false);
 });
 
 it("settings sorting shares the host preference across Board, project lanes and List", () => {
@@ -4093,5 +4105,80 @@ it("keeps a failed start open with its localized error and current binding inten
   ]);
   expect(named(screen.render(), "StartModal").props.card.binding).toEqual(
     binding,
+  );
+});
+
+it("restores filters and all column widths without changing task data or other hosts", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+  vi.stubGlobal("localStorage", storage);
+  vi.stubGlobal("window", { localStorage: storage });
+  runtime.filters = {
+    ...DEFAULT_FILTERS,
+    projectId: "none",
+    attentionOnly: true,
+    activity: "running",
+    changeRequest: "open",
+    dateRange: "today",
+  };
+  const screen = host();
+  const selectWidth = (value: string) =>
+    find(
+      screen.render(),
+      (e) => e.props.id === "workboard-width-menu",
+    ).props.onSelect(value);
+  selectWidth("360");
+  let view = named(screen.render(), "BoardView");
+  expect(view.props.columnLayout).toEqual({ width: 360, overrides: {} });
+  view.props.onColumnWidthsChange("host", { todo: 410 });
+  view = named(screen.render(), "BoardView");
+  expect(view.props.columnLayout.overrides.host.todo).toBe(410);
+  expect(
+    named(host().render(), "BoardView").props.columnLayout.overrides.host.todo,
+  ).toBe(410);
+  expect(
+    named(hostFor("other").render(), "BoardView").props.columnLayout,
+  ).toBeUndefined();
+  find(
+    screen.render(),
+    (e) => !!e.props.onChangeText && e.props.placeholder === t.search,
+  ).props.onChangeText("unmatched");
+  byID(screen.render(), "workboard-reset-defaults").props.onPress();
+  expect(named(screen.render(), "BoardView").props.cards).toHaveLength(2);
+  expect(named(screen.render(), "BoardView").props.columnLayout).toEqual({
+    width: 280,
+    overrides: {},
+  });
+  expect(runtime.saveFilters).toHaveBeenLastCalledWith("host", DEFAULT_FILTERS);
+  vi.advanceTimersByTime(350);
+  expect(runtime.saveFilters).toHaveBeenLastCalledWith("host", DEFAULT_FILTERS);
+  expect(runtime.mutation).not.toHaveBeenCalled();
+});
+
+it("applies a width preset to mounted and later opened lanes, retaining single-column resizing", () => {
+  const test = columns();
+  test.props.columnLayout = { width: 360, overrides: {} };
+  test.props.onColumnWidthsChange = vi.fn();
+  test.view.render();
+  let column = named(test.view.render(), "BoardColumn");
+  expect(column.props.width).toBe(360);
+  test.props.columnLayout = { width: 220, overrides: {} };
+  test.view.render();
+  column = named(test.view.render(), "BoardColumn");
+  expect(column.props.width).toBe(220);
+  const lane = mount(BoardView, {
+    ...test.props,
+    layoutScope: "project:id:hidden",
+  });
+  expect(named(lane.render(), "BoardColumn").props.width).toBe(220);
+  column.props.onWidthKey(1);
+  expect(test.props.onColumnWidthsChange).toHaveBeenCalledWith(
+    "host",
+    expect.objectContaining({ inbox: 240 }),
   );
 });

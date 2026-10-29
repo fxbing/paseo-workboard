@@ -611,6 +611,76 @@ test("reorders cards after project scrolling and resizes columns with the pointe
   await expect
     .poll(async () => Math.round((await column.boundingBox())!.width))
     .toBe(Math.round(initialWidth + 60));
+  const chooseWidth = async (width: number) => {
+    await page.getByTestId("workboard-width-menu").press("Enter");
+    const options = page.getByTestId("workboard-width-menu-options");
+    await expect(options).toBeVisible();
+    const checked = options.getByRole("radio", { checked: true });
+    await expect(
+      (await checked.count()) ? checked : options.getByRole("radio").first(),
+    ).toBeFocused();
+    await page.getByTestId(`workboard-width-menu-option-${width}`).click();
+  };
+  const expectWidths = async (width: number) => {
+    const selector = before.settings.groups
+      .map((group) => `[data-testid="workboard-column-${group.id}"]`)
+      .join(",");
+    await expect
+      .poll(async () =>
+        Promise.all(
+          (await page.locator(selector).all()).map(async (column) =>
+            Math.round((await column.boundingBox())!.width),
+          ),
+        ),
+      )
+      .toEqual(Array(before.settings.groups.length * 2).fill(width));
+  };
+  await chooseWidth(360);
+  await expectWidths(360);
+  await handle.press("ArrowRight");
+  await expect
+    .poll(async () => Math.round((await column.boundingBox())!.width))
+    .toBe(380);
+  await page.reload();
+  await expect
+    .poll(async () => Math.round((await column.boundingBox())!.width))
+    .toBe(380);
+  await page.getByPlaceholder("Search tasks or projects").fill(`${prefix} 0`);
+  await expect(lane).toHaveCount(0);
+  await chooseWidth(220);
+  await page.getByPlaceholder("Search tasks or projects").fill(prefix);
+  await expectWidths(220);
+  await page.getByTestId("workboard-reset-defaults").press("Enter");
+  await expect(page.getByPlaceholder("Search tasks or projects")).toHaveValue(
+    "",
+  );
+  await expect
+    .poll(async () => Math.round((await column.boundingBox())!.width))
+    .toBe(280);
+  await page.reload();
+  await expect
+    .poll(async () => Math.round((await column.boundingBox())!.width))
+    .toBe(280);
+  await page.getByTestId("workboard-group-menu").click();
+  await page.getByTestId("workboard-group-menu-option-status").click();
+  await chooseWidth(220);
+  await expect(page.getByTestId("workboard-column-todo")).toHaveCSS(
+    "width",
+    "220px",
+  );
+  await page.getByTestId("workboard-view-list").click();
+  await page
+    .getByPlaceholder("Search tasks or projects")
+    .fill("no match for reset");
+  await page.getByTestId("workboard-reset-defaults").click();
+  await expect(page.getByPlaceholder("Search tasks or projects")).toHaveValue(
+    "",
+  );
+  await page.getByTestId("workboard-view-board").click();
+  await expect(page.getByTestId("workboard-column-todo")).toHaveCSS(
+    "width",
+    "280px",
+  );
   expect(pageErrors).toEqual([]);
 });
 

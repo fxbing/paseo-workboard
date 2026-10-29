@@ -39,6 +39,9 @@ export function ToolbarSelect({
     width: number;
     height: number;
   } | null>(null);
+  const focusValue = options.some((option) => option.value === value)
+    ? value
+    : options[0]?.value;
   const window = useWindowDimensions();
   useEffect(() => setAnchor(null), [window.width, window.height]);
   const close = () => {
@@ -148,7 +151,7 @@ export function ToolbarSelect({
                 {options.map((option) => (
                   <Pressable
                     key={option.value}
-                    ref={option.value === value ? selected : undefined}
+                    ref={option.value === focusValue ? selected : undefined}
                     testID={`${id}-option-${option.value}`}
                     accessibilityRole="radio"
                     accessibilityLabel={option.label}

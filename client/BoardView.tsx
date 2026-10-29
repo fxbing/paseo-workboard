@@ -33,6 +33,7 @@ import {
   stageAtX,
   moveCardToAnchor,
 } from "./board-utils";
+import type { ColumnLayout } from "./view-preferences";
 import { sortPriorityCards } from "./project-groups";
 import { groupTitle, stageTitle, strings } from "./strings";
 import {
@@ -74,6 +75,11 @@ export type BoardViewProps = {
   navigationActions?: ReactNode;
   hostId: string;
   layoutScope?: string;
+  columnLayout?: ColumnLayout;
+  onColumnWidthsChange?(
+    layoutKey: string,
+    widths: Record<string, number>,
+  ): void;
   priorityFirst?: boolean;
   cards: Card[];
   fullCards: Card[];
@@ -162,7 +168,18 @@ export function BoardView(props: BoardViewProps) {
   const contentWidth = useRef(0);
   const scrollX = useRef(0);
   const [height, setHeight] = useState(500);
-  const [widths, setWidths] = useState(() => loadColumnWidths(layoutKey));
+  const readWidths = () => {
+    const layout = props.columnLayout;
+    return layout
+      ? Object.fromEntries(
+          groups.map((group) => [
+            group.id,
+            layout.overrides[layoutKey]?.[group.id] ?? layout.width,
+          ]),
+        )
+      : loadColumnWidths(layoutKey);
+  };
+  const [widths, setWidths] = useState(readWidths);
   const [collapsed, setCollapsed] = useState(
     () => new Set(loadCollapsedColumns(layoutKey)),
   );
@@ -210,7 +227,9 @@ export function BoardView(props: BoardViewProps) {
     );
     widthsRef.current = next;
     setWidths(next);
-    if (!saveColumnWidths(layoutKey, next)) toast.error(t.layoutSaveFailed);
+    if (props.columnLayout) props.onColumnWidthsChange?.(layoutKey, next);
+    else if (!saveColumnWidths(layoutKey, next))
+      toast.error(t.layoutSaveFailed);
   };
   const setColumnCollapsed = (id: string, value: boolean) => {
     setCollapsed((current) => {
@@ -242,6 +261,12 @@ export function BoardView(props: BoardViewProps) {
     }
     clearGesture();
   };
+  useEffect(() => {
+    cancel();
+    const next = readWidths();
+    widthsRef.current = next;
+    setWidths(next);
+  }, [props.columnLayout, layoutKey, groupSignature]);
   const prioritySignature = props.fullCards
     .map((card) => `${card.id}:${card.priority ?? "p2"}`)
     .join("\n");

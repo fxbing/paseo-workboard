@@ -99,3 +99,22 @@ it("retains an explicit disabled priority-sort preference per host", () => {
   expect(loadViewPreferencesFrom(storage, "a").priorityFirst).toBe(false);
   expect(loadViewPreferencesFrom(storage, "b").priorityFirst).toBe(true);
 });
+
+it("retains host-wide widths and per-lane overrides, clamping stored widths", () => {
+  const storage = {
+    getItem: () =>
+      JSON.stringify({
+        columnLayout: { width: 100, overrides: { lane: { todo: 900 } } },
+      }),
+  };
+  expect(loadViewPreferencesFrom(storage, "host").columnLayout).toEqual({
+    width: 220,
+    overrides: { lane: { todo: 480 } },
+  });
+  expect(
+    loadViewPreferencesFrom(
+      { getItem: () => '{"columnLayout":{"width":"wide","overrides":{}}}' },
+      "host",
+    ).columnLayout,
+  ).toBeUndefined();
+});

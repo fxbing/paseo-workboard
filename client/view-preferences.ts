@@ -1,8 +1,18 @@
 import { Platform } from "react-native";
+import { z } from "zod";
+import { columnWidth } from "./board-utils";
+
+const widthSchema = z.number().finite().transform(columnWidth);
+const columnLayoutSchema = z.object({
+  width: widthSchema,
+  overrides: z.record(z.string(), z.record(z.string(), widthSchema)),
+});
+export type ColumnLayout = z.infer<typeof columnLayoutSchema>;
 
 export type ViewMode = "board" | "list";
 export type ViewPreferences = {
   mode: ViewMode;
+  columnLayout?: ColumnLayout;
   collapsedListGroups: string[];
   groupBy?: "status" | "project";
   priorityFirst?: boolean;
@@ -26,7 +36,9 @@ export function loadViewPreferencesFrom(
     const value = JSON.parse(storage.getItem(storageKey(host)) ?? "null");
     if (!value || typeof value !== "object" || Array.isArray(value))
       return defaults();
+    const columnLayout = columnLayoutSchema.safeParse(value.columnLayout);
     return {
+      ...(columnLayout.success ? { columnLayout: columnLayout.data } : {}),
       mode: value.mode === "list" ? "list" : "board",
       ...(value.groupBy === "project" || value.groupBy === "status"
         ? { groupBy: value.groupBy }
