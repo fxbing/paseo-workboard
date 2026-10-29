@@ -619,6 +619,8 @@ test("reorders cards after project scrolling and resizes columns with the pointe
   await expect(
     lane.getByTestId(`workboard-card-insertion-${stage}`),
   ).toBeVisible();
+  // Keep edge autoscroll from competing with the explicit scroll during this drag.
+  await page.mouse.move(0, 0);
   // Scroll the project ancestor during the gesture, without changing column size.
   const projectScroll = await lane.evaluate((node) => {
     type ScrollNode = {
