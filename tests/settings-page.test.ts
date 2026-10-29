@@ -261,62 +261,6 @@ it("adopts a completed save after leaving and reopening while it is pending", as
   ).toBe(true);
 });
 
-it("requires confirmation before enabling automatic archive with due workspaces", async () => {
-  const settings = settingsSchema.parse({ archiveDoneEnabled: false });
-  const timestamp = "2026-01-01T00:00:00.000Z";
-  const due = {
-    ...newTask("task", "Due task", timestamp, "done"),
-    workspaceId: "workspace",
-    lastConversationAt: timestamp,
-    conversationStatus: "known" as const,
-    conversationDisplayEvidence: "exact" as const,
-    conversationGateEvidence: "exact" as const,
-    conversationGateAt: timestamp,
-    stage: "done" as const,
-    labels: ["task:done"],
-    managedLabels: ["task:done"],
-    changeRequest: null,
-    changeRequestUnavailable: false,
-    activity: "idle" as const,
-    pinState: "none" as const,
-    dueAt: timestamp,
-    agents: [],
-  };
-  const initial = board(settings, [due]);
-  const saved = {
-    ...initial,
-    revision: 8,
-    settings: { ...settings, archiveDoneEnabled: true },
-  };
-  const mutate = vi.fn().mockResolvedValue(saved);
-  const toggle = findByTestId(
-    renderSettings(initial, mutate),
-    "workboard-auto-archive-done",
-  );
-
-  await (
-    toggle.props as { onValueChange(nextValue: boolean): Promise<void> }
-  ).onValueChange(true);
-  expect(mutate).not.toHaveBeenCalled();
-
-  const confirmation = findElement(
-    renderSettings(initial, mutate),
-    (element) => element.props.title === t.enableAutoArchive,
-    "automatic archive confirmation",
-  );
-  await (confirmation.props as { onConfirm(): Promise<boolean> }).onConfirm();
-
-  expect(mutate).toHaveBeenCalledWith(
-    {
-      action: "settings",
-      revision: 7,
-      expectedSettings: settings,
-      settings: { ...settings, archiveDoneEnabled: true },
-    },
-    "settings:done-archive",
-  );
-});
-
 it.each(["zh", "en"] as const)(
   "offers both archive resolutions with concurrency fields in %s",
   async (language) => {
@@ -802,7 +746,7 @@ it.each(["zh", "en"] as const)(
 );
 
 it.each(["zh", "en"] as const)(
-  "F05-R01 settings expose only In progress choices and persist an independent default in %s",
+  "settings expose only In progress choices and persist an independent default in %s",
   async (language) => {
     const settings = settingsSchema.parse({
       defaultStartGroup: "review",
@@ -862,7 +806,7 @@ it.each(["zh", "en"] as const)(
     expect(saved.settings.defaultStartGroup).toBe("review");
   },
 );
-it("F05-R01 displays a safe automatic choice for a persisted invalid start-work default", () => {
+it("displays a safe automatic choice for a persisted invalid start-work default", () => {
   const initial = board(
     settingsSchema.parse({ defaultStartWorkGroup: "done" }),
   );
@@ -989,7 +933,8 @@ it.each(["done", "canceled"] as const)(
   "previews overdue %s under the proposed rule, cancels without writes, then confirms the full settings",
   async (kind) => {
     const test = await archiveSettingsFixture();
-    const settings = test.store.current.settings;
+    const initial = test.board.snapshot();
+    const settings = initial.settings;
     await test.toggle(`auto-archive-${kind}`, true);
     expect(test.mutate).not.toHaveBeenCalled();
     expect(test.store.current.settings).toEqual(settings);
@@ -1012,6 +957,15 @@ it.each(["done", "canceled"] as const)(
     ).toBe(true);
     const key =
       kind === "done" ? "archiveDoneEnabled" : "archiveCanceledEnabled";
+    expect(test.mutate).toHaveBeenCalledExactlyOnceWith(
+      {
+        action: "settings",
+        revision: initial.revision,
+        expectedSettings: settings,
+        settings: { ...settings, [key]: true },
+      },
+      `settings:${kind}-archive`,
+    );
     expect(test.store.current.settings).toEqual({ ...settings, [key]: true });
     await test.board.refresh();
     expect(test.host.archive).toHaveBeenCalledExactlyOnceWith(kind);

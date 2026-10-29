@@ -431,7 +431,7 @@ it.each([
   ["deleted", "in-progress"],
   ["done", "in-progress"],
 ] as const)(
-  "F05-R01 starts directly in configured/fallback group %s without changing unlabeled import",
+  "starts directly in configured/fallback group %s without changing unlabeled import",
   async (configured, expected) => {
     const test = fixture({
       settings: settingsSchema.parse({
@@ -477,7 +477,7 @@ it.each([
     }
   },
 );
-it("F05-R01 rejects default start without any In progress group but retains explicit stage priority", async () => {
+it("rejects default start without any In progress group but retains explicit stage priority", async () => {
   const test = fixture({
     settings: settingsSchema.parse({
       groups: DEFAULT_GROUPS.filter((g) => g.kind !== "in-progress"),
@@ -504,7 +504,7 @@ it("F05-R01 rejects default start without any In progress group but retains expl
     test.board.dispose();
   }
 });
-it("F05-R01 retains pending binding and explicit stages before the configured default", async () => {
+it("retains pending binding and explicit stages before the configured default", async () => {
   const test = fixture({
     settings: settingsSchema.parse({ defaultStartWorkGroup: "in-progress" }),
     tasks: [newTask("draft", "Draft", "2026-09-01T00:00:00Z")],
@@ -541,7 +541,7 @@ it("F05-R01 retains pending binding and explicit stages before the configured de
   }
 });
 it.each(["done", "removed"])(
-  "F05-R01 refuses an invalid new start-work default %s without making stored data unparseable",
+  "refuses an invalid new start-work default %s without making stored data unparseable",
   async (defaultStartWorkGroup) => {
     const settings = settingsSchema.parse({});
     const test = fixture({ settings });
@@ -568,7 +568,7 @@ it.each(["done", "removed"])(
     }
   },
 );
-it("F05-R01 requires changing the selected start-work default before changing its type", async () => {
+it("requires changing the selected start-work default before changing its type", async () => {
   const settings = settingsSchema.parse({
     defaultStartWorkGroup: "in-progress",
   });
@@ -605,7 +605,7 @@ it("F05-R01 requires changing the selected start-work default before changing it
   }
 });
 it.each([1, 2, 3, 4, 5, 6, 7])(
-  "F05-R01 migrates v%s with an independent null start-work default",
+  "migrates v%s with an independent null start-work default",
   (version) => {
     const result = migrateData(
       { schemaVersion: version, settings: { defaultStartGroup: "review" } },
@@ -617,7 +617,7 @@ it.each([1, 2, 3, 4, 5, 6, 7])(
   },
 );
 
-it("F05-R01 client and server protect a selected empty working default until it is changed", async () => {
+it("client and server protect a selected empty working default until it is changed", async () => {
   const { groupDeleteReason } = await import("../client/board-utils");
   const settings = settingsSchema.parse({
     defaultStartWorkGroup: "working-two",
@@ -673,7 +673,7 @@ it("F05-R01 client and server protect a selected empty working default until it 
   }
 });
 
-it("F05-R01 keeps task occupancy ahead of default occupancy on both deletion paths", async () => {
+it("keeps task occupancy ahead of default occupancy on both deletion paths", async () => {
   const { groupDeleteReason } = await import("../client/board-utils");
   const settings = settingsSchema.parse({
     defaultStartWorkGroup: "in-progress",

@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  writeFile,
+  rm,
+  symlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -60,6 +67,7 @@ it("protects real dirty/untracked/unpushed Git work and requires an upstream", a
     git("add", "a");
     git("commit", "-m", "initial");
     expect(await checkGitSafety(root, true)).toBe("git-no-upstream");
+    expect(await checkGitSafety(root, false)).toBe("git-no-upstream");
     const remote = await mkdtemp(join(tmpdir(), "workboard-remote-"));
     try {
       execFileSync("git", ["init", "--bare", remote], { stdio: "ignore" });
@@ -82,16 +90,102 @@ it("protects real dirty/untracked/unpushed Git work and requires an upstream", a
     await rm(root, { recursive: true, force: true });
   }
 });
-it("allows an existing non-Git directory but not a missing directory", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "workboard-nongit-"));
-  const originalEnv = process.env;
-  try {
-    process.env = isolatedGitEnvironment(dir);
-    expect(await checkGitSafety(dir, false)).toBeNull();
-    await rm(dir, { recursive: true, force: true });
-    expect(await checkGitSafety(dir, false)).toBe("directory-unavailable");
-  } finally {
-    process.env = originalEnv;
-    await rm(dir, { recursive: true, force: true });
-  }
-});
+it.each(["C", "zh_CN.UTF-8", "de_DE.UTF-8"])(
+  "checks real non-Git and missing directories under %s",
+  async (locale) => {
+    const dir = await mkdtemp(join(tmpdir(), "workboard-nongit-"));
+    const originalEnv = process.env;
+    try {
+      process.env = {
+        ...isolatedGitEnvironment(dir),
+        LANG: locale,
+        LC_ALL: locale,
+        LANGUAGE: locale,
+      };
+      expect(await checkGitSafety(dir, false)).toBeNull();
+      expect(await checkGitSafety(dir, true)).toBe("git-unknown");
+      expect(await checkGitSafety("relative-directory", false)).toBe(
+        "directory-unavailable",
+      );
+      const file = join(dir, "file");
+      await writeFile(file, "not a directory");
+      expect(await checkGitSafety(file, false)).toBe("directory-unavailable");
+      await rm(dir, { recursive: true, force: true });
+      expect(await checkGitSafety(dir, false)).toBe("directory-unavailable");
+    } finally {
+      process.env = originalEnv;
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each(["invalid gitfile", "bare repository", "missing executable"])(
+  "rejects a real %s even for a non-Git project",
+  async (kind) => {
+    const dir = await mkdtemp(join(tmpdir(), "workboard-git-failure-"));
+    const originalEnv = process.env;
+    try {
+      process.env = isolatedGitEnvironment(dir);
+      if (kind === "invalid gitfile") {
+        await writeFile(join(dir, ".git"), `gitdir: ${join(dir, "missing")}\n`);
+      } else if (kind === "bare repository") {
+        execFileSync("git", ["init", "--bare", dir], { stdio: "ignore" });
+      } else {
+        process.env = {
+          ...Object.fromEntries(
+            Object.entries(process.env).filter(([key]) => !/^path$/i.test(key)),
+          ),
+          PATH: "",
+        };
+      }
+      expect(await checkGitSafety(dir, false)).toBe("git-unknown");
+    } finally {
+      process.env = originalEnv;
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+  "rejects unreadable Git metadata through direct, child and symlink paths",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "workboard-git-permissions-"));
+    const originalEnv = process.env;
+    const repo = join(root, "repo");
+    const metadata = join(repo, ".git");
+    try {
+      process.env = isolatedGitEnvironment(root);
+      execFileSync("git", ["init", repo], { stdio: "ignore" });
+      const child = join(repo, "child");
+      const link = join(root, "link");
+      await mkdir(child);
+      await symlink(child, link);
+      await chmod(metadata, 0);
+      for (const directory of [repo, child, link])
+        expect(await checkGitSafety(directory, false)).toBe("git-unknown");
+    } finally {
+      process.env = originalEnv;
+      await chmod(metadata, 0o700);
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+  "rejects a non-Git directory when its ancestor cannot be inspected",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "workboard-git-ancestor-"));
+    const originalEnv = process.env;
+    try {
+      process.env = isolatedGitEnvironment(root);
+      const child = join(root, "child");
+      await mkdir(child);
+      await chmod(root, 0o111);
+      expect(await checkGitSafety(child, false)).toBe("git-unknown");
+    } finally {
+      process.env = originalEnv;
+      await chmod(root, 0o700);
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

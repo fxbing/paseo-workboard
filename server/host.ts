@@ -2,7 +2,6 @@ import { isActiveActivity } from "../shared/model";
 import type {
   Board,
   Card,
-  ConversationAgent,
   ConversationDisplay,
   ConversationGate,
   ConversationReason,

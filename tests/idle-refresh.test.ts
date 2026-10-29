@@ -26,7 +26,7 @@ const recordedTask = (lastObservedAt: string) => ({
   ],
 });
 
-// Author requirement 1: a refresh does not wake an idle Agent.
+// A refresh must not wake an idle Agent.
 it("sends no per-agent request for an idle agent during refresh", async () => {
   const test = idleBoard({
     agents: [agent("parent", "2026-09-22T00:00:00.000Z")],
@@ -88,7 +88,7 @@ it("does not retry an idle parent's listing every minute, but still reads an act
   }
 });
 
-// Author requirement 2: the recorded time schedules a recheck and never authorizes archive.
+// The recorded time schedules a recheck and never authorizes archive.
 it("does not archive from an idle parent's updatedAt when a never-seen child is newer", async () => {
   const test = idleBoard({
     agents: [agent("parent", OLD)],
@@ -205,7 +205,7 @@ it("defers while the fresh listing shows a running child", async () => {
   }
 });
 
-// Author requirement 3 and 4: newer evidence postpones the next check, across refreshes and restarts.
+// Newer evidence postpones the next check across refreshes and restarts.
 it("keeps newer child evidence from repeating the same reads on every refresh", async () => {
   const test = idleBoard({
     agents: [agent("parent", OLD)],

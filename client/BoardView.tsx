@@ -120,17 +120,8 @@ export function displayCardsForStage(
 }
 
 export function BoardView(props: BoardViewProps) {
-  const {
-    cards,
-    groups,
-    compact,
-    stage,
-    setStage,
-    disabled,
-    t,
-    theme,
-    renderCard,
-  } = props;
+  const { groups, compact, stage, setStage, disabled, t, theme, renderCard } =
+    props;
   const toast = useToast();
   const layoutKey = props.layoutScope
     ? JSON.stringify([props.hostId, props.layoutScope])

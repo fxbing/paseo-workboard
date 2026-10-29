@@ -5,7 +5,7 @@ import type { Board } from "../shared/model";
 import { taskSections } from "./project-groups";
 import { design, typography } from "./design";
 
-/** Each native project is one collapsible lane with the original status columns and drag behavior. */
+/** Project lanes, including unassigned tasks, reuse the status columns and drag behavior. */
 export function ProjectBoardView(
   props: BoardViewProps & {
     projects: Board["projects"];

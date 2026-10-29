@@ -94,9 +94,9 @@ Use the [isolated integration fixture](tests/integration/README.md) for host-lev
 ## Limitations
 
 - Some label and workspace operations use an internal Paseo bridge that reuses the host session and validates responses. The manifest minimum does not guarantee compatibility with every later Paseo release; read the upgrade notes in [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) before upgrading.
-- Automatic archiving can stop Agents and terminals and may remove a managed worktree. Missing conversation evidence, including for children no longer listed, an incomplete provider-child inventory, or unsafe state postpones it. Subscription recovery requires a fresh child inventory before archive. Workboard cannot restore a native archive or a removed worktree.
+- Automatic archiving can stop Agents and terminals and may remove a managed worktree. Missing conversation evidence, incomplete child inventories, or unsafe state postpones it. Workboard cannot restore a native archive or a removed worktree. See the [archive guide](docs/user-guide.md#archive-workspaces) for the safety checks and recovery options.
 - Labels, archive state, and sidebar pins can change outside Workboard. The host does not expose every atomic operation; uncertain outcomes require manual review instead of destructive retries.
-- The supported clients are the Paseo Web and Electron desktop UI; native mobile is not a supported target. Within that target, the List view has been exercised in Chrome only, and Electron, long-duration edge autoscroll, and `Escape` or blur during an active drag remain unverified. Those interactions are implemented, including drag cancellation, not absent.
+- The supported clients are the Paseo Web and Electron desktop UI; native mobile is not a supported target. The automated UI smoke suite targets Chromium. Electron, long-duration edge autoscroll, and `Escape` or blur during an active drag remain unverified. Those interactions are implemented, including drag cancellation.
 
 ## License and acknowledgements
 

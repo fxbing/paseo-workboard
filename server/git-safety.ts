@@ -1,6 +1,6 @@
-import { execFile } from "node:child_process";
-import { stat } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { execFile, type ExecFileException } from "node:child_process";
+import { readdir, realpath, stat } from "node:fs/promises";
+import { dirname, isAbsolute } from "node:path";
 import { promisify } from "node:util";
 const execute = promisify(execFile);
 
@@ -22,6 +22,9 @@ export async function checkGitSafety(
         maxBuffer: 2 * 1024 * 1024,
         env: {
           ...process.env,
+          // Git has no distinct exit code for failed repository discovery.
+          LC_ALL: "C",
+          LANGUAGE: "C",
           GIT_TERMINAL_PROMPT: "0",
           GIT_OPTIONAL_LOCKS: "0",
         },
@@ -31,13 +34,34 @@ export async function checkGitSafety(
     try {
       await git("rev-parse", "--show-toplevel");
     } catch (error) {
-      const stderr =
-        error && typeof error === "object" && "stderr" in error
-          ? String(error.stderr)
-          : "";
-      return !isGit && stderr.includes("not a git repository")
-        ? null
-        : "git-unknown";
+      const failure = error as ExecFileException | null;
+      const stderr = failure?.stderr?.trim();
+      if (
+        isGit ||
+        failure?.code !== 128 ||
+        failure.killed ||
+        failure.signal ||
+        (stderr !==
+          "fatal: not a git repository (or any of the parent directories): .git" &&
+          !/^fatal: not a git repository \(or any parent up to mount point [^\r\n]+\)\r?\nStopping at filesystem boundary \(GIT_DISCOVERY_ACROSS_FILESYSTEM not set\)\.$/.test(
+            stderr ?? "",
+          ))
+      )
+        return "git-unknown";
+      // Git may report missing repositories for unreadable metadata as well.
+      // Reject markers and unreadable ancestors instead of treating them as absent.
+      let current = await realpath(directory);
+      for (;;) {
+        const entries = await readdir(current);
+        if (
+          entries.includes(".git") ||
+          ["HEAD", "objects", "refs"].every((name) => entries.includes(name))
+        )
+          return "git-unknown";
+        const parent = dirname(current);
+        if (parent === current) return null;
+        current = parent;
+      }
     }
     if (await git("status", "--porcelain=v1", "--untracked-files=all"))
       return "git-dirty";

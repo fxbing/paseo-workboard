@@ -83,6 +83,11 @@ Publishing requires push access to the target GitHub repository. This repository
 
 1. Review the README installation instructions, then put the validated source on the public
    repository's default branch. A release is only cut from a reviewed, merged revision.
+   Before tagging, validate that revision and check that the tarball to upload
+   contains its package files. If merging changed those files, repeat candidate
+   validation and packing from the merged revision. If the final package contents
+   or checksum differ from what was approved, present the final artifact and
+   obtain approval before tagging or uploading it.
 2. Create the annotated tag and the GitHub Release on that merge commit. The tag
    `vX.Y.Z` must match `package.json`. The Release body is the approved upgrade
    record; keep it to what users of the previous version need to know:

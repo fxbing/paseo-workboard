@@ -144,7 +144,7 @@ import { QuickCreate } from "../client/QuickCreate";
 import { useDragHandle } from "../client/drag-handle";
 import { ConfirmationModal } from "../client/ConfirmationModal";
 import { Modal } from "@getpaseo/plugin/client/react-native";
-import { Text, View } from "react-native";
+import { Text } from "react-native";
 import { HintProvider, HintButton } from "../client/Hint";
 
 const theme = {
@@ -1281,7 +1281,7 @@ function taskComponent(value: Card, extra: any = {}) {
     ...extra,
   });
 }
-it("U03 direct status and workspace actions can wrap in narrow columns", () => {
+it("direct status and workspace actions can wrap in narrow columns", () => {
   const tree = taskComponent(card("one", "review", "w")).render();
   const actions = find(
     tree,
@@ -1297,7 +1297,7 @@ it("U03 direct status and workspace actions can wrap in narrow columns", () => {
   });
 });
 it.each(["hover", "focus"])(
-  "U03 card actions show a background on %s and clear on exit",
+  "card actions show a background on %s and clear on exit",
   (mode) => {
     const tree = taskComponent(card("one", "review", "w")).render();
     const action = byLabel(tree, t.notes);
@@ -1318,7 +1318,7 @@ it.each(["hover", "focus"])(
     ).not.toBe(theme.colors.surface2);
   },
 );
-it("U05 card warnings use the metadata font size", () => {
+it("card warnings use the metadata font size", () => {
   const value = {
     ...card("one", "done", "w"),
     issue: "git-dirty",
@@ -1339,7 +1339,7 @@ it("U05 card warnings use the metadata font size", () => {
   }
 });
 it.each(["archived", "pending", "uncertain", "external"])(
-  "U06 operation ID visibility for %s",
+  "operation ID visibility for %s",
   (status) => {
     const value = {
       ...card("one"),
@@ -1370,7 +1370,7 @@ it.each(["archived", "pending", "uncertain", "external"])(
   },
 );
 it.each([false, true])(
-  "U07 BoardView passes actual handle visibility compact=%s",
+  "BoardView passes actual handle visibility compact=%s",
   (compact) => {
     const test = columns();
     test.props.compact = compact;
@@ -1382,19 +1382,17 @@ it.each([false, true])(
     const view = named(screen.render(), "BoardView");
     const value = view.props.renderCard(view.props.cards[0], !compact);
     const task = mount(value.type, value.props);
-    const title = find(
-      task.render(),
-      (e) =>
-        e.props.style &&
-        flattenStyle(e.props.style).gap === 6 &&
-        flattenStyle(e.props.style).alignItems === "flex-start",
+    const tree = task.render();
+    const title = byLabel(tree, `${t.edit}: ${value.props.card.title}`);
+    const titleRow = find(tree, (e) =>
+      [e.props.children].flat().includes(title),
     );
-    expect(flattenStyle(title.props.style).paddingRight ?? 0).toBe(
+    expect(flattenStyle(titleRow.props.style).paddingRight ?? 0).toBe(
       compact ? 0 : 36,
     );
   },
 );
-it("U08 compact active-filter count is a badge distinct from archive count", () => {
+it("compact active-filter count is a badge distinct from archive count", () => {
   runtime.filters = { ...DEFAULT_FILTERS, search: "one" };
   const screen = host();
   screen.props = { ...screen.props, layout: { compact: true } };
@@ -2051,7 +2049,7 @@ it.each([
   ["deleted", "in-progress"],
   ["done", "in-progress"],
 ] as const)(
-  "F05-R01 StartModal submits the configured/fallback working destination %s",
+  "StartModal submits the configured/fallback working destination %s",
   (configured, expected) => {
     runtime.query.data.settings = settingsSchema.parse({
       defaultStartWorkGroup: configured,
@@ -2102,7 +2100,7 @@ it.each([
 );
 
 it.each(["explicit", "binding", "no-group"])(
-  "F05-R01 StartModal preserves %s destination behavior",
+  "StartModal preserves %s destination behavior",
   (source) => {
     runtime.query.data.settings = settingsSchema.parse({
       defaultStartWorkGroup: "in-progress",
@@ -2167,7 +2165,7 @@ it.each(["explicit", "binding", "no-group"])(
     }
   },
 );
-it("F05-R01 submits the second working group from StartModal to the real Workboard mutation", async () => {
+it("submits the second working group from StartModal to the real Workboard mutation", async () => {
   const { fixture } = await import("./fixtures");
   const test = fixture({
     settings: settingsSchema.parse({

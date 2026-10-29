@@ -124,11 +124,11 @@ it.each([
   "#ffffffff",
   "rgb(255, 255, 255)",
   "rgba(255,255,255,0.5)",
-])("U01 reads light surfaces in %s", (surface) => {
+])("reads light surfaces in %s", (surface) => {
   expect(supplementalColor(colorTheme(surface), "light", "dark")).toBe("light");
 });
 it.each(["#000", "#000000", "#000000ff", "rgb(0, 0, 0)", "rgba(0,0,0,1)"])(
-  "U01 reads dark surfaces in %s",
+  "reads dark surfaces in %s",
   (surface) => {
     expect(supplementalColor(colorTheme(surface), "light", "dark")).toBe(
       "dark",
@@ -143,7 +143,7 @@ it.each([
   "rgb(-1,0,0)",
   "rgba(0,0,0,2)",
   "rgb(0,0)",
-])("U01 uses independent fixed fallbacks for invalid %s", (surface) => {
+])("uses independent fixed fallbacks for invalid %s", (surface) => {
   const colors = GROUP_COLORS.map((color) =>
     groupColorValue(color, colorTheme(surface)),
   );
@@ -153,7 +153,7 @@ it.each([
   );
   expect(colors).not.toContain("accent");
 });
-it("U02 gives all ten colors distinct light and dark palettes independent of semantic tokens", () => {
+it("gives all ten colors distinct light and dark palettes independent of semantic tokens", () => {
   const light = GROUP_COLORS.map((color) =>
     groupColorValue(color, colorTheme("#fff")),
   );
@@ -168,7 +168,7 @@ it("U02 gives all ten colors distinct light and dark palettes independent of sem
     expect(light[i]).not.toBe(dark[i]);
   }
 });
-it("U04 defaults share the native stage color mapping while preserving the host's named-color contract", () => {
+it("defaults share the native stage color mapping while preserving the host's named-color contract", () => {
   expect(DEFAULT_GROUPS.map(groupColorKey)).toEqual([
     "violet",
     "cyan",
@@ -190,7 +190,7 @@ it("U04 defaults share the native stage color mapping while preserving the host'
   expect(groupColorKey({ ...DEFAULT_GROUPS[0], color: "pink" })).toBe("pink");
 });
 
-it("U04 sends compatible native colors on real stage transitions", async () => {
+it("sends compatible native colors on real stage transitions", async () => {
   const test = fixture();
   test.inventory.workspaces.push(workspace("w", "Workspace", ["task:inbox"]));
   await test.board.start();
