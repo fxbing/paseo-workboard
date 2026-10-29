@@ -23,7 +23,7 @@ The interface follows Paseo's desktop/Web language and theme, with English and C
 
 ## See it in action
 
-The board can show one collapsible lane per project, with priority controls on each card. [Learn about grouping and priorities](docs/user-guide.md#project-grouping-and-priorities).
+The board can show one collapsible lane per project, with priority controls on each card. [Learn about grouping and priorities](https://github.com/fxbing/paseo-workboard/blob/main/docs/user-guide.md#project-grouping-and-priorities).
 
 ![Project board lanes and task priorities](images/project-priority-en.png)
 
@@ -43,9 +43,9 @@ Move a task to another group to update its managed status label. The recent move
 
 Group defaults, exclusive status labels, sidebar pinning, and optional automatic archive live in **Settings**.
 
-See the [archive guide](docs/user-guide.md#archive-workspaces) for independent Done and Canceled switches, always-visible waiting-period controls, and due-task confirmation.
+See the [archive guide](https://github.com/fxbing/paseo-workboard/blob/main/docs/user-guide.md#archive-workspaces) for independent Done and Canceled switches, always-visible waiting-period controls, and due-task confirmation.
 
-**Archive** shows only Workboard automatic archives and opens on completed records. **Undo archive** restores the workspace through Paseo and pauses automatic archiving until the task changes groups.
+**Archive** shows only Workboard automatic archives and opens on completed records. **Undo archive** restores an archived workspace through Paseo. Restoring a completed automatic archive in Paseo also returns it to the board on refresh. Both paths pause automatic archiving until a subsequent group change.
 
 ![Automatic archives and native workspace recovery](images/archive-en.png)
 
@@ -68,25 +68,25 @@ This tracks the default branch, which may include changes newer than the latest 
 3. **Start work.** Select a project: Git projects default to a Git worktree created and named by Paseo; non-Git projects use their project directory without path entry. You can change the creation method. A custom directory and attaching an existing workspace remain available. Start a conversation from the native workspace when needed; Workboard does not send a prompt for you.
 4. **Track progress.** Move tasks between groups using the status menu or drag handle. Use **Settings** to adjust groups, defaults, sidebar pinning, and automatic archiving.
 
-The [user guide](docs/user-guide.md) covers filters, ordering, undo, draft recovery, and settings.
+The [user guide](https://github.com/fxbing/paseo-workboard/blob/main/docs/user-guide.md) covers filters, ordering, undo, draft recovery, and settings.
 
 ## Documentation
 
-| Guide                                                                 | Contents                                           |
-| --------------------------------------------------------------------- | -------------------------------------------------- |
-| [User guide](docs/user-guide.md)                                      | Task workflow, views, groups, and settings         |
-| [Architecture](docs/architecture.md)                                  | Data ownership, synchronization, and safety checks |
-| [Releasing](docs/releasing.md)                                        | Package validation, tagging, and Release procedure |
-| [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) | Upgrade notes for every version                    |
+| Guide                                                                                    | Contents                                           |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| [User guide](https://github.com/fxbing/paseo-workboard/blob/main/docs/user-guide.md)     | Task workflow, views, groups, and settings         |
+| [Architecture](https://github.com/fxbing/paseo-workboard/blob/main/docs/architecture.md) | Data ownership, synchronization, and safety checks |
+| [Releasing](https://github.com/fxbing/paseo-workboard/blob/main/docs/releasing.md)       | Package validation, tagging, and Release procedure |
+| [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases)                    | Upgrade notes for every version                    |
 
 ## Contributing
 
 **Open an issue before opening a pull request**, or join an existing issue covering the same change. Describe the problem or use case and the intended result first. Keep each PR focused and link its issue.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for issue and PR contents, local setup, and required checks. AI coding assistants must also follow [AGENTS.md](AGENTS.md); `CLAUDE.md` links to the same instructions.
+See [CONTRIBUTING.md](https://github.com/fxbing/paseo-workboard/blob/main/CONTRIBUTING.md) for issue and PR contents, local setup, and required checks. AI coding assistants must also follow [AGENTS.md](https://github.com/fxbing/paseo-workboard/blob/main/AGENTS.md); `CLAUDE.md` links to the same instructions.
 
 For development, install Node.js (22.22.2 recommended, matching CI), npm, and Git.
-See [the setup guide](CONTRIBUTING.md#setup-and-checks) for requirements; no runtime manager is required:
+See [the setup guide](https://github.com/fxbing/paseo-workboard/blob/main/CONTRIBUTING.md#setup-and-checks) for requirements; no runtime manager is required:
 
 ```sh
 npm ci
@@ -94,12 +94,12 @@ npm run check
 npm run format:check
 ```
 
-Use the [isolated integration fixture](tests/integration/README.md) for host-level checks and local plugin evaluation.
+Use the [isolated integration fixture](https://github.com/fxbing/paseo-workboard/blob/main/tests/integration/README.md) for host-level checks and local plugin evaluation.
 
 ## Limitations
 
 - Some label and workspace operations use an internal Paseo bridge that reuses the host session and validates responses. The manifest minimum does not guarantee compatibility with every later Paseo release; read the upgrade notes in [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) before upgrading.
-- Automatic archiving can stop Agents and terminals and may remove a managed worktree. Missing conversation evidence, incomplete child inventories, or unsafe state postpones it. The Archive page shows only Workboard automatic archives and defaults to completed records. Undo archive asks Paseo to restore the workspace and pauses automatic archiving until the task changes groups. Recovery depends on the host’s retained directories and branches. See the [archive guide](docs/user-guide.md#archive-workspaces) for the safety checks and recovery options.
+- Automatic archiving can stop Agents and terminals and may remove a managed worktree. Missing conversation evidence, incomplete child inventories, or unsafe state postpones it. The Archive page shows only Workboard automatic archives and defaults to completed records. Undo archive asks Paseo to restore an archived workspace; an already active workspace needs no native restore. Native restoration of a completed automatic archive syncs on refresh. Both paths pause automatic archiving until a subsequent group change. Recovery depends on the host’s retained directories and branches. See the [archive guide](https://github.com/fxbing/paseo-workboard/blob/main/docs/user-guide.md#archive-workspaces) for the safety checks and recovery options.
 - Labels, archive state, and sidebar pins can change outside Workboard. The host does not expose every atomic operation; uncertain outcomes require manual review instead of destructive retries.
 - The supported clients are the Paseo Web and Electron desktop UI; native mobile is not a supported target. The automated UI smoke suite targets Chromium. Electron, long-duration edge autoscroll, and `Escape` or blur during an active drag remain unverified. Those interactions are implemented, including drag cancellation.
 

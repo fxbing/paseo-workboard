@@ -160,7 +160,7 @@ test.afterAll(async () => {
 });
 
 for (const language of ["en", "zh-CN"]) {
-  test(`automatic archive page restores native workspaces in ${language}`, async ({
+  test(`automatic archive page syncs ${language === "zh-CN" ? "external native restoration" : "Undo archive"} in ${language}`, async ({
     page,
   }, info) => {
     test.setTimeout(90_000);
@@ -205,14 +205,18 @@ for (const language of ["en", "zh-CN"]) {
     await page
       .getByRole("button", { name: /^(Archived|已归档) \(\d+\)$/ })
       .click();
-    await page
-      .getByTestId(`workboard-archive-${target.id}`)
-      .getByRole("button", { name: /^(Undo archive|撤销归档)$/ })
-      .click();
-    await page
-      .getByRole("button", { name: /^(Undo archive|撤销归档)$/, exact: true })
-      .last()
-      .click();
+    if (language === "zh-CN") {
+      await client.restoreWorkspace(target.workspaceId!);
+    } else {
+      await page
+        .getByTestId(`workboard-archive-${target.id}`)
+        .getByRole("button", { name: /^(Undo archive|撤销归档)$/ })
+        .click();
+      await page
+        .getByRole("button", { name: /^(Undo archive|撤销归档)$/, exact: true })
+        .last()
+        .click();
+    }
     await expect
       .poll(
         async () =>

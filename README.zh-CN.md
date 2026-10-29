@@ -23,7 +23,7 @@ Workboard 将活跃 workspace 汇集到同一个看板，每个 workspace 对应
 
 ## 操作演示
 
-看板可将每个项目显示为独立的可折叠分组，卡片上可以设置优先级。[查看项目分组与优先级用法](docs/zh-CN/user-guide.md#项目分组与优先级)。
+看板可将每个项目显示为独立的可折叠分组，卡片上可以设置优先级。[查看项目分组与优先级用法](https://github.com/fxbing/paseo-workboard/blob/main/docs/zh-CN/user-guide.md#项目分组与优先级)。
 
 ![项目分组与任务优先级](images/project-priority-zh-CN.png)
 
@@ -43,9 +43,9 @@ Workboard 将活跃 workspace 汇集到同一个看板，每个 workspace 对应
 
 分组默认值、状态标签互斥、侧边栏置顶及可选的自动归档可在**设置**中调整。
 
-已完成与已废弃的独立开关、始终显示的等待期限控件和到期确认流程见[归档指南](docs/zh-CN/user-guide.md#归档-workspace)。
+已完成与已废弃的独立开关、始终显示的等待期限控件和到期确认流程见[归档指南](https://github.com/fxbing/paseo-workboard/blob/main/docs/zh-CN/user-guide.md#归档-workspace)。
 
-**归档记录**仅显示 Workboard 自动归档，默认显示已归档记录。**撤销归档**通过 Paseo 恢复 workspace，并暂停自动归档，直到任务更换分组。
+**归档记录**仅显示 Workboard 自动归档，默认显示已归档记录。**撤销归档**通过 Paseo 恢复已归档 workspace。在 Paseo 原生界面恢复已完成的自动归档后，刷新也会将任务放回看板。两种方式都会暂停自动归档，直到后续更换分组。
 
 ![自动归档记录与原生 workspace 恢复](images/archive-zh-CN.png)
 
@@ -68,24 +68,24 @@ paseo plugin install github:fxbing/paseo-workboard
 3. **开始工作。** 选择项目后，Git 项目默认由 Paseo 自动创建并命名 Git worktree；非 Git 项目默认使用项目目录，无需手填路径。可手动切换创建方式。仍支持指定其他目录或关联已有 workspace，需要时再从原生 workspace 发起会话；Workboard 不会替你发送 prompt。
 4. **跟踪进展。** 使用状态菜单或拖动把手移动任务，在**设置**中调整分组、默认分组、侧边栏置顶与自动归档。
 
-[使用指南](docs/zh-CN/user-guide.md)详述了筛选、排序、撤销、草稿恢复与设置。
+[使用指南](https://github.com/fxbing/paseo-workboard/blob/main/docs/zh-CN/user-guide.md)详述了筛选、排序、撤销、草稿恢复与设置。
 
 ## 文档
 
-| 指南                                                                  | 内容                       |
-| --------------------------------------------------------------------- | -------------------------- |
-| [使用指南](docs/zh-CN/user-guide.md)                                  | 任务流程、视图、分组与设置 |
-| [架构](docs/zh-CN/architecture.md)                                    | 数据归属、同步与安全检查   |
-| [发布指南](docs/zh-CN/releasing.md)                                   | 包验证、打 tag 与 Release  |
-| [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) | 各版本升级说明             |
+| 指南                                                                                     | 内容                       |
+| ---------------------------------------------------------------------------------------- | -------------------------- |
+| [使用指南](https://github.com/fxbing/paseo-workboard/blob/main/docs/zh-CN/user-guide.md) | 任务流程、视图、分组与设置 |
+| [架构](https://github.com/fxbing/paseo-workboard/blob/main/docs/zh-CN/architecture.md)   | 数据归属、同步与安全检查   |
+| [发布指南](https://github.com/fxbing/paseo-workboard/blob/main/docs/zh-CN/releasing.md)  | 包验证、打 tag 与 Release  |
+| [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases)                    | 各版本升级说明             |
 
 ## 参与贡献
 
 **先提 Issue，再提 PR**；已有覆盖同一改动的 Issue 时，直接参与已有讨论。先说明问题或使用场景与预期结果，每个 PR 聚焦一个改动，并关联对应 Issue。
 
-Issue 与 PR 应包含的内容、本地环境和检查要求见[贡献指南](CONTRIBUTING.zh-CN.md)。AI 编程助手还需遵循 [AGENTS.md](AGENTS.md)；`CLAUDE.md` 软链到同一份规则。
+Issue 与 PR 应包含的内容、本地环境和检查要求见[贡献指南](https://github.com/fxbing/paseo-workboard/blob/main/CONTRIBUTING.zh-CN.md)。AI 编程助手还需遵循 [AGENTS.md](https://github.com/fxbing/paseo-workboard/blob/main/AGENTS.md)；`CLAUDE.md` 软链到同一份规则。
 
-开发需要 Node.js（建议使用与 CI 一致的 22.22.2）、npm 和 Git，无需特定运行时管理器。具体要求见[环境与检查](CONTRIBUTING.zh-CN.md#环境与检查)：
+开发需要 Node.js（建议使用与 CI 一致的 22.22.2）、npm 和 Git，无需特定运行时管理器。具体要求见[环境与检查](https://github.com/fxbing/paseo-workboard/blob/main/CONTRIBUTING.zh-CN.md#环境与检查)：
 
 ```sh
 npm ci
@@ -93,12 +93,12 @@ npm run check
 npm run format:check
 ```
 
-宿主级检查与本地插件评估使用[隔离集成环境](tests/integration/README.zh-CN.md)。
+宿主级检查与本地插件评估使用[隔离集成环境](https://github.com/fxbing/paseo-workboard/blob/main/tests/integration/README.zh-CN.md)。
 
 ## 限制
 
 - 部分标签与 workspace 操作通过 Paseo 内部桥接完成，复用宿主会话并校验响应。manifest 的最低版本不代表兼容所有后续版本，升级前请查看 [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) 中的升级说明。
-- 自动归档可能停止 Agent 与 terminal，并可能移除托管 worktree。缺少对话证据、子 Agent 清单不完整或状态不安全时会延期。归档页仅显示 Workboard 自动归档，默认显示已归档记录。“撤销归档”通过 Paseo 恢复 workspace，并暂停该任务的自动归档，直到更换分组；能否恢复取决于宿主保留的目录和分支。安全检查与恢复选项详见[归档指南](docs/zh-CN/user-guide.md#归档-workspace)。
+- 自动归档可能停止 Agent 与 terminal，并可能移除托管 worktree。缺少对话证据、子 Agent 清单不完整或状态不安全时会延期。归档页仅显示 Workboard 自动归档，默认显示已归档记录。“撤销归档”通过 Paseo 恢复已归档 workspace；已活跃时无需再次调用原生恢复。在原生界面恢复已完成的自动归档后，刷新会同步状态。两种方式都会暂停自动归档，直到后续更换分组；能否恢复取决于宿主保留的目录和分支。安全检查与恢复选项详见[归档指南](https://github.com/fxbing/paseo-workboard/blob/main/docs/zh-CN/user-guide.md#归档-workspace)。
 - 标签、归档状态和侧边栏置顶可在 Workboard 外变化。宿主未提供全部原子操作，结果不确定时需要人工核实，不会进行破坏性重试。
 - 支持目标为 Paseo Web 与 Electron 桌面界面，原生移动端不在支持范围内。自动化 UI 冒烟测试以 Chromium 为目标。Electron、长时间边缘自动滚动，以及拖动过程中的 `Escape` 或失焦仍待验证。这些交互均已实现，包括拖动取消。
 

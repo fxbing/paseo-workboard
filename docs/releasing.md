@@ -27,7 +27,7 @@ Paseo loads the TypeScript client/server entries and their relative modules. All
 
 The packed package includes the manifest, entries, `client/`, `server/`, `shared/`, both READMEs, both `OVERVIEW` files, `images/` (icon, screenshots and GIFs) and the MIT license. Tests, development scripts, daemon data, logs, credentials and `node_modules` are excluded.
 
-`npm run check:package` checks the package identity/version, manifest minimum, README sections used by Cafe, the complete file list, referenced media signatures and icon dimensions. The CI workflow runs these checks and creates a downloadable tarball for inspection. Nothing in CI publishes.
+`npm run check:package` checks the package identity/version, manifest minimum, README sections used by Cafe, the complete file list, relative README link targets, referenced media signatures and icon dimensions. The CI workflow runs these checks and creates a downloadable tarball for inspection. Nothing in CI publishes.
 
 ## Prepare and validate a candidate
 

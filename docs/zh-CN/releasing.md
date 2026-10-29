@@ -19,7 +19,7 @@ Paseo 加载 TypeScript 客户端/服务端入口及相对模块，所有外部�
 
 打包内容包含 manifest、入口、`client/`、`server/`、`shared/`、中英文 README、两份 `OVERVIEW`、`images/`（图标、截图和 GIF）以及 MIT 许可证。测试、开发脚本、daemon 数据、日志、凭证与 `node_modules` 不进入发布包。
 
-`npm run check:package` 检查包身份/版本、manifest 最低版本、Cafe 提取所需 README 标题、完整文件清单、引用素材的文件签名和图标尺寸。CI 执行这些检查并生成可下载的 tarball 供审查，CI 中不存在任何发布动作。
+`npm run check:package` 检查包身份/版本、manifest 最低版本、Cafe 提取所需 README 标题、完整文件清单、README 相对链接目标、引用素材的文件签名和图标尺寸。CI 执行这些检查并生成可下载的 tarball 供审查，CI 中不存在任何发布动作。
 
 ## 准备并验证候选版本
 

@@ -833,3 +833,114 @@ it("clears startup reservations for a binding overwritten by a workspace merge",
     test.board.dispose();
   }
 });
+
+it.each(["done", "canceled"])(
+  "reconciles a native restoration into %s and pauses automatic archive",
+  async (stage) => {
+    const test = fixture({
+      tasks: [archivedAutomatic()],
+      settings: settingsSchema.parse({
+        archiveDoneEnabled: true,
+        archiveCanceledEnabled: true,
+      }),
+    });
+    await test.board.start();
+    try {
+      const stale = undoInput(test.board.snapshot().cards[0]);
+      test.inventory.workspaces.push(
+        workspace("w", "Restored", [`task:${stage}`]),
+      );
+      test.inventory.agents.push({
+        id: "a",
+        workspaceId: "w",
+        title: null,
+        updatedAt: "2026-08-01T00:00:00Z",
+        lastUserMessageAt: "2026-08-01T00:00:00Z",
+        activity: "idle",
+      });
+      test.host.conversation = agentEvidence("2026-08-01T00:00:00Z");
+      await test.board.refresh();
+      expect(test.board.snapshot().cards[0]).toMatchObject({
+        archived: null,
+        autoArchivePaused: true,
+        stage,
+        dueAt: null,
+      });
+      await expect(test.board.mutate(stale)).rejects.toThrow(
+        "archive-resolution-stale",
+      );
+      await test.board.refresh();
+      expect(test.host.archive).not.toHaveBeenCalled();
+      const reopened = new Workboard(
+        test.host,
+        new Store(test.backing),
+        test.now,
+      );
+      try {
+        await reopened.start();
+        expect(reopened.snapshot().cards[0].autoArchivePaused).toBe(true);
+        expect(test.host.archive).not.toHaveBeenCalled();
+        test.inventory.workspaces[0].labels = ["task:review"];
+        await reopened.refresh();
+        expect(reopened.snapshot().cards[0].autoArchivePaused).toBeUndefined();
+      } finally {
+        reopened.dispose();
+      }
+    } finally {
+      test.board.dispose();
+    }
+  },
+);
+
+it("undoes a completed archive already restored natively before refresh without a restore preflight", async () => {
+  const test = fixture({ tasks: [archivedAutomatic()] });
+  await test.board.start();
+  try {
+    test.inventory.workspaces.push(workspace("w", "Restored", ["task:done"]));
+    test.host.checkRestore = vi.fn(async () => {
+      throw new Error("archive-recovery-unavailable");
+    });
+    await test.board.mutate(undoInput(test.board.snapshot().cards[0]));
+    expect(test.board.snapshot().cards[0]).toMatchObject({
+      archived: null,
+      autoArchivePaused: true,
+    });
+    expect(test.host.checkRestore).not.toHaveBeenCalled();
+    expect(test.host.restore).not.toHaveBeenCalled();
+  } finally {
+    test.board.dispose();
+  }
+});
+
+it.each([
+  "archiving",
+  "pending",
+  "uncertain",
+  "undo-pending",
+  "undo-uncertain",
+] as const)(
+  "retains %s archive state when the workspace is active",
+  async (state) => {
+    const test = fixture({ tasks: [archivedAutomatic()] });
+    await test.board.start();
+    try {
+      await test.store.update((data) => {
+        const archive = data.tasks[0].archived!;
+        if (state === "pending" || state === "uncertain")
+          archive.status = state;
+        if (state === "undo-pending") archive.undo = "pending";
+        if (state === "undo-uncertain") archive.undo = "uncertain";
+      });
+      const before = structuredClone(test.store.current.tasks[0].archived);
+      test.inventory.workspaces.push({
+        ...workspace("w", "Restored", ["task:done"]),
+        archivingAt: state === "archiving" ? "2026-09-23T00:00:00Z" : null,
+      });
+      await test.board.refresh();
+      expect(test.store.current.tasks[0].archived).toEqual(before);
+      expect(test.host.restore).not.toHaveBeenCalled();
+    } finally {
+      test.board.dispose();
+    }
+  },
+);

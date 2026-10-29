@@ -575,7 +575,15 @@ export class Workboard {
           };
           data.tasks.push(task);
         }
-        if (task.archived?.status === "external") task.archived = null;
+        const restored =
+          !workspace.archivingAt &&
+          task.archived?.kind === "automatic" &&
+          task.archived.status === "archived" &&
+          !task.archived.undo;
+        if (task.archived?.status === "external" || restored) {
+          task.archived = null;
+          task.updatedAt = this.stamp(task.updatedAt);
+        }
         task.title = workspace.name;
         task.projectId = workspace.projectId;
         task.projectName = workspace.projectDisplayName;
@@ -631,6 +639,7 @@ export class Workboard {
           (task.resolvedStage ?? priorStage) !== stage
         )
           delete task.autoArchivePaused;
+        if (restored) task.autoArchivePaused = true;
         task.lastStage = stage;
         // A clean observation refreshes the newest-wins attribution baseline; a conflict
         // must not, or one failed sync would make every later conflict unattributable.
@@ -2136,10 +2145,9 @@ export class Workboard {
     )
       throw new Error("archive-group-unavailable");
     if (archive.undo === "pending") throw new Error("archive-undo-pending");
-    const activeInventory =
-      !archive.undo && archive.status === "uncertain"
-        ? await this.readInventory()
-        : undefined;
+    const activeInventory = !archive.undo
+      ? await this.readInventory()
+      : undefined;
     const activeWorkspace = activeInventory?.workspaces.find(
       (item) => item.id === task.workspaceId,
     );
@@ -2179,7 +2187,7 @@ export class Workboard {
           activeWorkspace &&
           (current.updatedAt !== input.updatedAt ||
             current.archived?.operationId !== input.operationId ||
-            current.archived.status !== "uncertain")
+            current.archived.status !== archive.status)
         )
           throw new Error("archive-resolution-stale");
         current.archived = null;

@@ -82,6 +82,19 @@ assert.deepEqual(
   expected,
   "Package must include all runtime sources and only the approved public files",
 );
+for (const readme of ["README.md", "README.zh-CN.md"]) {
+  for (const match of readFileSync(readme, "utf8").matchAll(
+    /\]\(([^\s)]+)\)/g,
+  )) {
+    const target = match[1];
+    if (/^(?:[a-z][a-z\d+.-]*:|#)/i.test(target)) continue;
+    const file = target.split(/[?#]/)[0].replace(/^\.\//, "");
+    assert.ok(
+      expected.includes(file),
+      `${readme}: link target is missing from package: ${target}`,
+    );
+  }
+}
 console.log(
   `${packed.name}@${packed.version}: ${expected.length} files, ${packed.size} bytes; package checks passed.`,
 );

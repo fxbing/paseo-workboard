@@ -1371,69 +1371,98 @@ describe.skipIf(offsetRun)("isolated Paseo workboard", () => {
 describe.runIf(offsetRun)(
   "isolated Paseo workboard with a clock offset",
   () => {
-    test("archives an old idle fixture conversation and undoes its native archive", async () => {
-      const directory = path.join(
-        home,
-        "integration-archive",
-        String(Date.now()),
-      );
-      await mkdir(directory, { recursive: true });
-      const workspace = await client.createWorkspace({
-        source: { kind: "directory", path: directory },
-        title: "integration old conversation",
-      });
-      const workspaceId = workspace.workspace?.id;
-      if (!workspaceId)
-        throw new Error("Paseo did not create the fixture workspace");
-      const agent = await client.createAgent({
-        provider: fixtureId,
-        model: "fixture-model",
-        cwd: directory,
-        workspaceId,
-      });
-      const agentId = agent.id;
-      // A fresh Agent starts with history:"skip". Refresh reopens the persisted,
-      // still-active provider session with history:"replay" without archiving it.
-      await client.refreshAgent(agentId);
-      const history = await client.fetchAgentTimeline(agentId, {
-        direction: "tail",
-        limit: 20,
-      });
-      expect(
-        history.entries
-          .filter(
-            (entry) =>
-              entry.item.type === "user_message" ||
-              entry.item.type === "assistant_message",
-          )
-          .map((entry) => entry.timestamp),
-      ).toEqual(["2025-01-02T03:04:05.000Z", "2025-01-02T03:04:06.000Z"]);
-      await client.setWorkspaceLabel({
-        workspaceId,
-        label: { name: "task:done", color: "emerald" },
-        assigned: true,
-      });
+    test.each(["workboard", "native"] as const)(
+      "archives an old idle fixture conversation and restores through %s",
+      async (recovery) => {
+        const directory = path.join(
+          home,
+          "integration-archive",
+          String(Date.now()),
+        );
+        await mkdir(directory, { recursive: true });
+        const workspace = await client.createWorkspace({
+          source: { kind: "directory", path: directory },
+          title: "integration old conversation",
+        });
+        const workspaceId = workspace.workspace?.id;
+        if (!workspaceId)
+          throw new Error("Paseo did not create the fixture workspace");
+        const agent = await client.createAgent({
+          provider: fixtureId,
+          model: "fixture-model",
+          cwd: directory,
+          workspaceId,
+        });
+        const agentId = agent.id;
+        // A fresh Agent starts with history:"skip". Refresh reopens the persisted,
+        // still-active provider session with history:"replay" without archiving it.
+        await client.refreshAgent(agentId);
+        const history = await client.fetchAgentTimeline(agentId, {
+          direction: "tail",
+          limit: 20,
+        });
+        expect(
+          history.entries
+            .filter(
+              (entry) =>
+                entry.item.type === "user_message" ||
+                entry.item.type === "assistant_message",
+            )
+            .map((entry) => entry.timestamp),
+        ).toEqual(["2025-01-02T03:04:05.000Z", "2025-01-02T03:04:06.000Z"]);
+        await client.setWorkspaceLabel({
+          workspaceId,
+          label: { name: "task:done", color: "emerald" },
+          assigned: true,
+        });
 
-      await updateSettings({
-        archiveDoneEnabled: true,
-        archiveCanceledEnabled: true,
-      });
-      const archived = await eventually(
-        snapshot,
-        (board) =>
-          board.cards.some(
-            (card) =>
-              card.workspaceId === workspaceId &&
-              card.archived?.status === "archived",
-          ),
-        "old fixture conversation was not archived",
-      );
-      expect(
-        archived.cards.find((card) => card.workspaceId === workspaceId)
-          ?.archived?.status,
-      ).toBe("archived");
-      await undoNativeArchive(archived, workspaceId);
-    });
+        await updateSettings({
+          archiveDoneEnabled: true,
+          archiveCanceledEnabled: true,
+        });
+        const archived = await eventually(
+          snapshot,
+          (board) =>
+            board.cards.some(
+              (card) =>
+                card.workspaceId === workspaceId &&
+                card.archived?.status === "archived",
+            ),
+          "old fixture conversation was not archived",
+        );
+        expect(
+          archived.cards.find((card) => card.workspaceId === workspaceId)
+            ?.archived?.status,
+        ).toBe("archived");
+        if (recovery === "workboard") {
+          await undoNativeArchive(archived, workspaceId);
+        } else {
+          await client.restoreWorkspace(workspaceId);
+          expect(
+            await client.inspectWorkspaceRecovery(workspaceId),
+          ).toMatchObject({ kind: "unavailable" });
+          const restored = await eventually(
+            snapshot,
+            (board) =>
+              board.cards.find((card) => card.workspaceId === workspaceId)
+                ?.archived === null,
+            "native restoration did not reconcile",
+          );
+          expect(
+            restored.cards.find((card) => card.workspaceId === workspaceId),
+          ).toMatchObject({
+            autoArchivePaused: true,
+            stage: "done",
+            dueAt: null,
+          });
+          await client.reloadPlugin(pluginId);
+          const restarted = await readyBoard();
+          expect(
+            restarted.cards.find((card) => card.workspaceId === workspaceId),
+          ).toMatchObject({ archived: null, autoArchivePaused: true });
+        }
+      },
+    );
 
     test("archives a managed worktree and restores it through native undo", async () => {
       await updateSettings({

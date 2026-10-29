@@ -4217,3 +4217,155 @@ it("applies a width preset to mounted and later opened lanes, retaining single-c
     expect.objectContaining({ inbox: 240 }),
   );
 });
+
+it.each(["same group", "other group", "none"])(
+  "settings group editor preserves its opening baseline with %s concurrent changes",
+  async (change) => {
+    const { SettingsPage } = await import("../client/WorkboardScreen");
+    const { GroupSettings, GroupEditor } = await import(
+      "../client/GroupSettings"
+    );
+    const { fixture } = await import("./fixtures");
+    const test = fixture();
+    await test.board.start();
+    try {
+      const mutate = vi.fn(async (input) => {
+        try {
+          return await test.board.mutate(input);
+        } catch {
+          return undefined;
+        }
+      });
+      const page = mount(SettingsPage, {
+        board: test.board.snapshot(),
+        mutate,
+        disabled: false,
+        saving: false,
+        t,
+        theme,
+      });
+      const panel = mount(
+        GroupSettings,
+        named(page.render(), "GroupSettings").props,
+      );
+      const original = test.board
+        .snapshot()
+        .settings.groups.find((g) => g.id === "todo")!;
+      byLabel(
+        panel.render(),
+        `${t.editGroup}: ${original.name ?? t.stages[original.kind]}`,
+      ).props.onPress();
+      let editorElement = named(panel.render(), "GroupEditor");
+      const editor = mount(GroupEditor, editorElement.props);
+      const formElement = named(editor.render(), "GroupForm");
+      const form = mount(formElement.type, formElement.props);
+      find(
+        form.render(),
+        (e) => e.props.label === t.groupName,
+      ).props.onChangeText("Renamed");
+      if (change !== "none") {
+        const b = test.board.snapshot();
+        await test.board.mutate({
+          action: "settings",
+          revision: b.revision,
+          expectedSettings: b.settings,
+          settings: {
+            ...b.settings,
+            groups: b.settings.groups.map((g) =>
+              g.id === (change === "same group" ? "todo" : "review")
+                ? { ...g, label: "task:changed-by-b" }
+                : g,
+            ),
+          },
+        });
+      }
+      page.props.board = test.board.snapshot();
+      panel.props = named(page.render(), "GroupSettings").props;
+      editorElement = named(panel.render(), "GroupEditor");
+      editor.props = editorElement.props;
+      form.props = named(editor.render(), "GroupForm").props;
+      await find(
+        form.render(),
+        (e) =>
+          e.props.accessibilityRole === "button" &&
+          text(e.props.children) === t.save,
+      ).props.onPress();
+      const groups = test.board.snapshot().settings.groups;
+      if (change === "none") {
+        expect(groups.find((g) => g.id === "todo")?.name).toBe("Renamed");
+        expect(groups.find((g) => g.id === "review")).toEqual(
+          page.props.board.settings.groups.find((g: any) => g.id === "review"),
+        );
+      } else {
+        expect(groups.find((g) => g.id === "todo")?.name).toBe(original.name);
+        expect(
+          groups.find(
+            (g) => g.id === (change === "same group" ? "todo" : "review"),
+          )?.label,
+        ).toBe("task:changed-by-b");
+        expect(text(form.render())).toContain(t.groupSaveFailed);
+      }
+    } finally {
+      test.board.dispose();
+    }
+  },
+);
+
+it("group deletion rejects settings changed after confirmation opened", async () => {
+  const { SettingsPage } = await import("../client/WorkboardScreen");
+  const { GroupSettings } = await import("../client/GroupSettings");
+  const { fixture } = await import("./fixtures");
+  const test = fixture();
+  await test.board.start();
+  try {
+    const mutate = vi.fn(async (input) => {
+      try {
+        return await test.board.mutate(input);
+      } catch {
+        return undefined;
+      }
+    });
+    const page = mount(SettingsPage, {
+      board: test.board.snapshot(),
+      mutate,
+      disabled: false,
+      saving: false,
+      t,
+      theme,
+    });
+    const panel = mount(
+      GroupSettings,
+      named(page.render(), "GroupSettings").props,
+    );
+    const group = test.board
+      .snapshot()
+      .settings.groups.find((g) => g.id === "review")!;
+    byLabel(
+      panel.render(),
+      `${t.deleteGroup}: ${group.name ?? t.stages[group.kind]}`,
+    ).props.onPress();
+    const b = test.board.snapshot();
+    await test.board.mutate({
+      action: "settings",
+      revision: b.revision,
+      expectedSettings: b.settings,
+      settings: {
+        ...b.settings,
+        groups: b.settings.groups.map((g) =>
+          g.id === "review" ? { ...g, label: "task:changed-by-b" } : g,
+        ),
+      },
+    });
+    page.props.board = test.board.snapshot();
+    panel.props = named(page.render(), "GroupSettings").props;
+    expect(
+      await named(panel.render(), "ConfirmationModal").props.onConfirm(),
+    ).toBe(false);
+    expect(
+      test.board.snapshot().settings.groups.find((g) => g.id === "review")
+        ?.label,
+    ).toBe("task:changed-by-b");
+  } finally {
+    test.board.dispose();
+  }
+});

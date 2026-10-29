@@ -54,8 +54,16 @@ export function GroupSettings({
   t,
   theme,
 }: Props) {
-  const [editing, setEditing] = useState<Group | null>(null);
-  const [deleting, setDeleting] = useState<Group | null>(null);
+  const [editing, setEditing] = useState<{
+    group: Group;
+    groups: Group[];
+    onChange: Props["onChange"];
+  } | null>(null);
+  const [deleting, setDeleting] = useState<{
+    group: Group;
+    groups: Group[];
+    onChange: Props["onChange"];
+  } | null>(null);
   return (
     <SettingsSection
       title={t.groups}
@@ -63,7 +71,9 @@ export function GroupSettings({
         <Pressable
           accessibilityRole="button"
           disabled={disabled}
-          onPress={() => setEditing(newGroup(groups))}
+          onPress={() =>
+            setEditing({ group: newGroup(groups), groups, onChange })
+          }
           style={styles.button}
         >
           <Icon
@@ -136,7 +146,7 @@ export function GroupSettings({
                   accessibilityRole="button"
                   accessibilityLabel={`${t.editGroup}: ${title}`}
                   disabled={disabled}
-                  onPress={() => setEditing(group)}
+                  onPress={() => setEditing({ group, groups, onChange })}
                   style={styles.button}
                 >
                   <Icon
@@ -149,7 +159,7 @@ export function GroupSettings({
                   accessibilityRole="button"
                   accessibilityLabel={`${t.deleteGroup}: ${title}${reason ? ` · ${t[reason]}` : ""}`}
                   disabled={cannotDelete}
-                  onPress={() => setDeleting(group)}
+                  onPress={() => setDeleting({ group, groups, onChange })}
                   style={styles.button}
                 >
                   <Icon
@@ -172,33 +182,39 @@ export function GroupSettings({
           title={t.deleteGroup}
           description={t.deleteGroupConfirm.replace(
             "{name}",
-            groupTitle(deleting, t),
+            groupTitle(deleting.group, t),
           )}
           confirmLabel={t.deleteGroup}
           disabled={
             disabled ||
-            groupDeleteReason(board.cards, groups, deleting, board.settings) !==
-              null
+            groupDeleteReason(
+              board.cards,
+              groups,
+              deleting.group,
+              board.settings,
+            ) !== null
           }
           t={t}
           theme={theme}
           onClose={() => setDeleting(null)}
           onConfirm={() =>
-            onChange(groups.filter((item) => item.id !== deleting.id))
+            deleting.onChange(
+              deleting.groups.filter((item) => item.id !== deleting.group.id),
+            )
           }
         />
       )}
       {editing && (
         <GroupEditor
           board={board}
-          groups={groups}
-          group={editing}
+          groups={editing.groups}
+          group={editing.group}
           disabled={disabled || saving}
           saving={saving}
           t={t}
           theme={theme}
           onClose={() => setEditing(null)}
-          onChange={onChange}
+          onChange={editing.onChange}
         />
       )}
     </SettingsSection>
