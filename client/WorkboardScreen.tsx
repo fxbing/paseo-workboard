@@ -3629,7 +3629,11 @@ export function mutationErrorText(
     ...t.bootErrors,
     [CANCEL_BINDING_BUSY_ERROR_CODE]: t.cancelBindingBusy,
   };
-  return Object.hasOwn(messages, error.message)
-    ? messages[error.message]
+  const message = error.message.replace(
+    /^Request failed: (.*) requestType=plugin\.rpc\.invoke\.request code=handler_error$/,
+    "$1",
+  );
+  return Object.hasOwn(messages, message)
+    ? messages[message]
     : t.confirmationFailed;
 }

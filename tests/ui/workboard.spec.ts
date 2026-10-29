@@ -274,6 +274,125 @@ test("creates a draft through the page and displays it in Board and List", async
   expect(pageErrors).toEqual([]);
 });
 
+for (const view of ["Board", "List"] as const) {
+  test(`${view} keeps a concurrently edited group after stale deletion confirmation`, async ({
+    browser,
+    page,
+  }) => {
+    const stamp = Date.now();
+    const id = `ui-delete-${view.toLowerCase()}-${stamp}`;
+    const oldName = `Review ${view} ${stamp}`;
+    const newName = `Updated ${view} ${stamp}`;
+    const newLabel = `task:updated-${view.toLowerCase()}-${stamp}`;
+    const before = await snapshot();
+    await client.invokePluginRpc(pluginId, "workboard.mutate", {
+      action: "settings",
+      revision: before.revision,
+      expectedSettings: before.settings,
+      settings: {
+        ...before.settings,
+        groups: [
+          ...before.settings.groups,
+          {
+            id,
+            kind: "review",
+            name: oldName,
+            label: `task:ui-delete-${view.toLowerCase()}-${stamp}`,
+          },
+        ],
+      },
+    });
+
+    const secondContext = await browser.newContext({ locale: "en-US" });
+    const secondPage = await secondContext.newPage();
+    try {
+      await openWorkboard(page);
+      await openWorkboard(secondPage);
+      if (view === "List")
+        await page.getByTestId("workboard-view-list").click();
+
+      const group = page.getByTestId(
+        view === "Board"
+          ? `workboard-column-${id}`
+          : `workboard-list-group-${id}`,
+      );
+      const menu = page.getByTestId(
+        view === "Board"
+          ? `workboard-column-menu-${id}`
+          : `workboard-list-group-menu-${id}`,
+      );
+      await menu.scrollIntoViewIfNeeded();
+      await menu.click();
+      await page.getByRole("button", { name: "Delete group" }).click();
+      const oldConfirmation = `Delete group “${oldName}”? This cannot be undone.`;
+      await expect(
+        page.getByText(oldConfirmation, { exact: true }),
+      ).toBeVisible();
+
+      await secondPage
+        .getByRole("button", { name: "Settings", exact: true })
+        .last()
+        .click();
+      await secondPage
+        .getByTestId(`workboard-group-${id}`)
+        .getByRole("button", { name: `Edit group: ${oldName}` })
+        .click();
+      await secondPage
+        .getByRole("textbox", { name: "Group name" })
+        .fill(newName);
+      await secondPage
+        .getByRole("textbox", { name: "Workspace label" })
+        .fill(newLabel);
+      await secondPage
+        .getByRole("button", { name: "Save", exact: true })
+        .click();
+      await expect
+        .poll(async () =>
+          (await snapshot()).settings.groups.find((item) => item.id === id),
+        )
+        .toMatchObject({ name: newName, label: newLabel });
+
+      await expect(group).toContainText(newName);
+      await expect(
+        page.getByText(oldConfirmation, { exact: true }),
+      ).toBeVisible();
+      await page
+        .getByRole("button", { name: "Delete group", exact: true })
+        .click();
+      await expect(
+        page.getByText("Settings changed. Refresh before saving.", {
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(
+        page
+          .getByRole("alert")
+          .getByText("The operation did not complete. Refresh and retry.", {
+            exact: true,
+          }),
+      ).toBeVisible();
+      await expect(
+        page.getByText(oldConfirmation, { exact: true }),
+      ).toBeVisible();
+      const after = await snapshot();
+      expect(
+        after.settings.groups.find((item) => item.id === id),
+      ).toMatchObject({ name: newName, label: newLabel });
+      await client.invokePluginRpc(pluginId, "workboard.mutate", {
+        action: "settings",
+        revision: after.revision,
+        expectedSettings: after.settings,
+        settings: {
+          ...after.settings,
+          groups: after.settings.groups.filter((item) => item.id !== id),
+        },
+      });
+    } finally {
+      await secondContext.close();
+    }
+  });
+}
+
 test("keeps archive delays visible while disabled and Cancel leaves the rule off", async ({
   page,
 }) => {

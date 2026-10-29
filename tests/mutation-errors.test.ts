@@ -78,6 +78,22 @@ it.each(["zh", "en"] as const)(
     expect(mutationErrorText(new Error("private host error"), t)).toBe(
       t.confirmationFailed,
     );
+    expect(
+      mutationErrorText(
+        new Error(
+          "Request failed: Settings changed; refresh before saving requestType=plugin.rpc.invoke.request code=handler_error",
+        ),
+        t,
+      ),
+    ).toBe(t.mutationErrors["Settings changed; refresh before saving"]);
+    expect(
+      mutationErrorText(
+        new Error(
+          "Request failed: private host error requestType=plugin.rpc.invoke.request code=handler_error",
+        ),
+        t,
+      ),
+    ).toBe(t.confirmationFailed);
     expect(mutationErrorText(null, t)).toBe(t.confirmationFailed);
     expect(mutationErrorText(new Error("constructor"), t)).toBe(
       t.confirmationFailed,

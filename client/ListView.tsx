@@ -95,7 +95,10 @@ export function ListView(props: Props) {
   const [cardInsertion, setCardInsertion] = useState<Insertion | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [deletingGroup, setDeletingGroup] = useState<Group | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<{
+    group: Group;
+    onDelete: BoardViewProps["onDelete"];
+  } | null>(null);
   const order = groups.map((group) => group.id);
   const groupSignature = groups
     .map((group) => `${group.id}:${group.kind}:${group.label}`)
@@ -709,7 +712,10 @@ export function ListView(props: Props) {
               disabled={disabled || !!props.deleteReason(selectedMenu)}
               theme={theme}
               onPress={() => {
-                setDeletingGroup(selectedMenu);
+                setDeletingGroup({
+                  group: selectedMenu,
+                  onDelete: props.onDelete,
+                });
                 setMenu(null);
               }}
             />
@@ -726,14 +732,14 @@ export function ListView(props: Props) {
           title={t.deleteGroup}
           description={t.deleteGroupConfirm.replace(
             "{name}",
-            groupTitle(deletingGroup, t),
+            groupTitle(deletingGroup.group, t),
           )}
           confirmLabel={t.deleteGroup}
-          disabled={disabled || !!props.deleteReason(deletingGroup)}
+          disabled={disabled || !!props.deleteReason(deletingGroup.group)}
           t={t}
           theme={theme}
           onClose={() => setDeletingGroup(null)}
-          onConfirm={() => props.onDelete(deletingGroup)}
+          onConfirm={() => deletingGroup.onDelete(deletingGroup.group)}
         />
       )}
     </View>

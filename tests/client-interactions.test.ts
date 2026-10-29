@@ -4369,3 +4369,164 @@ it("group deletion rejects settings changed after confirmation opened", async ()
     test.board.dispose();
   }
 });
+
+it.each(["Board", "List"])(
+  "%s deletion confirmation preserves its settings baseline",
+  async (mode) => {
+    const { fixture } = await import("./fixtures");
+    for (const change of [
+      "name",
+      "label",
+      "none",
+      "cancel",
+      "deleted",
+      "other group",
+      "unrelated setting",
+      "task change",
+    ]) {
+      const test = fixture();
+      await test.board.start();
+      try {
+        runtime.query.data = test.board.snapshot();
+        runtime.mutation.mockImplementation((input) =>
+          test.board.mutate(input),
+        );
+        const screen = host();
+        if (mode === "List")
+          byID(screen.render(), "workboard-view-list").props.onPress();
+        const component = mode === "Board" ? BoardView : ListView;
+        const view = mount(
+          component,
+          named(screen.render(), `${mode}View`).props,
+        );
+        const group = find(
+          view.render(),
+          (e) =>
+            typeof e.type === "function" &&
+            e.type.name === (mode === "Board" ? "BoardColumn" : "ListGroup") &&
+            e.props.group.id === "review",
+        );
+        group.props.onMenu();
+        find(
+          view.render(),
+          (e) => e.props.label === t.deleteGroup,
+        ).props.onPress();
+        const modal = () => named(view.render(), "ConfirmationModal");
+        const initial = test.board.snapshot().settings;
+        expect(modal().props.description).toContain(
+          initial.groups.find((g) => g.id === "review")?.name ??
+            t.stages.review,
+        );
+        if (change === "cancel") {
+          const confirmation = mount(ConfirmationModal, modal().props);
+          find(
+            confirmation.render(),
+            (e) => e.props.onPress && text(e) === t.cancel,
+          ).props.onPress();
+          expect(
+            elements(view.render()).some((e) => e.type === ConfirmationModal),
+          ).toBe(false);
+          expect(
+            test.board
+              .snapshot()
+              .settings.groups.some((g) => g.id === "review"),
+          ).toBe(true);
+          continue;
+        }
+        if (change === "task change") {
+          const before = test.board.snapshot();
+          await test.board.mutate({
+            action: "create",
+            title: "Concurrent draft",
+            description: "",
+            projectId: null,
+          });
+          expect(test.board.snapshot().revision).toBeGreaterThan(
+            before.revision,
+          );
+          expect(test.board.snapshot().settings).toEqual(before.settings);
+          runtime.query.data = test.board.snapshot();
+          view.props = named(screen.render(), `${mode}View`).props;
+        } else if (change !== "none") {
+          const b = test.board.snapshot();
+          await test.board.mutate({
+            action: "settings",
+            revision: b.revision,
+            expectedSettings: b.settings,
+            settings: {
+              ...b.settings,
+              pinInProgressWorkspaces:
+                change === "unrelated setting"
+                  ? !b.settings.pinInProgressWorkspaces
+                  : b.settings.pinInProgressWorkspaces,
+              groups: b.settings.groups
+                .filter((g) => change !== "deleted" || g.id !== "review")
+                .map((g) =>
+                  g.id === (change === "other group" ? "todo" : "review")
+                    ? change === "name"
+                      ? { ...g, name: "Changed by B" }
+                      : change === "label" || change === "other group"
+                        ? { ...g, label: "task:changed-by-b" }
+                        : g
+                    : g,
+                ),
+            },
+          });
+          runtime.query.data = test.board.snapshot();
+          view.props = named(screen.render(), `${mode}View`).props;
+        }
+        runtime.toast.error.mockClear();
+        const confirmation = mount(ConfirmationModal, modal().props);
+        await find(
+          confirmation.render(),
+          (e) => e.props.onPress && text(e) === t.deleteGroup,
+        ).props.onPress();
+        const succeeded = change === "none" || change === "task change";
+        expect(
+          elements(view.render()).some((e) => e.type === ConfirmationModal),
+        ).toBe(!succeeded);
+        if (!succeeded)
+          expect(
+            text(
+              find(
+                confirmation.render(),
+                (e) => e.props.accessibilityRole === "alert",
+              ),
+            ),
+          ).toBe(t.confirmationFailed);
+        if (!succeeded)
+          expect(runtime.toast.error).toHaveBeenCalledWith(
+            t.mutationErrors["Settings changed; refresh before saving"],
+          );
+        if (change === "task change")
+          expect(
+            test.board
+              .snapshot()
+              .cards.some((card) => card.title === "Concurrent draft"),
+          ).toBe(true);
+        const after = test.board.snapshot().settings;
+        expect(after.groups.some((g) => g.id === "review")).toBe(
+          !succeeded && change !== "deleted",
+        );
+        if (change === "name")
+          expect(after.groups.find((g) => g.id === "review")?.name).toBe(
+            "Changed by B",
+          );
+        if (change === "label")
+          expect(after.groups.find((g) => g.id === "review")?.label).toBe(
+            "task:changed-by-b",
+          );
+        if (change === "other group")
+          expect(after.groups.find((g) => g.id === "todo")?.label).toBe(
+            "task:changed-by-b",
+          );
+        if (change === "unrelated setting")
+          expect(after.pinInProgressWorkspaces).toBe(
+            !initial.pinInProgressWorkspaces,
+          );
+      } finally {
+        test.board.dispose();
+      }
+    }
+  },
+);

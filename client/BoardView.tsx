@@ -186,7 +186,10 @@ export function BoardView(props: BoardViewProps) {
   const widthsRef = useRef(widths);
   widthsRef.current = widths;
   const [menu, setMenu] = useState<string | null>(null);
-  const [deletingGroup, setDeletingGroup] = useState<Group | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<{
+    group: Group;
+    onDelete: BoardViewProps["onDelete"];
+  } | null>(null);
   const [locatorOpen, setLocatorOpen] = useState(false);
   const [held, setHeld] = useState<Record<string, Card[]> | null>(null);
   const [preview, setPreview] = useState<Gesture | null>(null);
@@ -1233,7 +1236,10 @@ export function BoardView(props: BoardViewProps) {
                 danger
                 theme={theme}
                 onPress={() => {
-                  setDeletingGroup(selectedMenu);
+                  setDeletingGroup({
+                    group: selectedMenu,
+                    onDelete: props.onDelete,
+                  });
                   setMenu(null);
                 }}
               />
@@ -1265,14 +1271,14 @@ export function BoardView(props: BoardViewProps) {
             title={t.deleteGroup}
             description={t.deleteGroupConfirm.replace(
               "{name}",
-              groupTitle(deletingGroup, t),
+              groupTitle(deletingGroup.group, t),
             )}
             confirmLabel={t.deleteGroup}
-            disabled={disabled || !!props.deleteReason(deletingGroup)}
+            disabled={disabled || !!props.deleteReason(deletingGroup.group)}
             t={t}
             theme={theme}
             onClose={() => setDeletingGroup(null)}
-            onConfirm={() => props.onDelete(deletingGroup)}
+            onConfirm={() => deletingGroup.onDelete(deletingGroup.group)}
           />
         )}
         {locatorOpen && (
