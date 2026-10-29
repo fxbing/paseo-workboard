@@ -34,6 +34,200 @@ const undoInput = (
   operationId: card.archived!.operationId,
 });
 
+it("returns verified Undo success when the completed write only lost its reply", async () => {
+  const test = fixture({ tasks: [archivedAutomatic()] });
+  await test.board.start();
+  const write = test.backing.write;
+  let injected = false;
+  test.backing.write = async (revision, values) => {
+    const result = await write(revision, values);
+    if (!injected && values.tasks[0].archived === null) {
+      injected = true;
+      throw new Error("Completed Undo reply lost");
+    }
+    return result;
+  };
+  test.inventory.workspaces.push(
+    workspace("w", "Restored task", ["task:done"]),
+  );
+  try {
+    const restored = await test.board.mutate(
+      undoInput(test.board.snapshot().cards[0]),
+    );
+    expect(restored.cards[0]).toMatchObject({
+      archived: null,
+      labels: ["task:done"],
+      autoArchivePaused: true,
+    });
+    expect(test.host.restore).not.toHaveBeenCalled();
+    await test.board.refresh();
+    expect(test.board.snapshot().cards[0].title).toBe("Restored task");
+  } finally {
+    test.board.dispose();
+  }
+});
+
+it.each([false, true])(
+  "recovers a failed final Undo write and allows later mutations (saved: %s)",
+  async (saved) => {
+    const test = fixture({ tasks: [archivedAutomatic()] });
+    await test.board.start();
+    const write = test.backing.write;
+    let injected = false;
+    test.backing.write = async (revision, values) => {
+      if (!injected && values.tasks[0].archived === null) {
+        injected = true;
+        if (saved) await write(revision, values);
+        throw new Error("Final Undo reply lost");
+      }
+      return write(revision, values);
+    };
+    test.host.restore = vi.fn(async () => {
+      test.inventory.workspaces.push(
+        workspace("w", "Completed task", ["task:done"]),
+      );
+    });
+    try {
+      await test.board.mutate(undoInput(test.board.snapshot().cards[0]));
+      await test.board.refresh();
+      expect(injected).toBe(true);
+      expect(test.store.current.tasks[0].archived?.undo).not.toBe("pending");
+      await test.board.mutate({
+        action: "create",
+        title: "Next task",
+        description: "",
+        projectId: null,
+      });
+      if (!saved) {
+        await test.board.mutate(undoInput(test.board.snapshot().cards[0]));
+        await test.board.refresh();
+      }
+      expect(test.store.current.tasks[0].archived).toBeNull();
+      expect(test.host.restore).toHaveBeenCalledOnce();
+    } finally {
+      test.board.dispose();
+    }
+  },
+);
+
+it.each(["read", "write", "reply", "conflict", "restart"])(
+  "retains Undo recovery after a recovery %s failure without repeating restore",
+  async (failure) => {
+    const test = fixture({ tasks: [archivedAutomatic()] });
+    let board = test.board;
+    await board.start();
+    const read = test.backing.read;
+    const write = test.backing.write;
+    let finalFailed = false;
+    let recoveryFailed = false;
+    let readsBlocked = false;
+    test.backing.read = async () => {
+      if (readsBlocked) throw new Error("Recovery storage failed");
+      if (
+        finalFailed &&
+        !recoveryFailed &&
+        ["read", "restart"].includes(failure)
+      ) {
+        recoveryFailed = true;
+        readsBlocked = failure === "restart";
+        throw new Error("Recovery storage failed");
+      }
+      return read();
+    };
+    test.backing.write = async (revision, values) => {
+      if (!finalFailed && values.tasks[0].archived === null) {
+        finalFailed = true;
+        throw new Error("Final Undo reply lost");
+      }
+      if (
+        finalFailed &&
+        !recoveryFailed &&
+        values.tasks[0].archived?.undo === "uncertain"
+      ) {
+        recoveryFailed = true;
+        if (failure === "conflict") {
+          const concurrent = await read();
+          concurrent.values.tasks[0].archived!.operationId =
+            "another-operation";
+          concurrent.values.tasks[0].archived!.undo = "uncertain";
+          concurrent.values.tasks[0].description = "Concurrent edit";
+          await write(concurrent.revision, concurrent.values);
+          return write(revision, values);
+        }
+        if (failure === "reply") await write(revision, values);
+        throw new Error("Recovery storage failed");
+      }
+      return write(revision, values);
+    };
+    test.host.restore = vi.fn(async () => {
+      test.inventory.workspaces.push(
+        workspace("w", "Completed task", ["task:done"]),
+      );
+    });
+    try {
+      await board.mutate(undoInput(board.snapshot().cards[0]));
+      if (failure === "restart") {
+        await expect(board.refresh()).rejects.toThrow(
+          "Recovery storage failed",
+        );
+        board.dispose();
+        readsBlocked = false;
+        board = new Workboard(test.host, new Store(test.backing), test.now);
+        await board.start();
+      } else await board.refresh();
+      const card = board.snapshot().cards[0];
+      expect(card.archived?.undo).toBe("uncertain");
+      if (failure === "conflict") {
+        expect(card.archived?.operationId).toBe("another-operation");
+        expect(card.description).toBe("Concurrent edit");
+      }
+      await board.mutate({
+        action: "create",
+        title: "Next task",
+        description: "",
+        projectId: null,
+      });
+      await board.mutate(undoInput(board.snapshot().cards[0]));
+      await board.refresh();
+      expect(board.snapshot().cards[0].archived).toBeNull();
+      expect(test.host.restore).toHaveBeenCalledOnce();
+    } finally {
+      board.dispose();
+    }
+  },
+);
+
+it("recovers an Undo intent whose saved reply was lost before native restore", async () => {
+  const test = fixture({ tasks: [archivedAutomatic()] });
+  await test.board.start();
+  const write = test.backing.write;
+  let injected = false;
+  test.backing.write = async (revision, values) => {
+    if (!injected && values.tasks[0].archived?.undo === "pending") {
+      injected = true;
+      await write(revision, values);
+      throw new Error("Undo intent reply lost");
+    }
+    return write(revision, values);
+  };
+  try {
+    await expect(
+      test.board.mutate(undoInput(test.board.snapshot().cards[0])),
+    ).rejects.toThrow("Undo intent reply lost");
+    await test.board.refresh();
+    expect(test.board.snapshot().cards[0].archived?.undo).toBe("uncertain");
+    await test.board.mutate({
+      action: "create",
+      title: "Next task",
+      description: "",
+      projectId: null,
+    });
+    expect(test.host.restore).not.toHaveBeenCalled();
+  } finally {
+    test.board.dispose();
+  }
+});
+
 it.each(["archived", "uncertain"] as const)(
   "restores an %s native workspace and persists the pause until a different group is observed",
   async (status) => {

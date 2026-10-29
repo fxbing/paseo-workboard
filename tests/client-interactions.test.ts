@@ -4311,6 +4311,257 @@ it.each(["same group", "other group", "none"])(
   },
 );
 
+it.each(
+  [false, true].flatMap((refreshed) =>
+    [
+      "name",
+      "kind",
+      "label",
+      "deleted",
+      "unrelated setting",
+      "task",
+      "none",
+    ].map((change) => ({ refreshed, change })),
+  ),
+)(
+  "status selection retains its opening group after $change (refreshed: $refreshed)",
+  async ({ change, refreshed }) => {
+    const { fixture, workspace } = await import("./fixtures");
+    const test = fixture();
+    test.inventory.workspaces.push(workspace("w", "Task", ["task:todo"]));
+    await test.board.start();
+    try {
+      runtime.query.data = test.board.snapshot();
+      runtime.mutation.mockImplementation((input) => test.board.mutate(input));
+      const screen = host();
+      const view = named(screen.render(), "BoardView");
+      view.props.renderCard(view.props.cards[0]).props.onStatus();
+      const modal = named(screen.render(), "StageModal");
+      const menu = mount(modal.type, modal.props);
+      let choose = find(menu.render(), (e) => e.key === "review").props.onPress;
+      const before = test.board.snapshot();
+      if (change === "task") {
+        await test.board.mutate({
+          action: "create",
+          title: "Other task",
+          description: "",
+          projectId: null,
+        });
+      } else if (change !== "none") {
+        await test.board.mutate({
+          action: "settings",
+          revision: before.revision,
+          expectedSettings: before.settings,
+          settings: {
+            ...before.settings,
+            pinInProgressWorkspaces:
+              change === "unrelated setting"
+                ? !before.settings.pinInProgressWorkspaces
+                : before.settings.pinInProgressWorkspaces,
+            groups: before.settings.groups.flatMap((group) =>
+              group.id !== "review"
+                ? [group]
+                : change === "deleted"
+                  ? []
+                  : [
+                      {
+                        ...group,
+                        ...(change === "name" ? { name: "Renamed" } : {}),
+                        ...(change === "kind"
+                          ? { kind: "canceled" as const }
+                          : {}),
+                        ...(change === "label"
+                          ? { label: "task:changed" }
+                          : {}),
+                      },
+                    ],
+            ),
+          },
+        });
+      }
+      if (refreshed) {
+        runtime.query.data = test.board.snapshot();
+        menu.props = named(screen.render(), "StageModal").props;
+        expect(
+          menu.props.groups.find((group: any) => group.id === "review"),
+        ).toEqual(
+          before.settings.groups.find((group) => group.id === "review"),
+        );
+        choose = find(menu.render(), (e) => e.key === "review").props.onPress;
+      }
+      choose();
+      await vi.waitFor(() =>
+        expect(runtime.mutation).toHaveBeenCalledTimes(
+          refreshed && ["kind", "label", "deleted"].includes(change) ? 0 : 1,
+        ),
+      );
+      await vi.waitFor(() => {
+        if (["kind", "label", "deleted"].includes(change)) {
+          expect(runtime.toast.error).toHaveBeenCalledWith(
+            t.mutationErrors["stage-group-changed"],
+          );
+          expect(test.inventory.workspaces[0].labels).toEqual(["task:todo"]);
+        } else {
+          expect(test.inventory.workspaces[0].labels).toEqual(["task:review"]);
+          expect(runtime.toast.error).not.toHaveBeenCalled();
+        }
+      });
+      if (refreshed && ["kind", "label", "deleted"].includes(change)) {
+        named(screen.render(), "StageModal").props.onClose();
+        const latest = named(screen.render(), "BoardView");
+        latest.props.renderCard(latest.props.cards[0]).props.onStatus();
+        const reopened = named(screen.render(), "StageModal");
+        const target = test.board
+          .snapshot()
+          .settings.groups.find((group) => group.id === "review");
+        expect(
+          reopened.props.groups.find((group: any) => group.id === "review"),
+        ).toEqual(target);
+        if (target) {
+          runtime.toast.error.mockClear();
+          find(
+            mount(reopened.type, reopened.props).render(),
+            (e) => e.key === "review",
+          ).props.onPress();
+          await vi.waitFor(() =>
+            expect(test.inventory.workspaces[0].labels).toEqual([target.label]),
+          );
+          expect(runtime.toast.error).not.toHaveBeenCalled();
+        }
+      }
+      expect(test.host.archive).not.toHaveBeenCalled();
+    } finally {
+      test.board.dispose();
+    }
+  },
+);
+
+it("rejects a changed draft group before opening Start work from a frozen status menu", async () => {
+  const { fixture } = await import("./fixtures");
+  const test = fixture();
+  await test.board.start();
+  try {
+    await test.board.mutate({
+      action: "create",
+      title: "Draft",
+      description: "",
+      projectId: null,
+    });
+    runtime.query.data = test.board.snapshot();
+    runtime.mutation.mockImplementation((input) => test.board.mutate(input));
+    const screen = host();
+    const view = named(screen.render(), "BoardView");
+    view.props.renderCard(view.props.cards[0]).props.onStatus();
+    const before = test.board.snapshot();
+    await test.board.mutate({
+      action: "settings",
+      revision: before.revision,
+      settings: {
+        ...before.settings,
+        defaultDraftGroup: null,
+        groups: before.settings.groups
+          .map((group) =>
+            group.id === "inbox"
+              ? { ...group, kind: "review" as const }
+              : group,
+          )
+          .concat({
+            id: "other-inbox",
+            name: null,
+            kind: "inbox",
+            label: "task:other-inbox",
+          }),
+      },
+    });
+    runtime.query.data = test.board.snapshot();
+    const modal = named(screen.render(), "StageModal");
+    const menu = mount(modal.type, modal.props);
+    find(menu.render(), (e) => e.key === "inbox").props.onPress();
+    await vi.waitFor(() =>
+      expect(runtime.toast.error).toHaveBeenCalledWith(
+        t.mutationErrors["stage-group-changed"],
+      ),
+    );
+    expect(named(screen.render(), "StartModal").props.card).toBeNull();
+    expect(test.host.create).not.toHaveBeenCalled();
+  } finally {
+    test.board.dispose();
+  }
+});
+
+it.each(["kind", "label", "deleted", "none"])(
+  "Start work preserves the selected status-menu definition after %s",
+  async (change) => {
+    const { fixture } = await import("./fixtures");
+    const { mutationSchema } = await import("../shared/rpc");
+    const test = fixture();
+    await test.board.start();
+    try {
+      await test.board.mutate({
+        action: "create",
+        title: "Draft",
+        description: "",
+        projectId: null,
+      });
+      runtime.query.data = test.board.snapshot();
+      runtime.mutation.mockImplementation((input) =>
+        test.board.mutate(mutationSchema.parse(input)),
+      );
+      const screen = host();
+      const view = named(screen.render(), "BoardView");
+      view.props.renderCard(view.props.cards[0]).props.onStatus();
+      const modal = named(screen.render(), "StageModal");
+      find(
+        mount(modal.type, modal.props).render(),
+        (e) => e.key === "review",
+      ).props.onPress();
+      const before = test.board.snapshot();
+      if (change !== "none")
+        await test.board.mutate({
+          action: "settings",
+          revision: before.revision,
+          settings: {
+            ...before.settings,
+            groups: before.settings.groups.flatMap((group) =>
+              group.id !== "review"
+                ? [group]
+                : change === "deleted"
+                  ? []
+                  : [
+                      {
+                        ...group,
+                        ...(change === "kind"
+                          ? { kind: "canceled" as const }
+                          : { label: "task:changed" }),
+                      },
+                    ],
+            ),
+          },
+        });
+      runtime.query.data = test.board.snapshot();
+      named(screen.render(), "StartModal").props.onStart(
+        { kind: "new", source: { kind: "directory", path: "/fixture" } },
+        "review",
+      );
+      await vi.waitFor(() => {
+        if (change === "none")
+          expect(test.board.snapshot().cards[0].workspaceId).toBe("w1");
+        else
+          expect(runtime.toast.error).toHaveBeenCalledWith(
+            t.mutationErrors["stage-group-changed"],
+          );
+      });
+      if (change !== "none") {
+        expect(test.host.create).not.toHaveBeenCalled();
+        expect(test.host.setLabel).not.toHaveBeenCalled();
+        expect(test.board.snapshot().cards[0].binding).toBeNull();
+      }
+    } finally {
+      test.board.dispose();
+    }
+  },
+);
+
 it("group deletion rejects settings changed after confirmation opened", async () => {
   const { SettingsPage } = await import("../client/WorkboardScreen");
   const { GroupSettings } = await import("../client/GroupSettings");

@@ -25,6 +25,192 @@ function dueFixture() {
   test.host.conversation = agentEvidence("2026-08-01T00:00:00Z");
   return test;
 }
+it.each([false, true])(
+  "recovers a failed final archive write without repeating native archive (saved: %s)",
+  async (saved) => {
+    const test = dueFixture();
+    let clock = Date.parse("2026-08-02T00:00:00Z");
+    const board = new Workboard(test.host, test.store, () => clock);
+    const write = test.backing.write;
+    let injected = false;
+    test.backing.write = async (revision, values) => {
+      if (
+        !injected &&
+        values.tasks.some((task) => task.archived?.status === "archived")
+      ) {
+        injected = true;
+        if (saved) await write(revision, values);
+        throw new Error("Final archive reply lost");
+      }
+      return write(revision, values);
+    };
+    try {
+      await board.start();
+      clock = test.now();
+      await board.refresh().catch((error) => {
+        expect(error.message).toMatch(
+          /Final archive reply lost|Storage is unavailable/,
+        );
+      });
+      await board.refresh();
+      expect(injected).toBe(true);
+      expect(test.store.current.tasks[0].archived?.status).toBe(
+        saved ? "archived" : "uncertain",
+      );
+      expect(test.host.archive).toHaveBeenCalledOnce();
+    } finally {
+      board.dispose();
+    }
+  },
+);
+it.each(["read", "write", "reply", "conflict", "restart"])(
+  "retains archive recovery across a failed recovery %s without overwriting another operation",
+  async (failure) => {
+    const test = dueFixture();
+    let clock = Date.parse("2026-08-02T00:00:00Z");
+    let board = new Workboard(test.host, test.store, () => clock);
+    const read = test.backing.read;
+    const write = test.backing.write;
+    let finalFailed = false;
+    let recoveryFailed = false;
+    test.backing.read = async () => {
+      if (
+        finalFailed &&
+        !recoveryFailed &&
+        ["read", "restart"].includes(failure)
+      ) {
+        recoveryFailed = true;
+        throw new Error("Recovery storage failed");
+      }
+      return read();
+    };
+    test.backing.write = async (revision, values) => {
+      if (!finalFailed && values.tasks[0]?.archived?.status === "archived") {
+        finalFailed = true;
+        throw new Error("Final archive reply lost");
+      }
+      if (
+        finalFailed &&
+        !recoveryFailed &&
+        values.tasks[0]?.archived?.status === "uncertain"
+      ) {
+        recoveryFailed = true;
+        if (failure === "conflict") {
+          const concurrent = await read();
+          concurrent.values.tasks[0].archived!.operationId =
+            "another-operation";
+          concurrent.values.tasks[0].archived!.status = "uncertain";
+          concurrent.values.tasks[0].description = "Concurrent edit";
+          await write(concurrent.revision, concurrent.values);
+          return write(revision, values);
+        }
+        if (failure === "reply") await write(revision, values);
+        throw new Error("Recovery storage failed");
+      }
+      return write(revision, values);
+    };
+    try {
+      await board.start();
+      clock = test.now();
+      await expect(board.refresh()).rejects.toThrow(
+        /Recovery storage failed|Conflict/,
+      );
+      if (failure === "restart") {
+        board.dispose();
+        board = new Workboard(test.host, new Store(test.backing), () => clock);
+        await board.start();
+      } else await board.refresh();
+      const card = board.snapshot().cards[0];
+      expect(card.archived?.status).toBe("uncertain");
+      if (failure === "conflict") {
+        expect(card.archived?.operationId).toBe("another-operation");
+        expect(card.description).toBe("Concurrent edit");
+      }
+      await board.mutate({
+        action: "create",
+        title: "Next task",
+        description: "",
+        projectId: null,
+      });
+      board.dispose();
+      const reopened = new Workboard(
+        test.host,
+        new Store(test.backing),
+        () => clock,
+      );
+      try {
+        await reopened.start();
+        expect(reopened.snapshot().cards[0].archived?.status).toBe("uncertain");
+        expect(test.host.archive).toHaveBeenCalledOnce();
+      } finally {
+        reopened.dispose();
+      }
+    } finally {
+      board.dispose();
+    }
+  },
+);
+it("recovers an archive intent whose saved reply was lost before native archive", async () => {
+  const test = dueFixture();
+  let clock = Date.parse("2026-08-02T00:00:00Z");
+  const board = new Workboard(test.host, test.store, () => clock);
+  const write = test.backing.write;
+  let injected = false;
+  test.backing.write = async (revision, values) => {
+    if (!injected && values.tasks[0]?.archived?.status === "pending") {
+      injected = true;
+      await write(revision, values);
+      throw new Error("Archive intent reply lost");
+    }
+    return write(revision, values);
+  };
+  try {
+    await board.start();
+    clock = test.now();
+    await expect(board.refresh()).rejects.toThrow("Archive intent reply lost");
+    await board.refresh();
+    expect(board.snapshot().cards[0].archived?.status).toBe("uncertain");
+    expect(test.host.archive).not.toHaveBeenCalled();
+    const card = board.snapshot().cards[0];
+    await board.mutate({
+      action: "undo-archive",
+      taskId: card.id,
+      operationId: card.archived!.operationId,
+      updatedAt: card.updatedAt,
+    });
+    expect(board.snapshot().cards[0].archived).toBeNull();
+    expect(test.host.restore).not.toHaveBeenCalled();
+  } finally {
+    board.dispose();
+  }
+});
+it("recovers a failed intent cancellation when the final safety check defers archive", async () => {
+  const test = dueFixture();
+  const write = test.backing.write;
+  let pending = false;
+  let injected = false;
+  let checks = 0;
+  test.host.safety = async () => (++checks === 1 ? null : "git-dirty");
+  test.backing.write = async (revision, values) => {
+    if (values.tasks[0]?.archived?.status === "pending") pending = true;
+    if (pending && !injected && values.tasks[0]?.archived === null) {
+      injected = true;
+      throw new Error("Cancel intent write failed");
+    }
+    return write(revision, values);
+  };
+  try {
+    await expect(test.board.start()).rejects.toThrow(
+      "Cancel intent write failed",
+    );
+    await test.board.refresh();
+    expect(injected).toBe(true);
+    expect(test.board.snapshot().cards[0].archived?.status).toBe("uncertain");
+    expect(test.host.archive).not.toHaveBeenCalled();
+  } finally {
+    test.board.dispose();
+  }
+});
 it("archives on cold start without any UI and keeps the original conversation clock", async () => {
   const { board, host } = dueFixture();
   try {

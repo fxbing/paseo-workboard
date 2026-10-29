@@ -32,6 +32,94 @@ it("reads every page and rejects a cursor loop instead of silently truncating", 
     })),
   ).rejects.toThrow("pagination");
 });
+it("releases a late subscription after dispose without requesting more subscriptions", async () => {
+  const release = vi.fn(async () => {});
+  const subscribe = vi.fn();
+  let finish!: (value: unknown) => void;
+  const waiting = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const api = {
+    workspaces: {
+      list: vi.fn((options) =>
+        options.subscribe
+          ? waiting
+          : Promise.resolve({
+              entries: [],
+              pageInfo: { hasMore: false, nextCursor: null },
+            }),
+      ),
+    },
+    agents: {
+      list: vi.fn(async () => ({
+        entries: [],
+        subscription: { subscribe: vi.fn(), release: vi.fn(async () => {}) },
+        pageInfo: { hasMore: false, nextCursor: null },
+      })),
+    },
+    observeEvents: vi.fn(() => ({
+      subscribe: vi.fn(),
+      release: vi.fn(async () => {}),
+      ready: Promise.resolve(),
+    })),
+    projects: { list: vi.fn(async () => ({ projects: [] })) },
+  };
+  const host = new PaseoHost(
+    api as unknown as PaseoApi,
+    {} as PaseoCompat,
+    { serverId: "h", version: "0.11.0" },
+    vi.fn(),
+  );
+  const inventory = host.inventory();
+  const stopped = expect(inventory).rejects.toThrow("Workboard stopped");
+  host.dispose();
+  finish({ subscription: { subscribe, release } });
+  await stopped;
+  expect(release).toHaveBeenCalledOnce();
+  expect(subscribe).not.toHaveBeenCalled();
+  expect(api.agents.list).not.toHaveBeenCalled();
+  expect(api.observeEvents).not.toHaveBeenCalled();
+  host.dispose();
+  expect(release).toHaveBeenCalledOnce();
+});
+it("stops inventory before pagination when disposed during event subscription readiness", async () => {
+  const release = vi.fn(async () => {});
+  let finish!: () => void;
+  let entered!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const subscription = () => ({ subscribe: vi.fn(), release });
+  const list = () => vi.fn(async () => ({ subscription: subscription() }));
+  const api = {
+    workspaces: { list: list() },
+    agents: { list: list() },
+    observeEvents: vi.fn(() => {
+      entered();
+      return { ...subscription(), ready: waiting };
+    }),
+    projects: { list: vi.fn() },
+  };
+  const host = new PaseoHost(
+    api as unknown as PaseoApi,
+    {} as PaseoCompat,
+    { serverId: "h", version: "0.11.0" },
+    vi.fn(),
+  );
+  const inventory = host.inventory();
+  const stopped = expect(inventory).rejects.toThrow("Workboard stopped");
+  await started;
+  host.dispose();
+  finish();
+  await stopped;
+  expect(release).toHaveBeenCalledTimes(3);
+  expect(api.workspaces.list).toHaveBeenCalledOnce();
+  expect(api.agents.list).toHaveBeenCalledOnce();
+  expect(api.projects.list).not.toHaveBeenCalled();
+});
 it("keeps directory and subagent subscriptions across inventories, overlays off-page changes and refreshes restored snapshots", async () => {
   const observers: SubscriptionObserver<unknown>[] = [];
   const release = vi.fn(async () => {});

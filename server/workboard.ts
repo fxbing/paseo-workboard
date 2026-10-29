@@ -193,6 +193,15 @@ export class Workboard {
   private stopped = false;
   private pendingMutations = 0;
   private undoInFlight = false;
+  private archiveFailures = new Map<
+    string,
+    {
+      workspaceId: string | null;
+      operationId: string;
+      undo: boolean;
+      detail: string;
+    }
+  >();
   private connectionGeneration = 0;
   private epoch = 0;
   private workspaceEpochs = new Map<string, number>();
@@ -291,6 +300,54 @@ export class Workboard {
       await this.store.update((data) => {
         data.serverId = this.host.identity.serverId;
       });
+    const failures = new Map(this.archiveFailures);
+    if (failures.size) {
+      await this.store.update((data) => {
+        for (const [id, failure] of failures) {
+          const task = data.tasks.find((task) => task.id === id);
+          const archive = task?.archived;
+          if (
+            !task ||
+            !archive ||
+            task.workspaceId !== failure.workspaceId ||
+            archive.operationId !== failure.operationId
+          )
+            continue;
+          if (failure.undo) {
+            if (archive.undo !== "pending") continue;
+            archive.undo = "uncertain";
+          } else {
+            if (archive.status !== "pending") continue;
+            archive.status = "uncertain";
+            task.issue = "native-archive-unknown";
+          }
+          archive.detail = failure.detail;
+        }
+      });
+      for (const [id, failure] of failures)
+        if (this.archiveFailures.get(id) === failure)
+          this.archiveFailures.delete(id);
+    }
+  }
+  private async recoverArchive(
+    task: Task,
+    operationId: string,
+    error: unknown,
+    undo = false,
+  ): Promise<void> {
+    // No more native work will be sent by this invocation; reload before classifying its intent.
+    this.archiveFailures.set(task.id, {
+      workspaceId: task.workspaceId,
+      operationId,
+      undo,
+      detail: message(error),
+    });
+    try {
+      await this.load();
+    } catch (storageError) {
+      this.disconnected(message(storageError));
+      throw storageError;
+    }
   }
   refresh(): Promise<void> {
     this.pendingRefresh = null;
@@ -1334,7 +1391,10 @@ export class Workboard {
   }
   private checkStageExpected(
     data: Data,
-    input: Extract<Mutation, { action: "stage" }>,
+    input: Pick<
+      Extract<Mutation, { action: "stage" }>,
+      "taskId" | "stage" | "expectedGroup" | "expectedUpdatedAt"
+    >,
   ): void {
     if (input.expectedGroup) {
       const group = data.settings.groups.find(
@@ -1521,8 +1581,12 @@ export class Workboard {
                 this.store.current.settings.groups,
                 this.store.current.settings.defaultStartWorkGroup,
               );
+            if (!stage)
+              throw new Error("Add an In progress group before starting work");
+            const check = () =>
+              this.checkStageExpected(this.store.current, { ...input, stage });
+            check();
             if (
-              !stage ||
               !this.store.current.settings.groups.some(
                 (group) => group.id === stage,
               )
@@ -1543,6 +1607,7 @@ export class Workboard {
               );
             if (!task.binding)
               await this.store.update((data) => {
+                this.checkStageExpected(data, { ...input, stage });
                 data.tasks.find((t) => t.id === task.id)!.binding = {
                   operationId: randomUUID(),
                   target: input.target,
@@ -1550,7 +1615,7 @@ export class Workboard {
                   stage,
                 };
               });
-            await this.bind(task.id);
+            await this.bind(task.id, check);
             await this.reconcile();
           } else if (input.action === "stage") {
             const check = () => {
@@ -1779,12 +1844,13 @@ export class Workboard {
       ? Promise.race([work, pending])
       : work;
   }
-  private async bind(id: string): Promise<void> {
+  private async bind(id: string, check: () => void = () => {}): Promise<void> {
     const draft = this.task(id);
     const binding = draft.binding;
     if (!binding) return;
     this.bindingInFlight.add(binding.operationId);
     try {
+      check();
       if (binding.target.kind === "new")
         this.checkPriorityTarget(draft.priority ?? "p2");
       const workspaceId =
@@ -1800,6 +1866,7 @@ export class Workboard {
       if (!workspace) throw new Error("Binding workspace is unavailable");
       let survivorId = id;
       await this.store.update((data) => {
+        check();
         const current = data.tasks.find((t) => t.id === id)!;
         const imported = data.tasks.find(
           (t) => t.workspaceId === workspaceId && t.id !== id,
@@ -1838,6 +1905,7 @@ export class Workboard {
           workspaceId,
           binding.stage,
           statusLabels(workspace.labels, this.store.current.settings.groups),
+          check,
         );
         if (binding.target.kind === "new") {
           const fresh = await this.host.workspace(workspaceId);
@@ -1852,6 +1920,7 @@ export class Workboard {
           );
         }
         await this.store.update((data) => {
+          check();
           const task = data.tasks.find((t) => t.id === survivorId)!;
           task.binding = null;
           if (binding.target.kind === "new") {
@@ -2154,24 +2223,26 @@ export class Workboard {
     if (activeWorkspace?.archivingAt) throw new Error("archive-undo-unknown");
     if (!archive.undo && !activeWorkspace) {
       await this.host.checkRestore(task.workspaceId);
-      await this.store.update((data) => {
-        const current = data.tasks.find((item) => item.id === task.id)!;
-        current.archived!.undo = "pending";
-        current.autoArchivePaused = true;
-        current.updatedAt = this.stamp(current.updatedAt);
-      });
+      try {
+        await this.store.update((data) => {
+          const current = data.tasks.find((item) => item.id === task.id)!;
+          current.archived!.undo = "pending";
+          current.autoArchivePaused = true;
+          current.updatedAt = this.stamp(current.updatedAt);
+        });
+      } catch (error) {
+        await this.recoverArchive(task, input.operationId, error, true);
+        throw error;
+      }
       reportPending();
       try {
         await this.host.restore(task.workspaceId);
       } catch (error) {
-        await this.store.update((data) => {
-          const current = data.tasks.find((item) => item.id === task.id)!;
-          current.archived!.undo = "uncertain";
-          current.archived!.detail = message(error);
-        });
+        await this.recoverArchive(task, input.operationId, error, true);
         throw error;
       }
     }
+    let verifiedInventory: Inventory | undefined;
     try {
       const inventory = activeWorkspace
         ? activeInventory!
@@ -2181,6 +2252,7 @@ export class Workboard {
       );
       if (!workspace || workspace.archivingAt)
         throw new Error("archive-undo-unknown");
+      verifiedInventory = inventory;
       await this.store.update((data) => {
         const current = data.tasks.find((item) => item.id === task.id)!;
         if (
@@ -2207,10 +2279,21 @@ export class Workboard {
       this.changed(task.workspaceId);
     } catch (error) {
       // A lost reply or interrupted verification never authorizes another native restore.
-      await this.store.update((data) => {
-        const current = data.tasks.find((item) => item.id === task.id)!;
-        if (current.archived?.undo) current.archived.undo = "uncertain";
-      });
+      await this.recoverArchive(task, input.operationId, error, true);
+      const current = this.store.current.tasks.find(
+        (item) => item.id === task.id,
+      );
+      if (
+        verifiedInventory &&
+        current?.workspaceId === task.workspaceId &&
+        current.archived === null &&
+        current.autoArchivePaused
+      ) {
+        this.inventory = verifiedInventory;
+        this.archiveDeferrals.delete(task.id);
+        this.changed(task.workspaceId);
+        return;
+      }
       throw error;
     }
   }
@@ -2352,20 +2435,25 @@ export class Workboard {
         continue;
       }
       const operationId = randomUUID();
-      await this.store.update((data) => {
-        data.tasks.find((t) => t.id === candidate.id)!.archived = {
-          operationId,
-          kind: "automatic",
-          status: "pending",
-          stage,
-          group:
-            data.settings.groups.find((group) => group.id === stage) ?? null,
-          startedAt: this.stamp(),
-          archivedAt: null,
-          lastConversationAt: candidate.lastConversationAt,
-          detail: "Archive intent persisted; native result not yet known",
-        };
-      });
+      try {
+        await this.store.update((data) => {
+          data.tasks.find((t) => t.id === candidate.id)!.archived = {
+            operationId,
+            kind: "automatic",
+            status: "pending",
+            stage,
+            group:
+              data.settings.groups.find((group) => group.id === stage) ?? null,
+            startedAt: this.stamp(),
+            archivedAt: null,
+            lastConversationAt: candidate.lastConversationAt,
+            detail: "Archive intent persisted; native result not yet known",
+          };
+        });
+      } catch (error) {
+        await this.recoverArchive(candidate, operationId, error);
+        throw error;
+      }
       // Storage and safety checks can take time. Re-read membership, labels and Agent state before sending.
       let finalIssue: string | null = null;
       try {
@@ -2394,11 +2482,16 @@ export class Workboard {
       if (this.stopped) return; // Keep the persisted intent uncertain on the next startup.
       if (epoch !== this.observation(id)) finalIssue = "changed-during-check";
       if (finalIssue) {
-        await this.store.update((data) => {
-          const task = data.tasks.find((t) => t.id === candidate.id)!;
-          task.archived = null;
-          task.issue = finalIssue;
-        });
+        try {
+          await this.store.update((data) => {
+            const task = data.tasks.find((t) => t.id === candidate.id)!;
+            task.archived = null;
+            task.issue = finalIssue;
+          });
+        } catch (error) {
+          await this.recoverArchive(candidate, operationId, error);
+          throw error;
+        }
         await this.deferArchive(candidate, finalIssue, workspace, agents);
         continue;
       }
@@ -2427,15 +2520,7 @@ export class Workboard {
           task.issue = null;
         });
       } catch (error) {
-        await this.store.update((data) => {
-          const task = data.tasks.find((t) => t.id === candidate.id)!;
-          task.archived = {
-            ...task.archived!,
-            status: "uncertain",
-            detail: message(error),
-          };
-          task.issue = "native-archive-unknown";
-        });
+        await this.recoverArchive(candidate, operationId, error);
       }
     }
   }

@@ -26,6 +26,8 @@ When creating or editing an unbound draft, select a project or choose **Unassign
 
 ### Change status
 
+If another client changes the selected group’s type or managed label, or deletes it before your status change reaches the server, the request is refused with a prompt to close and reopen the status menu. The menu keeps the group definitions from when it opened, including across background refreshes. Renaming the group alone does not block the change. When a draft needs a workspace, the same group check applies when you confirm **Start work**.
+
 Each group has a managed workspace label. In the default mapping, those labels are:
 
 | Type        | Default label      |
@@ -131,7 +133,7 @@ The **Archive** page and its count include only Workboard automatic archives. **
 
 Choose **Undo archive** to ask Paseo to restore a completed or uncertain archive. If the workspace is already active with no archive in progress, undo returns it to the board without a native restore request. A completed automatic archive restored directly in Paseo also returns to the board on refresh, with automatic archiving paused until a subsequent group change. Pending or uncertain archive/recovery records still require explicit verification. The host may rebuild a managed worktree from its retained branch; missing directories, repository data or branch information can prevent recovery. Stopped Agents and terminals do not restart automatically. The task keeps its group and automatic archiving stays paused until it changes groups; this pause survives restart and is shown on the card. A deleted original group blocks undo until its configuration is restored.
 
-Recovery returns a pending state immediately; board changes are paused while it runs. The archive record is removed only after the workspace is confirmed active again. An interrupted recovery remains under **Needs review**. **Check recovery** only checks the native active list and never resends the restore request. If the workspace is still absent, recover it in Paseo first. Stale requests are rejected; refresh before acting.
+Recovery returns a pending state immediately; board changes are paused while it runs. The archive record is removed only after the workspace is confirmed active again. An interrupted recovery remains under **Needs review**. **Check recovery** only checks the native active list and never resends the restore request. If the workspace is still absent, recover it in Paseo first. If saving archive or recovery state fails, a storage reload preserves any completed result already saved; an unresolved pending operation becomes uncertain and can be checked explicitly. Reloading does not repeat the native operation. Stale requests are rejected; refresh before acting.
 
 Deferred automatic checks retry after a growing wait. Relevant state changes, including native worktree ownership becoming available, or a different blocking reason found during a check reset the delay. Restart clears the backoff; archive safety requirements remain unchanged. See [automation safeguards](architecture.md#automation-safeguards) for the retry schedule and evidence checks.
 

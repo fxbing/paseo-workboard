@@ -198,6 +198,10 @@ export class PaseoHost implements Host {
     private changed: (workspaceId?: string, agentsChanged?: boolean) => void,
   ) {}
   private own(subscription: Subscription): void {
+    if (this.disposed) {
+      void Promise.allSettled([subscription.release()]);
+      throw new Error("Workboard stopped");
+    }
     let initial = true;
     subscription.subscribe({
       snapshot: () => {
@@ -276,6 +280,7 @@ export class PaseoHost implements Host {
       this.subscriptions = [];
       this.subscriptionsFailed = false;
     }
+    if (this.disposed) throw new Error("Workboard stopped");
     if (!this.subscriptions.length) {
       try {
         // Host subscriptions are filtered, not paged (session.ts handleFetch*).
@@ -310,6 +315,7 @@ export class PaseoHost implements Host {
         throw error;
       }
     }
+    if (this.disposed) throw new Error("Workboard stopped");
     const revision = this.childRevision;
     const [workspaces, agents, projects] = await Promise.all([
       allPages((cursor) =>

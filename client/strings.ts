@@ -383,7 +383,7 @@ const zh = {
     "card-order-mover-unavailable":
       "任务已移列、归档或正在绑定，无法排序；请刷新。",
     "stage-group-changed":
-      "原分组定义已改变或已删除，撤销未执行；请刷新后重新选择分组。",
+      "目标分组已改变或已删除，操作未执行；请关闭状态菜单后重新选择分组。",
     "stage-task-changed": "任务已被修改，撤销未执行；请刷新后核实当前分组。",
     "Storage is unavailable": "存储不可用，请重新打开 Workboard 后重试。",
     "Paseo directory pagination is incomplete":
@@ -919,7 +919,7 @@ const en: typeof zh = {
     "card-order-mover-unavailable":
       "The task moved, was archived, or is binding. It cannot be reordered; refresh first.",
     "stage-group-changed":
-      "The original group changed or was deleted. Undo was refused; refresh and choose a group again.",
+      "The target group changed or was deleted. Close and reopen the status menu to choose a group again.",
     "stage-task-changed":
       "The task changed. Undo was refused; refresh and verify its current group.",
     "Storage is unavailable":

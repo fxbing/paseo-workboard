@@ -40,7 +40,13 @@ export const mutationSchema = z.discriminatedUnion("action", [
     description: z.string().max(50000),
     projectId: z.string().nullable(),
   }),
-  z.object({ action: z.literal("start"), ...startSchema.shape }),
+  z.object({
+    action: z.literal("start"),
+    ...startSchema.shape,
+    expectedGroup: groupSchema
+      .pick({ id: true, kind: true, label: true })
+      .optional(),
+  }),
   z.object({
     action: z.literal("stage"),
     taskId: z.string(),

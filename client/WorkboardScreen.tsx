@@ -80,7 +80,7 @@ type DraftForm = {
   description: string;
   projectId: string | null;
 } | null;
-type StartForm = { card: Card; stage?: Stage } | null;
+type StartForm = { card: Card; stage?: Stage; expectedGroup?: Group } | null;
 const ARCHIVE_RULE_KINDS = ["done", "canceled"] as const;
 type ArchiveRuleKind = (typeof ARCHIVE_RULE_KINDS)[number];
 type MoveUndo = {
@@ -88,14 +88,12 @@ type MoveUndo = {
   card: Card;
   expiresAt: number;
 };
-const sameUndoGroup = (board: Board | undefined, undo: MoveUndo) => {
+const sameGroup = (board: Board | undefined, group: MoveUndo["group"]) => {
   const current = board?.settings.groups.find(
-    (group) => group.id === undo.group.id,
+    (current) => current.id === group.id,
   );
   return (
-    !!current &&
-    current.kind === undo.group.kind &&
-    current.label === undo.group.label
+    !!current && current.kind === group.kind && current.label === group.label
   );
 };
 const sameCard = (left: Card | undefined, right: Card) =>
@@ -145,7 +143,11 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
   const [starting, setStarting] = useState<StartForm>(null);
   const [startError, setStartError] = useState<string | null>(null);
   useEffect(() => setStartError(null), [starting?.card.id]);
-  const [statusCard, setStatusCard] = useState<Card | null>(null);
+  const [statusSelection, setStatusSelection] = useState<{
+    card: Card;
+    groups: Group[];
+  } | null>(null);
+  const statusCard = statusSelection?.card ?? null;
   const [archivingDraft, setArchivingDraft] = useState<Card | null>(null);
   const [detachingDraft, setDetachingDraft] = useState<{
     card: Card;
@@ -222,7 +224,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
           [...current].filter(
             ([id, undo]) =>
               undo.expiresAt > Date.now() &&
-              sameUndoGroup(liveBoard.current, undo) &&
+              sameGroup(liveBoard.current, undo.group) &&
               sameCard(
                 liveBoard.current?.cards.find((card) => card.id === id),
                 undo.card,
@@ -382,17 +384,26 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         }
       />
     );
-  const setStage = async (card: Card, stage: Stage) => {
+  const openStatus = (card: Card) =>
+    setStatusSelection({ card, groups: orderedGroups(board.settings) });
+  const setStage = async (card: Card, stage: Stage, expectedGroup?: Group) => {
     if (mutationPending.current.has(`stage:${card.id}`)) {
       toast.error(t.mutationPending);
+      return false;
+    }
+    const group =
+      expectedGroup ??
+      board.settings.groups.find((group) => group.id === stage);
+    if (expectedGroup && !sameGroup(board, expectedGroup)) {
+      toast.error(t.mutationErrors["stage-group-changed"]);
       return false;
     }
     if (
       card.workspaceId === null &&
       !isDraftGroup(stage, board.settings.groups)
     ) {
-      setStatusCard(null);
-      setStarting({ card, stage });
+      setStatusSelection(null);
+      setStarting({ card, stage, expectedGroup: group });
       return false;
     }
     setMoveUndos((current) => {
@@ -407,6 +418,11 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
       taskId: card.id,
       stage,
       expectedLabels: card.managedLabels,
+      expectedGroup: group && {
+        id: group.id,
+        kind: group.kind,
+        label: group.label,
+      },
     });
     setOptimisticStages((current) => {
       const updated = new Map(current);
@@ -414,7 +430,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
       return updated;
     });
     if (next) {
-      setStatusCard(null);
+      setStatusSelection(null);
       const moved = next.cards.find((item) => item.id === card.id);
       const originalGroup = board.settings.groups.find(
         (group) => group.id === card.stage,
@@ -451,7 +467,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
       !undo ||
       undo.expiresAt <= Date.now() ||
       !sameCard(card, undo.card) ||
-      !sameUndoGroup(liveBoard.current, undo)
+      !sameGroup(liveBoard.current, undo.group)
     ) {
       toast.error(t.undoMoveExpired);
       return;
@@ -1152,7 +1168,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
           disabled={writesDisabled}
           t={t}
           theme={props.theme}
-          onSelect={setStatusCard}
+          onSelect={openStatus}
         />
       )}
       <TaskView
@@ -1386,7 +1402,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
               }))
             }
             onStart={() => setStarting({ card })}
-            onStatus={() => setStatusCard(card)}
+            onStatus={() => openStatus(card)}
             onArchive={() => setArchivingDraft(card)}
             onCancelBinding={() => setCancelingBinding(card)}
             onDetachDraft={(draftId) => setDetachingDraft({ card, draftId })}
@@ -1472,6 +1488,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
               taskId: starting!.card.id,
               target,
               stage,
+              expectedGroup: starting!.expectedGroup,
             },
             undefined,
             setStartError,
@@ -1561,11 +1578,11 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
           writesDisabled ||
           (!!statusCard && pendingMutationIds.has(`stage:${statusCard.id}`))
         }
-        groups={orderedGroups(board.settings)}
+        groups={statusSelection?.groups ?? []}
         card={statusCard}
         t={t}
         theme={props.theme}
-        onClose={() => setStatusCard(null)}
+        onClose={() => setStatusSelection(null)}
         onStage={setStage}
       />
     </View>
@@ -2448,7 +2465,7 @@ function StageModal({
   t: ReturnType<typeof strings>;
   theme: PluginSurfaceProps["theme"];
   onClose(): void;
-  onStage(card: Card, stage: Stage): Promise<boolean>;
+  onStage(card: Card, stage: Stage, group: Group): Promise<boolean>;
   groups: Group[];
 }) {
   if (!card) return null;
@@ -2471,7 +2488,7 @@ function StageModal({
               accessibilityState={{ selected: card.stage === group.id }}
               disabled={disabled}
               key={group.id}
-              onPress={() => void onStage(card, group.id)}
+              onPress={() => void onStage(card, group.id, group)}
               style={({ pressed }) => [
                 styles.stageMenuItem,
                 {
