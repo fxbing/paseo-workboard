@@ -13,6 +13,7 @@ import { expect, it } from "vitest";
 import { checkGitSafety } from "../server/git-safety";
 import { isolatedGitEnvironment } from "./git-environment";
 
+// This fixture starts many real Git processes, which can exceed 5 seconds on Windows.
 it("protects real dirty/untracked/unpushed Git work and requires an upstream", async () => {
   const root = await mkdtemp(join(tmpdir(), "workboard-git-"));
   const originalEnv = process.env;
@@ -154,7 +155,7 @@ it("protects real dirty/untracked/unpushed Git work and requires an upstream", a
     process.env = originalEnv;
     await rm(root, { recursive: true, force: true });
   }
-});
+}, 30_000);
 it.each(["C", "zh_CN.UTF-8", "de_DE.UTF-8"])(
   "checks real non-Git and missing directories under %s",
   async (locale) => {
