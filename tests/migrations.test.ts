@@ -18,6 +18,30 @@ import {
 } from "../shared/model";
 import { mutationSchema } from "../shared/rpc";
 
+it("preserves schema 12 archives and does not infer a recovery intent or pause", () => {
+  const task = newTask("task", "Task", "2026-09-01T00:00:00Z");
+  const archive = {
+    operationId: "archive",
+    kind: "automatic",
+    status: "archived",
+    stage: "done",
+    group: null,
+    startedAt: task.createdAt,
+    archivedAt: task.createdAt,
+    lastConversationAt: null,
+    detail: "Archived",
+  };
+  const previous = {
+    ...dataSchema.parse({ tasks: [{ ...task, archived: archive }] }),
+    schemaVersion: 12,
+  };
+  const migrated = migrateData(previous, 12);
+  expect(migrated.schemaVersion).toBe(DATA_SCHEMA_VERSION);
+  expect(migrated.tasks[0].archived).toEqual(archive);
+  expect(migrated.tasks[0].autoArchivePaused).toBeUndefined();
+  expect(dataSchema.safeParse(previous).success).toBe(false);
+});
+
 it("migrates legacy archive gates to independent effective rules without losing delays", () => {
   for (const autoArchive of [false, true])
     for (const archiveDoneEnabled of [false, true])
@@ -575,7 +599,7 @@ it.each([9, 10, 11])(
       },
     };
     const migrated = migrateData(old, schemaVersion);
-    expect(migrated.schemaVersion).toBe(12);
+    expect(migrated.schemaVersion).toBe(13);
     expect(migrated.tasks[0].priority).toBe("p1");
     expect(migrated.tasks[0].mergedDrafts[0].priority).toBe("p3");
     expect(migrated.settings.priorityStyles).toMatchObject({

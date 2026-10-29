@@ -14,7 +14,10 @@ import {
 } from "./model";
 
 const oldPriority = z.enum(["high", "normal", "low"]);
-const oldTask = taskSchema
+const v12Task = taskSchema.omit({ autoArchivePaused: true }).extend({
+  archived: taskSchema.shape.archived.unwrap().omit({ undo: true }).nullable(),
+});
+const oldTask = v12Task
   .omit({ priorityLabelBaseline: true, priorityWrite: true })
   .extend({
     priority: oldPriority.optional(),
@@ -379,6 +382,19 @@ export class InvalidStorageDataError extends Error {
 
 function migrateDataUnsafe(values: unknown, fromVersion: number) {
   if (fromVersion === DATA_SCHEMA_VERSION) return dataSchema.parse(values);
+  if (fromVersion === 12) {
+    const previous = z
+      .object({
+        ...dataSchema.shape,
+        schemaVersion: z.literal(12),
+        tasks: z.array(v12Task).default([]),
+      })
+      .parse(values);
+    return dataSchema.parse({
+      ...previous,
+      schemaVersion: DATA_SCHEMA_VERSION,
+    });
+  }
   if (fromVersion === 11) return migrateV11(values);
   if (fromVersion === 10) {
     const previous = z

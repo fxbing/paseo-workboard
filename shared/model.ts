@@ -377,7 +377,7 @@ export function conversationStatusFor(
  * The stored settings version. The plugin registers this same value, because the host only
  * migrates stored settings when the registered version differs from what it finds.
  */
-export const DATA_SCHEMA_VERSION = 12;
+export const DATA_SCHEMA_VERSION = 13;
 
 export const sourceSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -410,6 +410,7 @@ const archiveSchema = z.object({
   archivedAt: z.string().nullable(),
   lastConversationAt: z.string().nullable(),
   detail: z.string(),
+  undo: z.enum(["pending", "uncertain"]).optional(),
 });
 /**
  * Display evidence and gate evidence stay separate: a lower bound may be shown to the user
@@ -494,6 +495,7 @@ export const taskSchema = z.object({
     .default([]),
   issue: z.string().nullable(),
   archived: archiveSchema.nullable(),
+  autoArchivePaused: z.literal(true).optional(),
   binding: z
     .object({
       operationId: z.string(),

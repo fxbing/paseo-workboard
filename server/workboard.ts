@@ -192,6 +192,7 @@ export class Workboard {
   private pendingRefresh: Set<string> | null | undefined;
   private stopped = false;
   private pendingMutations = 0;
+  private undoInFlight = false;
   private connectionGeneration = 0;
   private epoch = 0;
   private workspaceEpochs = new Map<string, number>();
@@ -248,13 +249,16 @@ export class Workboard {
     await this.serial(async () => {
       await this.load();
       await this.store.update((data) => {
-        for (const task of data.tasks)
+        for (const task of data.tasks) {
+          if (task.archived?.undo === "pending")
+            task.archived.undo = "uncertain";
           if (task.archived?.status === "pending") {
             task.archived.status = "uncertain";
             task.archived.detail =
               "Native archive outcome unknown after restart";
             task.issue = "native-archive-unknown";
           }
+        }
       });
       const bindings = this.store.current.tasks.filter(
         (t) => t.binding && !t.priorityWrite,
@@ -436,11 +440,11 @@ export class Workboard {
                 ? "automatic"
                 : "manual",
           dueAt:
-            task.workspaceId && archiveDelay !== null
+            task.workspaceId && !task.autoArchivePaused && archiveDelay !== null
               ? archiveDueAt(archiveGate(task), archiveDelay)
               : null,
           recheckAt:
-            task.workspaceId && !task.archived
+            task.workspaceId && !task.archived && !task.autoArchivePaused
               ? (this.recheckHints.get(task.workspaceId) ?? null)
               : null,
           agents: agents.map((a) => ({
@@ -621,6 +625,12 @@ export class Workboard {
           data.settings.defaultStartGroup,
         );
         if (stage === "conflict") hasStatusConflict = true;
+        if (
+          !task.archived &&
+          stage !== "conflict" &&
+          (task.resolvedStage ?? priorStage) !== stage
+        )
+          delete task.autoArchivePaused;
         task.lastStage = stage;
         // A clean observation refreshes the newest-wins attribution baseline; a conflict
         // must not, or one failed sync would make every later conflict unattributable.
@@ -1338,6 +1348,15 @@ export class Workboard {
       throw new Error("stage-task-changed");
   }
   async mutate(input: Mutation): Promise<Board> {
+    if (
+      this.undoInFlight ||
+      this.store.current.tasks.some((task) => task.archived?.undo === "pending")
+    )
+      throw new Error("archive-undo-pending");
+    let pendingReply: (board: Board) => void = () => {};
+    const pending = new Promise<Board>((resolve) => {
+      pendingReply = resolve;
+    });
     // Reject before queueing so an active or queued start cannot be canceled after it fails.
     if (
       input.action === "cancel-binding" &&
@@ -1350,9 +1369,10 @@ export class Workboard {
         input.taskId,
         (this.queuedStarts.get(input.taskId) ?? 0) + 1,
       );
+    if (input.action === "undo-archive") this.undoInFlight = true;
     this.epoch++;
     this.pendingMutations++;
-    return this.serial(async () => {
+    const work = this.serial(async () => {
       if (!this.connected)
         throw new Error(this.error ?? "Paseo is disconnected");
       try {
@@ -1421,7 +1441,11 @@ export class Workboard {
           });
         } else {
           const task = this.task(input.taskId);
-          if (hidden(task) && input.action !== "resolve-archive")
+          if (
+            hidden(task) &&
+            input.action !== "resolve-archive" &&
+            input.action !== "undo-archive"
+          )
             throw new Error(
               input.action === "detach-draft"
                 ? "detach-draft-archived"
@@ -1549,6 +1573,8 @@ export class Workboard {
               await this.store.update((data) => {
                 const current = data.tasks.find((t) => t.id === task.id)!;
                 this.checkStageExpected(data, input);
+                if (current.lastStage !== input.stage)
+                  delete current.autoArchivePaused;
                 current.lastStage = input.stage;
                 // The verified sync made this a clean observation: move the
                 // newest-wins baseline with it, or an external label change
@@ -1646,7 +1672,28 @@ export class Workboard {
               current.issue = null;
               current.updatedAt = this.stamp(current.updatedAt);
             });
+          } else if (input.action === "undo-archive") {
+            await this.undoArchive(input, () => pendingReply(this.snapshot()));
           } else if (input.action === "resolve-archive") {
+            if (task.archived?.undo) throw new Error("archive-undo-unknown");
+            if (
+              task.archived?.kind === "automatic" &&
+              input.outcome === "restore"
+            )
+              throw new Error("archive-resolution-unavailable");
+            if (
+              task.archived?.kind === "automatic" &&
+              input.outcome === "confirm"
+            ) {
+              if (
+                task.updatedAt !== input.updatedAt ||
+                task.archived.operationId !== input.operationId
+              )
+                throw new Error("archive-resolution-stale");
+              if (!task.workspaceId)
+                throw new Error("archive-resolution-unavailable");
+              await this.host.checkRestore(task.workspaceId);
+            }
             await this.store.update((data) => {
               const current = data.tasks.find((t) => t.id === task.id)!;
               if (current.updatedAt !== input.updatedAt)
@@ -1711,12 +1758,17 @@ export class Workboard {
       }
     }).finally(() => {
       this.pendingMutations--;
+      if (input.action === "undo-archive") this.undoInFlight = false;
       if (input.action === "start") {
         const remaining = this.queuedStarts.get(input.taskId)! - 1;
         if (remaining) this.queuedStarts.set(input.taskId, remaining);
         else this.queuedStarts.delete(input.taskId);
       }
     });
+    // Native worktree recovery can outlast the host's plugin RPC deadline.
+    return input.action === "undo-archive"
+      ? Promise.race([work, pending])
+      : work;
   }
   private async bind(id: string): Promise<void> {
     const draft = this.task(id);
@@ -2025,7 +2077,7 @@ export class Workboard {
     const cleared: string[] = [];
     for (const [id, deferred] of this.archiveDeferrals) {
       const task = data.tasks.find((task) => task.id === id);
-      if (!task || task.archived || task.binding) {
+      if (!task || task.archived || task.binding || task.autoArchivePaused) {
         cleared.push(id);
         continue;
       }
@@ -2059,6 +2111,100 @@ export class Workboard {
     }
     // Callers delete from the in-memory map only after the storage write succeeds.
     return cleared;
+  }
+  private async undoArchive(
+    input: Extract<Mutation, { action: "undo-archive" }>,
+    reportPending: () => void,
+  ): Promise<void> {
+    const task = this.task(input.taskId);
+    if (
+      task.updatedAt !== input.updatedAt ||
+      task.archived?.operationId !== input.operationId
+    )
+      throw new Error("archive-resolution-stale");
+    const archive = task.archived;
+    if (
+      !task.workspaceId ||
+      archive.kind !== "automatic" ||
+      archive.status === "pending"
+    )
+      throw new Error("archive-resolution-unavailable");
+    if (
+      !this.store.current.settings.groups.some(
+        (group) => group.id === archive.stage,
+      )
+    )
+      throw new Error("archive-group-unavailable");
+    if (archive.undo === "pending") throw new Error("archive-undo-pending");
+    const activeInventory =
+      !archive.undo && archive.status === "uncertain"
+        ? await this.readInventory()
+        : undefined;
+    const activeWorkspace = activeInventory?.workspaces.find(
+      (item) => item.id === task.workspaceId,
+    );
+    if (activeWorkspace?.archivingAt) throw new Error("archive-undo-unknown");
+    if (!archive.undo && !activeWorkspace) {
+      await this.host.checkRestore(task.workspaceId);
+      await this.store.update((data) => {
+        const current = data.tasks.find((item) => item.id === task.id)!;
+        current.archived!.undo = "pending";
+        current.autoArchivePaused = true;
+        current.updatedAt = this.stamp(current.updatedAt);
+      });
+      reportPending();
+      try {
+        await this.host.restore(task.workspaceId);
+      } catch (error) {
+        await this.store.update((data) => {
+          const current = data.tasks.find((item) => item.id === task.id)!;
+          current.archived!.undo = "uncertain";
+          current.archived!.detail = message(error);
+        });
+        throw error;
+      }
+    }
+    try {
+      const inventory = activeWorkspace
+        ? activeInventory!
+        : await this.readInventory();
+      const workspace = inventory.workspaces.find(
+        (item) => item.id === task.workspaceId,
+      );
+      if (!workspace || workspace.archivingAt)
+        throw new Error("archive-undo-unknown");
+      await this.store.update((data) => {
+        const current = data.tasks.find((item) => item.id === task.id)!;
+        if (
+          activeWorkspace &&
+          (current.updatedAt !== input.updatedAt ||
+            current.archived?.operationId !== input.operationId ||
+            current.archived.status !== "uncertain")
+        )
+          throw new Error("archive-resolution-stale");
+        current.archived = null;
+        current.autoArchivePaused = true;
+        current.lastStage = resolveStage(
+          workspace.labels,
+          data.settings.groups,
+          data.settings.defaultStartGroup,
+        );
+        current.resolvedStage =
+          current.lastStage === "conflict" ? null : current.lastStage;
+        current.issue = null;
+        current.updatedAt = this.stamp(current.updatedAt);
+      });
+      this.inventory = inventory;
+      this.archiveDeferrals.delete(task.id);
+      this.changed(task.workspaceId);
+    } catch (error) {
+      // A lost reply or interrupted verification never authorizes another native restore.
+      await this.store.update((data) => {
+        const current = data.tasks.find((item) => item.id === task.id)!;
+        if (current.archived?.undo) current.archived.undo = "uncertain";
+      });
+      throw error;
+    }
   }
   private async deferArchive(
     task: Task,
@@ -2094,6 +2240,7 @@ export class Workboard {
         id &&
         (!scope || scope.has(id)) &&
         !task.archived &&
+        !task.autoArchivePaused &&
         !task.binding &&
         task.issue !== "archive-restored-workspace-unavailable" &&
         (archiveGate(task) ?? this.recheckHints.get(id) ?? null) !== null &&

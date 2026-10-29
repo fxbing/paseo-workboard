@@ -45,6 +45,10 @@ Workboard 将活跃 workspace 汇集到同一个看板，每个 workspace 对应
 
 已完成与已废弃的独立开关、始终显示的等待期限控件和到期确认流程见[归档指南](docs/zh-CN/user-guide.md#归档-workspace)。
 
+**归档记录**仅显示 Workboard 自动归档，默认显示已归档记录。**撤销归档**通过 Paseo 恢复 workspace，并暂停自动归档，直到任务更换分组。
+
+![自动归档记录与原生 workspace 恢复](images/archive-zh-CN.png)
+
 ## 安装
 
 需要 Paseo 0.11.0 或更高版本，详见 [paseo-plugin.json](paseo-plugin.json)。插件作为受信任、未沙箱隔离的代码运行在 daemon 中，请先审阅源码再安装。
@@ -94,7 +98,7 @@ npm run format:check
 ## 限制
 
 - 部分标签与 workspace 操作通过 Paseo 内部桥接完成，复用宿主会话并校验响应。manifest 的最低版本不代表兼容所有后续版本，升级前请查看 [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) 中的升级说明。
-- 自动归档可能停止 Agent 与 terminal，并可能移除托管 worktree。缺少对话证据、子 Agent 清单不完整或状态不安全时会延期。Workboard 无法恢复原生归档或被移除的 worktree。安全检查与恢复选项详见[归档指南](docs/zh-CN/user-guide.md#归档-workspace)。
+- 自动归档可能停止 Agent 与 terminal，并可能移除托管 worktree。缺少对话证据、子 Agent 清单不完整或状态不安全时会延期。归档页仅显示 Workboard 自动归档，默认显示已归档记录。“撤销归档”通过 Paseo 恢复 workspace，并暂停该任务的自动归档，直到更换分组；能否恢复取决于宿主保留的目录和分支。安全检查与恢复选项详见[归档指南](docs/zh-CN/user-guide.md#归档-workspace)。
 - 标签、归档状态和侧边栏置顶可在 Workboard 外变化。宿主未提供全部原子操作，结果不确定时需要人工核实，不会进行破坏性重试。
 - 支持目标为 Paseo Web 与 Electron 桌面界面，原生移动端不在支持范围内。自动化 UI 冒烟测试以 Chromium 为目标。Electron、长时间边缘自动滚动，以及拖动过程中的 `Escape` 或失焦仍待验证。这些交互均已实现，包括拖动取消。
 

@@ -85,6 +85,8 @@ export function fixture(initial: Partial<Data> = {}) {
       inventory.workspaces = inventory.workspaces.filter((w) => w.id !== id);
       return { archivedAt: new Date(now()).toISOString(), error: null };
     }),
+    checkRestore: vi.fn(async () => {}),
+    restore: vi.fn(async () => {}),
     safety: async () => null,
     dispose: vi.fn(),
   };

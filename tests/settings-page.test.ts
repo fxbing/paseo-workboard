@@ -262,7 +262,7 @@ it("adopts a completed save after leaving and reopening while it is pending", as
 });
 
 it.each(["zh", "en"] as const)(
-  "offers both archive resolutions with concurrency fields in %s",
+  "confirms uncertain archives and undoes completed archives with concurrency fields in %s",
   async (language) => {
     const localized = strings(language);
     const test = board(settingsSchema.parse({}), [
@@ -292,8 +292,13 @@ it.each(["zh", "en"] as const)(
       },
     ]);
     const mutate = vi.fn(async () => test);
-    for (const outcome of ["confirm", "restore"] as const) {
+    for (const [outcome, status] of [
+      ["confirm", "uncertain"],
+      ["undo", "uncertain"],
+      ["undo", "archived"],
+    ] as const) {
       hooks.values = [];
+      test.cards[0].archived!.status = status;
       const render = () => {
         hooks.cursor = 0;
         return ArchivePage({
@@ -309,7 +314,17 @@ it.each(["zh", "en"] as const)(
       const label =
         outcome === "confirm"
           ? localized.confirmArchived
-          : localized.restoreTask;
+          : localized.undoArchive;
+      if (status === "uncertain") {
+        const tab = findElement(
+          render(),
+          (node) =>
+            node.props.accessibilityLabel ===
+            `${localized.archiveNeedsReview} (1)`,
+          "needs review",
+        );
+        (tab.props.onPress as () => void)();
+      }
       const entry = findElement(
         render(),
         (node) => node.props.children === label,
@@ -333,11 +348,12 @@ it.each(["zh", "en"] as const)(
       );
       await (confirmation.props.onConfirm as () => Promise<boolean>)();
       expect(mutate).toHaveBeenLastCalledWith({
-        action: "resolve-archive",
+        ...(outcome === "undo"
+          ? { action: "undo-archive" }
+          : { action: "resolve-archive", outcome }),
         taskId: "task",
         operationId: "archive-op",
         updatedAt: test.cards[0].updatedAt,
-        outcome,
       });
     }
   },
@@ -558,6 +574,7 @@ it("offers only restoration for an archived draft and sends its concurrency fiel
     return ArchivePage({
       board: test,
       cards: test.cards,
+      draftsOnly: true,
       t,
       theme,
       disabled: false,

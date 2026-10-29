@@ -151,6 +151,7 @@ export function TaskItem({
     : null;
   const terminal = isTerminalGroup(card.stage, board.settings.groups);
   const issue = [
+    card.autoArchivePaused ? t.archivePaused : null,
     card.issue === "no-conversation" || card.issue === "conversation-unknown"
       ? null
       : issueText(card.issue, t),

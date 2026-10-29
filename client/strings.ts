@@ -211,10 +211,27 @@ const zh = {
   conflictHint: "为以下任务选择一个分组，修复多个状态标签。",
   resolveConflict: "选择分组",
   archived: "归档记录",
+  archiveRules:
+    "仅显示 Workboard 自动归档的任务，默认显示已归档记录；归档中或结果待核实的记录在“待处理”中。撤销会通过 Paseo 恢复 workspace，托管 worktree 能否重建取决于宿主保留的分支和目录。恢复后保留原分组，暂停该任务的自动归档，直到更换分组。Paseo 中的手动或其他自动归档请在原生归档页管理；手动归档草稿可在设置中恢复。",
+  archiveCompleted: "已归档",
+  archiveNeedsReview: "待处理",
+  archiveInProgress: "归档中",
+  undoArchive: "撤销归档",
+  undoArchiveConfirm:
+    "撤销“{name}”的归档？若 workspace 仍活跃且未在归档，则直接放回看板；否则通过 Paseo 恢复，宿主可能重建托管 worktree。已停止的 Agent 和 terminal 不会自动重新运行。恢复后暂停自动归档，直到该任务更换分组。恢复失败时保留归档记录。",
+  checkArchiveUndo: "核实恢复结果",
+  checkArchiveUndoConfirm:
+    "检查“{name}”是否已在 Paseo 恢复？此操作只核实状态，不会再次发送恢复请求；如尚未恢复，请先在 Paseo 中处理。",
+  archiveUndoUnknown: "撤销归档结果待核实",
+  archiveUndoPending: "正在恢复 workspace，请等待；恢复期间暂停修改看板",
+  archivePaused: "自动归档已暂停，更换分组后恢复",
+  archivedDrafts: "已归档草稿",
+  archivedDraftRules:
+    "这里只保留手动归档的草稿。放回看板会恢复到原分组，不涉及 workspace 或 worktree。",
   back: "返回看板",
   archiveDraft: "归档草稿",
   archiveDraftConfirm:
-    "归档草稿“{name}”？归档后将移出看板，可在归档页放回原分组。",
+    "归档草稿“{name}”？归档后将移出看板，可在设置的“已归档草稿”中放回原分组。",
   autoArchive: "自动归档",
   autoArchiveMigrationPaused:
     "升级时补建了已废弃分组，其标签可能匹配已有 workspace。自动归档已关闭，请核对到期任务后重新开启；存在到期任务时会先要求确认。",
@@ -464,6 +481,14 @@ const zh = {
     "cancel-binding-missing": "任务没有待处理的绑定。",
     "cancel-binding-changed": "绑定已变化，请刷新后再取消。",
     "archive-resolution-stale": "任务或归档记录已变化，请刷新后再处理。",
+    "archive-undo-pending": "正在恢复 workspace，请等待结果。",
+    "archive-recovery-unavailable":
+      "Paseo 无法恢复此 workspace；请在原生归档页检查项目、目录和分支。",
+    "Native restore workspace mismatch":
+      "宿主返回了其它 workspace 的恢复结果，已停止操作。",
+    "Native restore rejected": "Paseo 拒绝恢复，请在原生归档页检查目录和分支。",
+    "archive-undo-unknown":
+      "尚未确认 workspace 已恢复；请先在 Paseo 中检查，再核实恢复结果。",
     "archive-resolution-unavailable": "任务没有待核实的归档结果。",
     "archive-group-unavailable":
       "原分组已删除，无法放回该分组。请先恢复分组配置。",
@@ -709,10 +734,28 @@ const en: typeof zh = {
     "Choose one group for each task below to resolve its conflicting status labels.",
   resolveConflict: "Choose group",
   archived: "Archive",
+  archiveRules:
+    "Only tasks automatically archived by Workboard appear here. Completed archives are shown by default; in-progress or unverified outcomes appear under Needs review. Undo asks Paseo to restore the workspace; rebuilding a managed worktree depends on the host’s retained branch and directories. The task keeps its group, with automatic archiving paused until it changes groups. Manage manual and other native archives in Paseo. Restore manually archived drafts from Settings.",
+  archiveCompleted: "Archived",
+  archiveNeedsReview: "Needs review",
+  archiveInProgress: "Archiving",
+  undoArchive: "Undo archive",
+  undoArchiveConfirm:
+    "Undo the archive for “{name}”? If its workspace is still active and not archiving, return it to the board; otherwise ask Paseo to restore it, possibly rebuilding its managed worktree. Stopped agents and terminals do not restart automatically. Automatic archiving stays paused until the task changes groups. If recovery fails, the archive record is kept.",
+  checkArchiveUndo: "Check recovery",
+  checkArchiveUndoConfirm:
+    "Check whether “{name}” is active in Paseo again? This only verifies the outcome and does not resend the restore request. If it is still unavailable, recover it in Paseo first.",
+  archiveUndoUnknown: "Recovery outcome needs verification",
+  archiveUndoPending:
+    "Restoring the workspace; board changes are paused until recovery finishes",
+  archivePaused: "Automatic archiving paused until the group changes",
+  archivedDrafts: "Archived drafts",
+  archivedDraftRules:
+    "Manually archived drafts are kept here. Restore to board returns a draft to its original group without changing a workspace or worktree.",
   back: "Back to board",
   archiveDraft: "Archive draft",
   archiveDraftConfirm:
-    "Archive draft “{name}”? It will leave the board. You can restore it to its original group from Archive.",
+    "Archive draft “{name}”? It will leave the board. Restore it to its original group from Archived drafts in Settings.",
   autoArchive: "Automatic archive",
   autoArchiveMigrationPaused:
     "An upgrade added a Canceled group whose label may match existing workspaces. Automatic archive was turned off. Review due tasks before re-enabling it; due tasks require confirmation first.",
@@ -989,6 +1032,16 @@ const en: typeof zh = {
     "cancel-binding-changed": "The binding changed. Refresh before canceling.",
     "archive-resolution-stale":
       "The task or archive record changed. Refresh before resolving it.",
+    "archive-undo-pending":
+      "The workspace is being restored. Wait for the result.",
+    "archive-recovery-unavailable":
+      "Paseo cannot recover this workspace. Check its project, directory and branch in the native archive page.",
+    "Native restore workspace mismatch":
+      "The host returned a recovery result for another workspace. Recovery was stopped.",
+    "Native restore rejected":
+      "Paseo rejected recovery. Check the directory and branch in its native archive page.",
+    "archive-undo-unknown":
+      "Workspace recovery is not confirmed. Check it in Paseo, then verify recovery here.",
     "archive-resolution-unavailable":
       "The task has no unresolved archive outcome.",
     "archive-group-unavailable":

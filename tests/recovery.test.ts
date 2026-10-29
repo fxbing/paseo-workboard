@@ -6,13 +6,348 @@ import { Store } from "../server/store";
 import { agentEvidence, fixture, workspace } from "./fixtures";
 import { visibleCards } from "../client/board-utils";
 
-it.each(["uncertain", "external"] as const)(
+function archivedAutomatic() {
+  const task = newTask("task", "Completed task", "2026-08-01T00:00:00Z");
+  return {
+    ...task,
+    workspaceId: "w",
+    lastStage: "done" as const,
+    archived: {
+      operationId: "archive-op",
+      kind: "automatic" as const,
+      status: "archived" as const,
+      stage: "done",
+      group: null,
+      startedAt: task.createdAt,
+      archivedAt: task.createdAt,
+      lastConversationAt: task.createdAt,
+      detail: "Archived",
+    },
+  };
+}
+const undoInput = (
+  card: ReturnType<Workboard["snapshot"]>["cards"][number],
+) => ({
+  action: "undo-archive" as const,
+  taskId: card.id,
+  updatedAt: card.updatedAt,
+  operationId: card.archived!.operationId,
+});
+
+it.each(["archived", "uncertain"] as const)(
+  "restores an %s native workspace and persists the pause until a different group is observed",
+  async (status) => {
+    const task = archivedAutomatic();
+    const test = fixture({
+      tasks: [{ ...task, archived: { ...task.archived, status } }],
+      settings: settingsSchema.parse({
+        archiveDoneEnabled: true,
+        exclusiveStatusLabels: false,
+      }),
+    });
+    test.host.restore = vi.fn(async () => {
+      expect(test.store.current.tasks[0]).toMatchObject({
+        autoArchivePaused: true,
+        archived: { undo: "pending" },
+      });
+      test.inventory.workspaces.push(
+        workspace("w", "Completed task", ["task:done"]),
+      );
+    });
+    await test.board.start();
+    try {
+      const before = test.board.snapshot().cards[0];
+      const pending = await test.board.mutate(undoInput(before));
+      expect(pending.cards[0].archived?.undo).toBe("pending");
+      await test.board.refresh();
+      const restored = test.board.snapshot();
+      expect(restored.cards[0]).toMatchObject({
+        archived: null,
+        autoArchivePaused: true,
+        stage: "done",
+        dueAt: null,
+        recheckAt: null,
+      });
+      expect(test.host.restore).toHaveBeenCalledOnce();
+      await expect(test.board.mutate(undoInput(before))).rejects.toThrow(
+        "archive-resolution-stale",
+      );
+      const reopened = new Workboard(
+        test.host,
+        new Store(test.backing),
+        test.now,
+      );
+      try {
+        await reopened.start();
+        expect(reopened.snapshot().cards[0].autoArchivePaused).toBe(true);
+        await reopened.refresh();
+        expect(test.host.archive).not.toHaveBeenCalled();
+        test.inventory.workspaces[0].labels = ["task:done", "task:review"];
+        await reopened.refresh();
+        // A conflict resolved back to the same group must not resume automatic archive.
+        test.inventory.workspaces[0].labels = ["task:done"];
+        await reopened.refresh();
+        expect(reopened.snapshot().cards[0].autoArchivePaused).toBe(true);
+        const card = reopened.snapshot().cards[0];
+        await reopened.mutate({
+          action: "stage",
+          taskId: card.id,
+          stage: "review",
+          expectedLabels: card.managedLabels,
+        });
+        expect(reopened.snapshot().cards[0].autoArchivePaused).toBeUndefined();
+      } finally {
+        reopened.dispose();
+      }
+    } finally {
+      test.board.dispose();
+    }
+  },
+);
+
+it.each([false, true])(
+  "undoes an uncertain archive only when the native workspace is active and not archiving (%s)",
+  async (archiving) => {
+    const task = archivedAutomatic();
+    const test = fixture({
+      tasks: [{ ...task, archived: { ...task.archived, status: "uncertain" } }],
+      settings: settingsSchema.parse({ archiveDoneEnabled: true }),
+    });
+    test.inventory.workspaces.push({
+      ...workspace("w", "Completed task", ["task:done"]),
+      archivingAt: archiving ? task.createdAt : null,
+    });
+    await test.board.start();
+    try {
+      const undo = test.board.mutate(undoInput(test.board.snapshot().cards[0]));
+      if (archiving) {
+        await expect(undo).rejects.toThrow("archive-undo-unknown");
+        expect(test.store.current.tasks[0].archived).toMatchObject({
+          status: "uncertain",
+        });
+        expect(test.store.current.tasks[0].archived?.undo).toBeUndefined();
+      } else {
+        await undo;
+        await test.board.refresh();
+        expect(test.board.snapshot().cards[0]).toMatchObject({
+          archived: null,
+          autoArchivePaused: true,
+          dueAt: null,
+        });
+      }
+      expect(test.host.checkRestore).not.toHaveBeenCalled();
+      expect(test.host.restore).not.toHaveBeenCalled();
+    } finally {
+      test.board.dispose();
+    }
+  },
+);
+
+it("keeps a lost restore response durable and verifies it after restart without resending", async () => {
+  const test = fixture({ tasks: [archivedAutomatic()] });
+  test.host.restore = vi.fn(async () => {
+    throw new Error("Restore response lost");
+  });
+  await test.board.start();
+  try {
+    await test.board.mutate(undoInput(test.board.snapshot().cards[0]));
+    await test.board.refresh();
+    expect(test.store.current.tasks[0].archived).toMatchObject({
+      undo: "uncertain",
+    });
+    const reopened = new Workboard(
+      test.host,
+      new Store(test.backing),
+      test.now,
+    );
+    try {
+      await reopened.start();
+      await expect(
+        reopened.mutate(undoInput(reopened.snapshot().cards[0])),
+      ).rejects.toThrow("archive-undo-unknown");
+      test.inventory.workspaces.push(
+        workspace("w", "Completed task", ["task:done"]),
+      );
+      const restored = await reopened.mutate(
+        undoInput(reopened.snapshot().cards[0]),
+      );
+      expect(restored.cards[0]).toMatchObject({
+        archived: null,
+        autoArchivePaused: true,
+      });
+      expect(test.host.restore).toHaveBeenCalledOnce();
+    } finally {
+      reopened.dispose();
+    }
+  } finally {
+    test.board.dispose();
+  }
+});
+it("turns an interrupted recovery into verification-only state after restart", async () => {
+  const task = archivedAutomatic();
+  const test = fixture({
+    tasks: [
+      {
+        ...task,
+        autoArchivePaused: true,
+        archived: { ...task.archived, undo: "pending" },
+      },
+    ],
+  });
+  await test.board.start();
+  try {
+    expect(test.board.snapshot().cards[0].archived?.undo).toBe("uncertain");
+    test.inventory.workspaces.push({
+      ...workspace("w"),
+      archivingAt: test.now().toString(),
+    });
+    await expect(
+      test.board.mutate(undoInput(test.board.snapshot().cards[0])),
+    ).rejects.toThrow("archive-undo-unknown");
+    expect(test.host.restore).not.toHaveBeenCalled();
+    expect(test.store.current.tasks[0].archived?.undo).toBe("uncertain");
+  } finally {
+    test.board.dispose();
+  }
+});
+it("returns a durable pending reply before slow native recovery and refuses duplicate writes", async () => {
+  const test = fixture({ tasks: [archivedAutomatic()] });
+  let finish!: () => void;
+  test.host.restore = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await test.board.start();
+  try {
+    const pending = await test.board.mutate(
+      undoInput(test.board.snapshot().cards[0]),
+    );
+    expect(pending.cards[0].archived?.undo).toBe("pending");
+    await expect(
+      test.board.mutate(undoInput(pending.cards[0])),
+    ).rejects.toThrow("archive-undo-pending");
+    expect(test.board.snapshot().cards[0].archived?.undo).toBe("pending");
+    test.inventory.workspaces.push(
+      workspace("w", "Completed task", ["task:done"]),
+    );
+    finish();
+    await test.board.refresh();
+    expect(test.board.snapshot().cards[0].archived).toBeNull();
+    expect(test.host.restore).toHaveBeenCalledOnce();
+  } finally {
+    finish?.();
+    test.board.dispose();
+  }
+});
+
+it("rejects competing mutations while native recovery inspection is still in flight", async () => {
+  const test = fixture({ tasks: [archivedAutomatic()] });
+  let release!: () => void;
+  let started!: () => void;
+  const inspecting = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  test.host.checkRestore = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+        started();
+      }),
+  );
+  test.host.restore = vi.fn(async () => {
+    test.inventory.workspaces.push(
+      workspace("w", "Completed task", ["task:done"]),
+    );
+  });
+  await test.board.start();
+  const undo = test.board.mutate(undoInput(test.board.snapshot().cards[0]));
+  try {
+    await inspecting;
+    await expect(
+      test.board.mutate({
+        action: "create",
+        title: "Do not queue",
+        description: "",
+        projectId: null,
+      }),
+    ).rejects.toThrow("archive-undo-pending");
+    release();
+    await undo;
+    await test.board.refresh();
+    expect(test.board.snapshot().cards).toHaveLength(1);
+  } finally {
+    release?.();
+    await undo;
+    test.board.dispose();
+  }
+});
+it("does not restore when the native preflight or durable intent write fails", async () => {
+  for (const failure of ["preflight", "storage"] as const) {
+    const test = fixture({ tasks: [archivedAutomatic()] });
+    await test.board.start();
+    try {
+      if (failure === "preflight")
+        test.host.checkRestore = vi.fn(async () => {
+          throw new Error("Missing directory");
+        });
+      else
+        test.backing.write = async () => {
+          throw new Error("Storage unavailable");
+        };
+      await expect(
+        test.board.mutate(undoInput(test.board.snapshot().cards[0])),
+      ).rejects.toThrow();
+      expect(test.host.restore).not.toHaveBeenCalled();
+      expect(test.store.current.tasks[0].archived?.operationId).toBe(
+        "archive-op",
+      );
+    } finally {
+      test.board.dispose();
+    }
+  }
+});
+it("keeps an unknown automatic archive when native confirmation fails and rejects record-only restoration", async () => {
+  const task = archivedAutomatic();
+  const test = fixture({
+    tasks: [
+      {
+        ...task,
+        archived: { ...task.archived, status: "uncertain", archivedAt: null },
+      },
+    ],
+  });
+  await test.board.start();
+  try {
+    test.host.checkRestore = vi.fn(async () => {
+      throw new Error("Not archived");
+    });
+    const card = test.board.snapshot().cards[0];
+    for (const outcome of ["confirm", "restore"] as const) {
+      await expect(
+        test.board.mutate({
+          action: "resolve-archive",
+          taskId: card.id,
+          updatedAt: card.updatedAt,
+          operationId: card.archived!.operationId,
+          outcome,
+        }),
+      ).rejects.toThrow();
+      expect(test.store.current.tasks[0].archived?.status).toBe("uncertain");
+    }
+  } finally {
+    test.board.dispose();
+  }
+});
+
+it.each(["external"] as const)(
   "resolves %s archives with stale-write protection and durable manual restoration",
   async (status) => {
     for (const outcome of ["confirm", "restore"] as const) {
       const archived = {
         operationId: "archive-op",
-        kind: "automatic" as const,
+        kind: "external" as const,
         status,
         stage: "done",
         group: null,
@@ -420,22 +755,27 @@ it("keeps a restored task on the board when native archive removed the workspace
       taskId: card.id,
       operationId: card.archived!.operationId,
       updatedAt: card.updatedAt,
-      outcome: "restore",
+      outcome: "confirm",
     });
+    test.host.restore = vi.fn(async () => {
+      test.inventory.workspaces.push(
+        workspace("old", "Old task", ["task:done"]),
+      );
+    });
+    await test.board.mutate(undoInput(test.board.snapshot().cards[0]));
     await test.board.refresh();
     const restored = test.board.snapshot();
     expect(restored.cards[0].archived).toBeNull();
     expect(restored.cards[0]).toMatchObject({
       stage: "done",
-      issue: "archive-restored-workspace-unavailable",
+      issue: null,
+      autoArchivePaused: true,
     });
     expect(
       visibleCards(restored, "all", "", false).map((task) => task.id),
     ).toEqual([card.id]);
     expect(test.store.current.tasks[0].archived).toBeNull();
-    test.inventory.workspaces.push(
-      workspace("old", "Old task", ["task:review"]),
-    );
+    test.inventory.workspaces[0].labels = ["task:review"];
     await test.board.refresh();
     expect(test.board.snapshot().cards[0]).toMatchObject({
       archived: null,

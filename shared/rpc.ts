@@ -76,6 +76,12 @@ export const mutationSchema = z.discriminatedUnion("action", [
     operationId: z.string(),
   }),
   z.object({
+    action: z.literal("undo-archive"),
+    taskId: z.string(),
+    operationId: z.string(),
+    updatedAt: z.string(),
+  }),
+  z.object({
     action: z.literal("resolve-archive"),
     taskId: z.string(),
     operationId: z.string(),

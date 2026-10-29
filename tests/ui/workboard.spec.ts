@@ -44,7 +44,9 @@ async function openWorkboard(page: Page): Promise<void> {
   await expect(page.getByTestId("workboard-view-board")).toBeVisible();
 }
 
-async function seedOldDoneTask(): Promise<string> {
+async function seedOldDoneTask(
+  title = `UI archive candidate ${Date.now()}`,
+): Promise<string> {
   const initial = await snapshot();
   if (
     initial.settings.archiveDoneEnabled ||
@@ -60,7 +62,6 @@ async function seedOldDoneTask(): Promise<string> {
         archiveCanceledEnabled: false,
       },
     });
-  const title = `UI archive candidate ${Date.now()}`;
   const directory = path.join(home, "ui-archive-candidate", String(Date.now()));
   await mkdir(directory, { recursive: true });
   const created = await client.createWorkspace({
@@ -157,6 +158,82 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await client?.close();
 });
+
+for (const language of ["en", "zh-CN"]) {
+  test(`automatic archive page restores native workspaces in ${language}`, async ({
+    page,
+  }, info) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1280, height: 620 });
+    await page.addInitScript((language) => {
+      localStorage.setItem("@paseo:app-settings", JSON.stringify({ language }));
+    }, language);
+    const title = await seedOldDoneTask(
+      language === "zh-CN" ? "完善发布清单" : "Polish the release checklist",
+    );
+    let board = await snapshot();
+    const target = board.cards.find((card) => card.title === title)!;
+    await client.invokePluginRpc(pluginId, "workboard.mutate", {
+      action: "settings",
+      revision: board.revision,
+      expectedSettings: board.settings,
+      settings: { ...board.settings, archiveDoneEnabled: true },
+    });
+    await expect
+      .poll(
+        async () =>
+          (await snapshot()).cards.find((card) => card.id === target.id)
+            ?.archived?.status,
+        { timeout: 30_000 },
+      )
+      .toBe("archived");
+    await openWorkboard(page);
+    await page
+      .getByRole("button", { name: /^(Archive|归档) \(\d+\)$/ })
+      .click();
+    await expect(page.getByText(title, { exact: true })).toBeVisible();
+    await expect(page.getByTestId("workboard-archive-rules")).toBeVisible();
+    await page.getByTestId("workboard-archive-page").screenshot({
+      path: info.outputPath(`automatic-archive-${language}.png`),
+    });
+    await page
+      .getByRole("button", { name: /^(Needs review|待处理) \(\d+\)$/ })
+      .click();
+    await expect(
+      page.getByTestId(`workboard-archive-${target.id}`),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { name: /^(Archived|已归档) \(\d+\)$/ })
+      .click();
+    await page
+      .getByTestId(`workboard-archive-${target.id}`)
+      .getByRole("button", { name: /^(Undo archive|撤销归档)$/ })
+      .click();
+    await page
+      .getByRole("button", { name: /^(Undo archive|撤销归档)$/, exact: true })
+      .last()
+      .click();
+    await expect
+      .poll(
+        async () =>
+          (await snapshot()).cards.find((card) => card.id === target.id)
+            ?.archived,
+      )
+      .toBeNull();
+    board = await snapshot();
+    expect(
+      board.cards.find((card) => card.id === target.id)?.autoArchivePaused,
+    ).toBe(true);
+    expect(
+      (await client.fetchWorkspaces()).entries.some(
+        (workspace) => workspace.id === target.workspaceId,
+      ),
+    ).toBe(true);
+    await expect(
+      page.getByTestId(`workboard-archive-${target.id}`),
+    ).toHaveCount(0);
+  });
+}
 
 test("creates a draft through the page and displays it in Board and List", async ({
   page,

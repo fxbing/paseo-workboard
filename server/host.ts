@@ -128,6 +128,8 @@ export interface Host {
   archive(
     id: string,
   ): Promise<{ archivedAt: string | null; error: string | null }>;
+  checkRestore(id: string): Promise<void>;
+  restore(id: string): Promise<void>;
   dispose(): void;
 }
 interface Page<T> {
@@ -657,6 +659,12 @@ export class PaseoHost implements Host {
   }
   archive(id: string) {
     return this.api.workspaces.archive(id);
+  }
+  checkRestore(id: string) {
+    return this.compat.checkRestore(id);
+  }
+  restore(id: string) {
+    return this.compat.restore(id);
   }
   dispose() {
     this.disposed = true;

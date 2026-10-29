@@ -45,6 +45,10 @@ Group defaults, exclusive status labels, sidebar pinning, and optional automatic
 
 See the [archive guide](docs/user-guide.md#archive-workspaces) for independent Done and Canceled switches, always-visible waiting-period controls, and due-task confirmation.
 
+**Archive** shows only Workboard automatic archives and opens on completed records. **Undo archive** restores the workspace through Paseo and pauses automatic archiving until the task changes groups.
+
+![Automatic archives and native workspace recovery](images/archive-en.png)
+
 ## Installation
 
 Use Paseo 0.11.0 or later, as required by [paseo-plugin.json](paseo-plugin.json). Plugins run as trusted, unsandboxed code in the daemon; review the source before installing.
@@ -95,7 +99,7 @@ Use the [isolated integration fixture](tests/integration/README.md) for host-lev
 ## Limitations
 
 - Some label and workspace operations use an internal Paseo bridge that reuses the host session and validates responses. The manifest minimum does not guarantee compatibility with every later Paseo release; read the upgrade notes in [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases) before upgrading.
-- Automatic archiving can stop Agents and terminals and may remove a managed worktree. Missing conversation evidence, incomplete child inventories, or unsafe state postpones it. Workboard cannot restore a native archive or a removed worktree. See the [archive guide](docs/user-guide.md#archive-workspaces) for the safety checks and recovery options.
+- Automatic archiving can stop Agents and terminals and may remove a managed worktree. Missing conversation evidence, incomplete child inventories, or unsafe state postpones it. The Archive page shows only Workboard automatic archives and defaults to completed records. Undo archive asks Paseo to restore the workspace and pauses automatic archiving until the task changes groups. Recovery depends on the host’s retained directories and branches. See the [archive guide](docs/user-guide.md#archive-workspaces) for the safety checks and recovery options.
 - Labels, archive state, and sidebar pins can change outside Workboard. The host does not expose every atomic operation; uncertain outcomes require manual review instead of destructive retries.
 - The supported clients are the Paseo Web and Electron desktop UI; native mobile is not a supported target. The automated UI smoke suite targets Chromium. Electron, long-duration edge autoscroll, and `Escape` or blur during an active drag remain unverified. Those interactions are implemented, including drag cancellation.
 

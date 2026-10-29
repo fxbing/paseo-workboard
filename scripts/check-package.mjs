@@ -51,6 +51,7 @@ const expected = [
       "settings",
       "project-priority",
       "priority-settings",
+      "archive",
     ].map((name) => `images/${name}-${language}.png`),
     ...["views-filter", "move-undo"].map(
       (name) => `images/${name}-${language}.gif`,

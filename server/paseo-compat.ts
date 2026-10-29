@@ -110,7 +110,12 @@ export class PaseoCompat {
   private notify(type: string, payload?: Reply): void {
     for (const listener of this.listeners) listener(type, payload);
   }
-  request(type: string, fields: Reply, responseType: string): Promise<Reply> {
+  request(
+    type: string,
+    fields: Reply,
+    responseType: string,
+    timeout = this.timeout,
+  ): Promise<Reply> {
     if (this.closed)
       return Promise.reject(new Error("Workboard bridge closed"));
     const requestId = `workboard:${randomUUID()}`;
@@ -124,7 +129,7 @@ export class PaseoCompat {
       };
       const timer = setTimeout(
         () => fail(new Error(`Paseo request timed out: ${type}`)),
-        this.timeout,
+        timeout,
       );
       this.pending.set(requestId, {
         type: responseType,
@@ -188,6 +193,54 @@ export class PaseoCompat {
         ),
       );
     return result.workspaceLabels;
+  }
+  async checkRestore(workspaceId: string): Promise<void> {
+    const { state } = z
+      .object({
+        state: z.discriminatedUnion("kind", [
+          z.object({
+            kind: z.literal("recoverable"),
+            workspaceId: z.string(),
+            action: z.enum(["unarchive", "restore"]),
+          }),
+          z.object({
+            kind: z.literal("unavailable"),
+            workspaceId: z.string(),
+            message: z.string(),
+          }),
+        ]),
+      })
+      .parse(
+        await this.request(
+          "workspace.recovery.inspect.request",
+          { workspaceId },
+          "workspace.recovery.inspect.response",
+        ),
+      );
+    if (state.workspaceId !== workspaceId)
+      throw new Error("Native restore workspace mismatch");
+    if (state.kind === "unavailable")
+      throw new Error("archive-recovery-unavailable");
+  }
+  async restore(workspaceId: string): Promise<void> {
+    const result = z
+      .object({
+        workspaceId: z.string(),
+        accepted: z.boolean(),
+        error: z.string().nullable(),
+      })
+      .parse(
+        await this.request(
+          "workspace.recovery.restore.request",
+          { workspaceId },
+          "workspace.recovery.restore.response",
+          150_000,
+        ),
+      );
+    if (result.workspaceId !== workspaceId)
+      throw new Error("Native restore workspace mismatch");
+    if (!result.accepted || result.error !== null)
+      throw new Error(result.error ?? "Native restore rejected");
   }
   async setPinned(
     workspaceId: string,

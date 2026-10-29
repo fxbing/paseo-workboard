@@ -108,6 +108,61 @@ it("rejects a pin response for another workspace", async () => {
   await expect(pin).rejects.toThrow("workspace mismatch");
   bridge.dispose();
 });
+it("inspects and restores a native workspace through the host session", async () => {
+  const p = port();
+  const bridge = new PaseoCompat(p.value);
+  const inspection = bridge.checkRestore("w");
+  expect(JSON.parse(p.sent[0].data as string).message).toMatchObject({
+    type: "workspace.recovery.inspect.request",
+    workspaceId: "w",
+  });
+  p.respond(0, "workspace.recovery.inspect.response", {
+    state: { kind: "recoverable", workspaceId: "w", action: "restore" },
+  });
+  await inspection;
+  const restore = bridge.restore("w");
+  expect(JSON.parse(p.sent[1].data as string).message).toMatchObject({
+    type: "workspace.recovery.restore.request",
+    workspaceId: "w",
+  });
+  p.respond(1, "workspace.recovery.restore.response", {
+    workspaceId: "w",
+    accepted: true,
+    error: null,
+  });
+  await restore;
+  bridge.dispose();
+});
+it("rejects an unavailable native recovery before sending a restore", async () => {
+  const p = port();
+  const bridge = new PaseoCompat(p.value);
+  const inspection = bridge.checkRestore("w");
+  p.respond(0, "workspace.recovery.inspect.response", {
+    state: {
+      kind: "unavailable",
+      workspaceId: "w",
+      message: "Workspace directory is missing",
+    },
+  });
+  await expect(inspection).rejects.toThrow("archive-recovery-unavailable");
+  expect(p.sent).toHaveLength(1);
+  bridge.dispose();
+});
+it.each([
+  { workspaceId: "other", accepted: true, error: null },
+  { workspaceId: "w", accepted: false, error: null },
+  { workspaceId: "w", accepted: true, error: "Recovery failed" },
+])(
+  "rejects an unsuccessful or mismatched native restore response",
+  async (response) => {
+    const p = port();
+    const bridge = new PaseoCompat(p.value);
+    const restore = bridge.restore("w");
+    p.respond(0, "workspace.recovery.restore.response", response);
+    await expect(restore).rejects.toThrow();
+    bridge.dispose();
+  },
+);
 it("rejects a closed session request and resumes only after the host restores its session", async () => {
   const p = port();
   const bridge = new PaseoCompat(p.value);

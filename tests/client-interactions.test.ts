@@ -1338,8 +1338,8 @@ it("card warnings use the metadata font size", () => {
     });
   }
 });
-it.each(["archived", "pending", "uncertain", "external"])(
-  "operation ID visibility for %s",
+it.each(["archived", "pending", "uncertain"])(
+  "defaults to completed automatic archives and keeps %s outcomes accessible",
   (status) => {
     const value = {
       ...card("one"),
@@ -1364,11 +1364,46 @@ it.each(["archived", "pending", "uncertain", "external"])(
       disabled: false,
       mutate: vi.fn(),
     });
-    expect(text(page.render()).includes("archive-op")).toBe(
-      status === "uncertain" || status === "external",
+    expect(text(page.render()).includes(value.title)).toBe(
+      status === "archived",
+    );
+    expect(text(page.render())).toContain(t.archiveRules);
+    byLabel(
+      page.render(),
+      `${t.archiveNeedsReview} (${status === "archived" ? 0 : 1})`,
+    ).props.onPress();
+    expect(text(page.render()).includes(value.title)).toBe(
+      status !== "archived",
     );
   },
 );
+it("excludes external archives and manual drafts from the archive page and count", () => {
+  const values = ["automatic", "external", "draft"].map((kind) => ({
+    ...card(kind),
+    archived: {
+      operationId: kind,
+      status: "archived",
+      kind,
+      stage: "done",
+      group: null,
+      startedAt: "2026-01-01T00:00:00Z",
+      archivedAt: "2026-01-01T00:00:00Z",
+      lastConversationAt: null,
+      detail: "detail",
+    },
+  })) as Card[];
+  runtime.query.data = board(values);
+  const screen = host();
+  byLabel(screen.render(), `${t.archive} (1)`).props.onPress();
+  const archive = named(screen.render(), "ArchivePage");
+  expect(archive.props.cards.map((value: Card) => value.id)).toEqual([
+    "automatic",
+  ]);
+  const page = mount(ArchivePage, archive.props);
+  expect(text(page.render())).toContain("automatic");
+  expect(text(page.render())).not.toContain("external");
+  expect(text(page.render())).not.toContain("draft");
+});
 it.each([false, true])(
   "BoardView passes actual handle visibility compact=%s",
   (compact) => {

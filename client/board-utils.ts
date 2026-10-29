@@ -239,6 +239,7 @@ export function mappingPreview(
       days !== null &&
       dueAt !== null &&
       !card.archived &&
+      !card.autoArchivePaused &&
       !card.binding &&
       isArchiveDue(kind, conversationAt, now, days)
     )

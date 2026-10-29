@@ -41,6 +41,42 @@ async function rpc<T>(method: string, input: unknown): Promise<T> {
 async function snapshot(): Promise<Board> {
   return await rpc<Board>("workboard.snapshot", {});
 }
+async function undoNativeArchive(board: Board, workspaceId: string) {
+  const card = board.cards.find((item) => item.workspaceId === workspaceId)!;
+  const pending = await rpc<Board>("workboard.mutate", {
+    action: "undo-archive",
+    taskId: card.id,
+    updatedAt: card.updatedAt,
+    operationId: card.archived!.operationId,
+  });
+  expect(
+    pending.cards.find((item) => item.id === card.id)?.archived?.undo,
+  ).toBe("pending");
+  const restored = await eventually(
+    snapshot,
+    (board) =>
+      board.cards.find((item) => item.id === card.id)?.archived === null,
+    "native recovery did not finish",
+  );
+  expect(restored.cards.find((item) => item.id === card.id)).toMatchObject({
+    archived: null,
+    stage: "done",
+    autoArchivePaused: true,
+    dueAt: null,
+    recheckAt: null,
+  });
+  expect(
+    (await client.fetchWorkspaces()).entries.some(
+      (item) => item.id === workspaceId,
+    ),
+  ).toBe(true);
+  await client.reloadPlugin(pluginId);
+  const restarted = await readyBoard();
+  expect(restarted.cards.find((item) => item.id === card.id)).toMatchObject({
+    archived: null,
+    autoArchivePaused: true,
+  });
+}
 async function updateSettings(
   changes: Partial<Board["settings"]>,
 ): Promise<Board> {
@@ -1335,7 +1371,7 @@ describe.skipIf(offsetRun)("isolated Paseo workboard", () => {
 describe.runIf(offsetRun)(
   "isolated Paseo workboard with a clock offset",
   () => {
-    test("archives an old idle fixture conversation after the recheck reads its history", async () => {
+    test("archives an old idle fixture conversation and undoes its native archive", async () => {
       const directory = path.join(
         home,
         "integration-archive",
@@ -1396,9 +1432,10 @@ describe.runIf(offsetRun)(
         archived.cards.find((card) => card.workspaceId === workspaceId)
           ?.archived?.status,
       ).toBe("archived");
+      await undoNativeArchive(archived, workspaceId);
     });
 
-    test("archives a clean, upstreamed Paseo managed worktree after the recheck and removes it", async () => {
+    test("archives a managed worktree and restores it through native undo", async () => {
       await updateSettings({
         archiveDoneEnabled: false,
         archiveCanceledEnabled: false,
@@ -1524,6 +1561,11 @@ describe.runIf(offsetRun)(
         ),
       ).toBe(false);
       expect(await exists(worktree)).toBe(false);
+      await undoNativeArchive(archived, workspace.id);
+      expect(await exists(worktree)).toBe(true);
+      expect(
+        await readFile(path.join(worktree, "README.md"), "utf8"),
+      ).toContain("workboard");
     });
   },
 );

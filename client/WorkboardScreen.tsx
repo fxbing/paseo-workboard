@@ -73,7 +73,7 @@ import { HintButton, HintProvider } from "./Hint";
 import { usePaseoLanguage } from "./paseo-language";
 import { ConfirmationModal } from "./ConfirmationModal";
 
-type Page = "board" | "archive" | "settings";
+type Page = "board" | "archive" | "draft-archive" | "settings";
 type DraftForm = {
   task?: Card;
   title: string;
@@ -268,7 +268,10 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
     )
       updateFilters({ projectId: "all" });
   }, [projectId, serverBoard?.connected, serverBoard?.projects, updateFilters]);
-  writeEligible.current = !!serverBoard?.connected && !boardQuery.isError;
+  writeEligible.current =
+    !!serverBoard?.connected &&
+    !boardQuery.isError &&
+    !serverBoard.cards.some((card) => card.archived?.undo === "pending");
   const mutate = useCallback(
     async (
       mutation: Mutation,
@@ -332,24 +335,31 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
   const hasActiveFilter = filterCount > 0;
   const allCards = visibleCards(board, "all", "", false);
   const conflicts = cards.filter((card) => card.stage === "conflict");
-  const archived = board.cards.filter((card) => card.archived !== null);
-  const writesDisabled = !board.connected || boardQuery.isError;
+  const archived = board.cards.filter(
+    (card) => card.archived?.kind === "automatic",
+  );
+  const writesDisabled = !writeEligible.current;
   const groupsPending = pendingMutationIds.has("settings:groups");
   const draftPending = pendingMutationIds.has(
     draft?.task ? `edit:${draft.task.id}` : "create",
   );
   const startPending =
     !!starting && pendingMutationIds.has(`start:${starting.card.id}`);
-  if (page === "archive")
+  if (page === "archive" || page === "draft-archive")
     return (
       <ArchivePage
         board={board}
-        cards={archived}
+        cards={
+          page === "archive"
+            ? archived
+            : board.cards.filter((card) => card.archived?.kind === "draft")
+        }
+        draftsOnly={page === "draft-archive"}
         t={t}
         theme={props.theme}
         disabled={writesDisabled}
         mutate={mutate}
-        onBack={() => setPage("board")}
+        onBack={() => setPage(page === "draft-archive" ? "settings" : "board")}
       />
     );
   if (page === "settings")
@@ -366,6 +376,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
           updateViewPreferences({ priorityFirst })
         }
         mutate={mutate}
+        onArchivedDrafts={() => setPage("draft-archive")}
         onBack={
           props.initialPage === "settings" ? undefined : () => setPage("board")
         }
@@ -2517,11 +2528,13 @@ function PageHeader({
   t,
   theme,
   onBack,
+  backLabel,
 }: {
   title: string;
   t: ReturnType<typeof strings>;
   theme: PluginSurfaceProps["theme"];
   onBack?(): void;
+  backLabel?: string;
 }) {
   return (
     <View style={[styles.pageHeader, { borderColor: theme.colors.border }]}>
@@ -2545,7 +2558,7 @@ function PageHeader({
               { color: theme.colors.foregroundMuted },
             ]}
           >
-            {t.back}
+            {backLabel ?? t.back}
           </Text>
         </Pressable>
       )}
@@ -2563,6 +2576,7 @@ export function ArchivePage({
   onBack,
   disabled,
   mutate,
+  draftsOnly = false,
 }: {
   board: Board;
   cards: Card[];
@@ -2571,19 +2585,91 @@ export function ArchivePage({
   onBack(): void;
   disabled: boolean;
   mutate(input: Mutation): Promise<Board | undefined>;
+  draftsOnly?: boolean;
 }) {
+  const [review, setReview] = useState(false);
   const [resolving, setResolving] = useState<{
     card: Card;
-    outcome: "confirm" | "restore";
+    outcome: "confirm" | "restore" | "undo";
   } | null>(null);
+  const records = cards.filter(
+    (card) => card.archived?.kind === (draftsOnly ? "draft" : "automatic"),
+  );
+  const completed = (card: Card) =>
+    card.archived?.status === "archived" && !card.archived.undo;
+  const visible = draftsOnly
+    ? records
+    : records.filter((card) => completed(card) !== review);
+  const actionLabel = (card: Card, outcome: "confirm" | "restore" | "undo") =>
+    outcome === "confirm"
+      ? t.confirmArchived
+      : outcome === "restore"
+        ? t.restoreTask
+        : card.archived?.undo
+          ? t.checkArchiveUndo
+          : t.undoArchive;
   return (
-    <View style={[styles.screen, { backgroundColor: theme.colors.surface0 }]}>
-      <PageHeader title={t.archived} t={t} theme={theme} onBack={onBack} />
+    <View
+      testID="workboard-archive-page"
+      style={[styles.screen, { backgroundColor: theme.colors.surface0 }]}
+    >
+      <PageHeader
+        title={draftsOnly ? t.archivedDrafts : t.archived}
+        backLabel={draftsOnly ? t.settings : undefined}
+        t={t}
+        theme={theme}
+        onBack={onBack}
+      />
       <ScrollView contentContainerStyle={styles.compactList}>
-        {cards.length ? (
-          cards.map((card) => (
+        <Text
+          style={{ color: theme.colors.foregroundMuted }}
+          testID="workboard-archive-rules"
+        >
+          {draftsOnly ? t.archivedDraftRules : t.archiveRules}
+        </Text>
+        {!draftsOnly && (
+          <View style={styles.cardFooter}>
+            {[false, true].map((needsReview) => {
+              const label = `${needsReview ? t.archiveNeedsReview : t.archiveCompleted} (${records.filter((card) => completed(card) !== needsReview).length})`;
+              return (
+                <Pressable
+                  key={String(needsReview)}
+                  accessibilityRole="button"
+                  accessibilityLabel={label}
+                  accessibilityState={{ selected: review === needsReview }}
+                  onPress={() => setReview(needsReview)}
+                  style={({ pressed }) => [
+                    styles.toolbarButton,
+                    {
+                      backgroundColor:
+                        review === needsReview
+                          ? theme.colors.accent
+                          : pressed
+                            ? theme.colors.surface2
+                            : "transparent",
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color:
+                        review === needsReview
+                          ? theme.colors.accentForeground
+                          : theme.colors.foregroundMuted,
+                    }}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+        {visible.length ? (
+          visible.map((card) => (
             <View
               key={card.id}
+              testID={`workboard-archive-${card.id}`}
               style={[
                 styles.card,
                 {
@@ -2606,12 +2692,16 @@ export function ArchivePage({
                       t,
                     )}{" "}
                 ·{" "}
-                {card.archived?.detail === "archive-confirmed-by-user"
-                  ? t.archiveConfirmedByUser
-                  : card.archived?.detail}
+                {card.archived?.status === "archived" && !card.archived.undo
+                  ? draftsOnly
+                    ? t.archiveDraft
+                    : t.autoArchive
+                  : card.archived?.detail === "archive-confirmed-by-user"
+                    ? t.archiveConfirmedByUser
+                    : card.archived?.detail}
               </Text>
               {(card.archived?.status === "uncertain" ||
-                card.archived?.status === "external") && (
+                card.archived?.undo) && (
                 <Text
                   selectable
                   style={{ color: theme.colors.foregroundMuted }}
@@ -2619,34 +2709,42 @@ export function ArchivePage({
                   ID: {card.archived.operationId}
                 </Text>
               )}
-              {(card.archived?.status === "uncertain" ||
-                card.archived?.status === "external" ||
-                card.archived?.kind === "draft") && (
+              {card.archived?.status !== "pending" && (
                 <View style={styles.cardFooter}>
-                  {(card.archived?.kind === "draft"
+                  {(draftsOnly
                     ? ["restore" as const]
-                    : (["confirm", "restore"] as const)
+                    : card.archived?.status === "uncertain" &&
+                        !card.archived.undo
+                      ? ["confirm" as const, "undo" as const]
+                      : ["undo" as const]
                   ).map((outcome) => (
                     <Pressable
                       key={outcome}
                       accessibilityRole="button"
-                      disabled={disabled}
+                      disabled={disabled || card.archived?.undo === "pending"}
                       onPress={() => setResolving({ card, outcome })}
                       style={styles.toolbarButton}
                     >
                       <Text style={{ color: theme.colors.foreground }}>
-                        {outcome === "confirm"
-                          ? t.confirmArchived
-                          : t.restoreTask}
+                        {actionLabel(card, outcome)}
                       </Text>
                     </Pressable>
                   ))}
                 </View>
               )}
               <Text style={{ color: theme.colors.foregroundMuted }}>
+                {card.archived?.undo
+                  ? card.archived.undo === "pending"
+                    ? t.archiveUndoPending
+                    : t.archiveUndoUnknown
+                  : card.archived?.status === "pending"
+                    ? t.archiveInProgress
+                    : card.archived?.status === "uncertain"
+                      ? t.archiveNeedsReview
+                      : t.archiveCompleted}
                 {card.archived?.archivedAt
-                  ? shortDate(card.archived.archivedAt, t.locale)
-                  : card.archived?.status}
+                  ? ` · ${shortDate(card.archived.archivedAt, t.locale)}`
+                  : ""}
               </Text>
             </View>
           ))
@@ -2656,29 +2754,40 @@ export function ArchivePage({
       </ScrollView>
       {resolving && (
         <ConfirmationModal
-          title={
-            resolving.outcome === "confirm" ? t.confirmArchived : t.restoreTask
-          }
+          title={actionLabel(resolving.card, resolving.outcome)}
           description={(resolving.outcome === "confirm"
             ? t.confirmArchivedConfirm
-            : t.restoreTaskConfirm
+            : resolving.outcome === "restore"
+              ? t.restoreTaskConfirm
+              : resolving.card.archived?.undo
+                ? t.checkArchiveUndoConfirm
+                : t.undoArchiveConfirm
           ).replace("{name}", resolving.card.title)}
-          confirmLabel={
-            resolving.outcome === "confirm" ? t.confirmArchived : t.restoreTask
-          }
+          confirmLabel={actionLabel(resolving.card, resolving.outcome)}
           disabled={disabled}
           t={t}
           theme={theme}
           onClose={() => setResolving(null)}
-          onConfirm={async () =>
-            !!(await mutate({
-              action: "resolve-archive",
+          onConfirm={async () => {
+            const result = await mutate({
+              ...(resolving.outcome === "undo"
+                ? { action: "undo-archive" as const }
+                : {
+                    action: "resolve-archive" as const,
+                    outcome: resolving.outcome,
+                  }),
               taskId: resolving.card.id,
               updatedAt: resolving.card.updatedAt,
               operationId: resolving.card.archived!.operationId,
-              outcome: resolving.outcome,
-            }))
-          }
+            });
+            if (
+              result?.cards.some(
+                (card) => card.id === resolving.card.id && card.archived?.undo,
+              )
+            )
+              setReview(true);
+            return !!result;
+          }}
         />
       )}
     </View>
@@ -2693,6 +2802,7 @@ export function SettingsPage({
   pendingMutationIds,
   priorityFirst = true,
   onPriorityFirstChange,
+  onArchivedDrafts,
   mutate,
   onBack,
 }: {
@@ -2704,6 +2814,7 @@ export function SettingsPage({
   pendingMutationIds?: ReadonlySet<string>;
   priorityFirst?: boolean;
   onPriorityFirstChange?(value: boolean): void;
+  onArchivedDrafts?(): void;
   mutate(
     mutation: Mutation,
     pendingMutationId?: string,
@@ -3103,6 +3214,19 @@ export function SettingsPage({
               />
             </SettingsCard>
           </SettingsSection>
+          {onArchivedDrafts &&
+            board.cards.some((card) => card.archived?.kind === "draft") && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t.archivedDrafts}
+                onPress={onArchivedDrafts}
+                style={styles.toolbarButton}
+              >
+                <Text style={{ color: theme.colors.foreground }}>
+                  {t.archivedDrafts}
+                </Text>
+              </Pressable>
+            )}
           <PrioritySettings
             value={settings.priorityStyles}
             onChange={async (priorityStyles) =>

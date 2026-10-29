@@ -609,6 +609,7 @@ it("returns exactly the due candidates and proposed deadlines used by preview co
     due("boundary", "done", { conversationGateAt: "2026-01-02T00:00:00Z" }),
     due("unknown", "done", { conversationGateEvidence: "unknown" }),
     due("draft", "done", { workspaceId: null }),
+    due("restored", "done", { autoArchivePaused: true }),
     due("archiving", "done", { archived: pending }),
     due("archived", "done", { archived: { ...pending, status: "archived" } }),
     due("binding", "done", {
