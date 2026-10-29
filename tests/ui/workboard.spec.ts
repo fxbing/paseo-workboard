@@ -530,6 +530,7 @@ test("reorders cards after project scrolling and resizes columns with the pointe
   await lane.scrollIntoViewIfNeeded();
   const source = lane.getByTestId(`workboard-drag-${ids[1][0]}`);
   const target = lane.getByTestId(`workboard-card-${ids[1][2]}`);
+  const initialLaneTop = (await lane.boundingBox())!.y;
   const start = (await source.boundingBox())!;
   await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
   await page.mouse.down();
@@ -538,12 +539,16 @@ test("reorders cards after project scrolling and resizes columns with the pointe
     start.y + start.height / 2 + 10,
     { steps: 3 },
   );
+  await expect(
+    lane.getByTestId(`workboard-card-insertion-${stage}`),
+  ).toBeVisible();
   // Scroll the project ancestor during the gesture, without changing column size.
-  await lane.evaluate((node) => {
+  const projectScroll = await lane.evaluate((node) => {
     type ScrollNode = {
       parentElement: ScrollNode | null;
       scrollHeight: number;
       clientHeight: number;
+      scrollTop: number;
       scrollBy(x: number, y: number): void;
     };
     const { getComputedStyle } = globalThis as unknown as {
@@ -555,19 +560,27 @@ test("reorders cards after project scrolling and resizes columns with the pointe
         parent.scrollHeight > parent.clientHeight &&
         /auto|scroll/.test(getComputedStyle(parent).overflowY)
       ) {
+        const before = parent.scrollTop;
         parent.scrollBy(0, -60);
-        return;
+        return before - parent.scrollTop;
       }
       parent = parent.parentElement;
     }
     throw new Error("Project scroll container was not found");
   });
+  expect(projectScroll).toBeGreaterThan(0);
+  // Cards may extend below the viewport; a pointer drop needs a visible target.
+  await target.scrollIntoViewIfNeeded();
+  await expect(target).toBeInViewport({ ratio: 1 });
   const destination = (await target.boundingBox())!;
   await page.mouse.move(
     destination.x + destination.width / 2,
     destination.y + destination.height - 12,
     { steps: 8 },
   );
+  expect(
+    Math.abs((await lane.boundingBox())!.y - initialLaneTop),
+  ).toBeGreaterThan(1);
   await page.mouse.up();
   await expect
     .poll(async () =>
@@ -647,18 +660,24 @@ test("keeps pinned titles readable beside drag handles at default and minimum co
     await resize.press("Home");
     for (const width of [DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH]) {
       if (width === MIN_COLUMN_WIDTH) {
-        await resize.press("ArrowLeft");
-        await resize.press("ArrowLeft");
+        for (
+          let current = DEFAULT_COLUMN_WIDTH;
+          current > MIN_COLUMN_WIDTH;
+          current -= 20
+        )
+          await resize.press("ArrowLeft");
       }
       await expect
         .poll(async () => Math.round((await column.boundingBox())!.width))
         .toBe(width);
       for (const card of cards) {
         const task = column.getByTestId(`workboard-card-${card.id}`);
-        const title = task.getByRole("button", {
-          name: `Open workspace: ${card.title}`,
-          exact: true,
-        });
+        const title = task
+          .getByRole("button", {
+            name: `Open workspace: ${card.title}`,
+            exact: true,
+          })
+          .filter({ has: page.getByText(card.title, { exact: true }) });
         const priority = task.getByRole("button", {
           name: `Priority: ${card.title} · P2`,
           exact: true,
