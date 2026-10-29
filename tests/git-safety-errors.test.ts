@@ -95,6 +95,36 @@ it("rejects a later command failure after successful repository discovery", asyn
   expect(await checkGitSafety(directory, false)).toBe("git-unknown");
 });
 
+it("preserves transport credentials and ordinary configuration in the child only", async () => {
+  const environment = {
+    GIT_DIR: "/fixture/other-repository",
+    GIT_SSH_COMMAND: "fixture-ssh",
+    GIT_ASKPASS: "fixture-askpass",
+    GIT_CONFIG_GLOBAL: "/fixture/global-config",
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "credential.helper",
+    GIT_CONFIG_VALUE_0: "fixture-helper",
+    GIT_CONFIG_PARAMETERS: "'http.extraHeader'='fixture: value'",
+  };
+  for (const [key, value] of Object.entries(environment))
+    vi.stubEnv(key, value);
+  execute.mockRejectedValue(
+    Object.assign(new Error("Git failed"), {
+      code: 128,
+      stderr: notRepository,
+    }),
+  );
+  expect(await checkGitSafety(directory, false)).toBeNull();
+  const childEnvironment = execute.mock.calls[0][2].env;
+  expect(childEnvironment.GIT_DIR).toBeUndefined();
+  for (const [key, value] of Object.entries(environment)) {
+    expect(process.env[key]).toBe(value);
+    if (key !== "GIT_DIR") expect(childEnvironment[key]).toBe(value);
+  }
+  expect(childEnvironment.HOME).toBe(process.env.HOME);
+  expect(childEnvironment.PATH).toBe(process.env.PATH);
+});
+
 it("accepts the filesystem-boundary discovery diagnostic for a non-Git directory", async () => {
   execute.mockRejectedValue(
     Object.assign(new Error("Git discovery failed"), {

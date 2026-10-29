@@ -1,8 +1,27 @@
 import { execFile, type ExecFileException } from "node:child_process";
 import { readdir, realpath, stat } from "node:fs/promises";
-import { dirname, isAbsolute } from "node:path";
+import { dirname, isAbsolute, relative, sep } from "node:path";
 import { promisify } from "node:util";
 const execute = promisify(execFile);
+const repositoryEnvironment = new Set([
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_COMMON_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_GRAFT_FILE",
+  "GIT_SHALLOW_FILE",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_PREFIX",
+  "GIT_SUPER_PREFIX",
+  "GIT_NAMESPACE",
+  "GIT_CEILING_DIRECTORIES",
+  "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+]);
 
 /** Read only: never fetch, stash, commit, push, or remove a worktree. */
 export async function checkGitSafety(
@@ -21,7 +40,12 @@ export async function checkGitSafety(
         timeout: 15000,
         maxBuffer: 2 * 1024 * 1024,
         env: {
-          ...process.env,
+          // Ambient repository context must not redirect checks away from this workspace.
+          ...Object.fromEntries(
+            Object.entries(process.env).filter(
+              ([key]) => !repositoryEnvironment.has(key.toUpperCase()),
+            ),
+          ),
           // Git has no distinct exit code for failed repository discovery.
           LC_ALL: "C",
           LANGUAGE: "C",
@@ -32,7 +56,17 @@ export async function checkGitSafety(
     ).stdout.trim();
   try {
     try {
-      await git("rev-parse", "--show-toplevel");
+      const toplevel = await git("rev-parse", "--show-toplevel");
+      const target = relative(
+        await realpath(toplevel),
+        await realpath(directory),
+      );
+      if (
+        target === ".." ||
+        target.startsWith(`..${sep}`) ||
+        isAbsolute(target)
+      )
+        return "git-unknown";
     } catch (error) {
       const failure = error as ExecFileException | null;
       const stderr = failure?.stderr?.trim();

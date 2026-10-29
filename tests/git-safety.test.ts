@@ -74,11 +74,76 @@ it("protects real dirty/untracked/unpushed Git work and requires an upstream", a
       git("remote", "add", "origin", remote);
       git("push", "-u", "origin", "main");
       expect(await checkGitSafety(root, true)).toBeNull();
+      const child = join(root, "child");
+      await mkdir(child);
+      expect(await checkGitSafety(child, true)).toBeNull();
       await writeFile(join(root, "new"), "keep me\n");
       expect(await checkGitSafety(root, true)).toBe("git-dirty");
+      const decoy = await mkdtemp(join(tmpdir(), "workboard-git-context-"));
+      const environment = process.env;
+      try {
+        execFileSync("git", ["clone", "--branch", "main", remote, decoy], {
+          stdio: "ignore",
+        });
+        expect(await checkGitSafety(decoy, true)).toBeNull();
+        for (const context of [
+          { GIT_DIR: join(decoy, ".git"), GIT_WORK_TREE: decoy },
+          {
+            GIT_DIR: join(decoy, ".git"),
+            GIT_WORK_TREE: decoy,
+            GIT_COMMON_DIR: join(decoy, ".git"),
+            GIT_INDEX_FILE: join(decoy, ".git", "index"),
+          },
+        ]) {
+          process.env = { ...environment, ...context };
+          expect(await checkGitSafety(root, true)).toBe("git-dirty");
+        }
+        process.env = environment;
+        git("config", "core.worktree", decoy);
+        try {
+          expect(await checkGitSafety(root, true)).toBe("git-unknown");
+        } finally {
+          git("config", "--unset", "core.worktree");
+        }
+      } finally {
+        process.env = environment;
+        await rm(decoy, { recursive: true, force: true });
+      }
       git("add", "new");
       git("commit", "-m", "unpushed");
       expect(await checkGitSafety(root, true)).toBe("git-unpushed");
+      const environmentBeforeGraph = process.env;
+      const graft = join(root, ".git", "ambient-graft");
+      await writeFile(
+        graft,
+        `${git("rev-parse", "@{upstream}").trim()} ${git("rev-parse", "HEAD").trim()}\n`,
+      );
+      try {
+        process.env = { ...environmentBeforeGraph, GIT_GRAFT_FILE: graft };
+        expect(await checkGitSafety(root, true)).toBe("git-unpushed");
+      } finally {
+        process.env = environmentBeforeGraph;
+      }
+      git("branch", "local-base");
+      git("config", "branch.main.remote", ".");
+      git("config", "branch.main.merge", "refs/heads/local-base");
+      expect(await checkGitSafety(root, true)).toBe("git-no-upstream");
+      const config = join(root, ".git", "ambient-config");
+      git("config", "--file", config, "branch.main.remote", root);
+      git(
+        "config",
+        "--file",
+        config,
+        "branch.main.merge",
+        "refs/heads/local-base",
+      );
+      try {
+        process.env = { ...environmentBeforeGraph, GIT_CONFIG: config };
+        expect(await checkGitSafety(root, true)).toBe("git-no-upstream");
+      } finally {
+        process.env = environmentBeforeGraph;
+      }
+      git("branch", "--set-upstream-to=origin/main", "main");
       git("push");
       git("checkout", "--detach");
       expect(await checkGitSafety(root, true)).toBe("git-detached");
