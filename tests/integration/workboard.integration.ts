@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
@@ -9,6 +16,8 @@ import { isolatedGitEnvironment } from "../git-environment";
 import { isTemporaryIntegrationHome } from "./temporary-home";
 import type { WatchResult } from "../../shared/rpc";
 import {
+  DATA_SCHEMA_VERSION,
+  dataSchema,
   defaultGroup,
   cardsForStage,
   orderedGroups,
@@ -197,6 +206,69 @@ afterAll(async () => {
 });
 
 describe.skipIf(offsetRun)("isolated Paseo workboard", () => {
+  test("upgrades legacy JSON through host storage and preserves it after reload", async () => {
+    const directory = path.join(home, "plugin-settings", pluginId);
+    const file = path.join(directory, "workboard-data.json");
+    const legacy = await readFile(
+      new URL("../fixtures/storage-v8.json", import.meta.url),
+      "utf8",
+    );
+    const envelope = JSON.parse(legacy);
+    expect(envelope.version).toBe(8);
+    expect(envelope.values.schemaVersion).toBe(8);
+    const expected = envelope.values;
+    await client.disablePlugin(pluginId);
+    let original: Buffer | null | undefined;
+    try {
+      original = (await exists(file)) ? await readFile(file) : null;
+      await mkdir(directory, { recursive: true });
+      await writeFile(file, legacy);
+      await client.enablePlugin(pluginId);
+      const upgraded = await readyBoard();
+      for (const task of expected.tasks)
+        expect(
+          upgraded.cards.find((card) => card.id === task.id),
+        ).toMatchObject(task);
+      const persisted = JSON.parse(await readFile(file, "utf8"));
+      expect(persisted.version).toBe(DATA_SCHEMA_VERSION);
+      const data = dataSchema.parse(persisted.values);
+      for (const task of expected.tasks)
+        expect(data.tasks.find((item) => item.id === task.id)).toMatchObject(
+          task,
+        );
+      expect(data.cardOrderByStage).toEqual(expected.cardOrderByStage);
+      expect(data.settings.archiveDoneEnabled).toBe(false);
+      expect(data.settings.archiveCanceledEnabled).toBe(false);
+      expect(data.settings.exclusiveStatusLabels).toBe(false);
+
+      await client.reloadPlugin(pluginId);
+      const restarted = await readyBoard();
+      expect(restarted.viewVersion.instanceId).not.toBe(
+        upgraded.viewVersion.instanceId,
+      );
+      const migratedTasks = data.tasks.filter((task) =>
+        expected.tasks.some((item: { id: string }) => item.id === task.id),
+      );
+      for (const task of migratedTasks)
+        expect(
+          restarted.cards.find((card) => card.id === task.id),
+        ).toMatchObject(task);
+      const reloaded = JSON.parse(await readFile(file, "utf8"));
+      expect(reloaded.version).toBe(DATA_SCHEMA_VERSION);
+      const restored = dataSchema.parse(reloaded.values);
+      for (const task of migratedTasks)
+        expect(
+          restored.tasks.find((item) => item.id === task.id),
+        ).toStrictEqual(task);
+    } finally {
+      await client.disablePlugin(pluginId);
+      if (original === null) await rm(file, { force: true });
+      else if (original !== undefined) await writeFile(file, original);
+      await client.enablePlugin(pluginId);
+      await readyBoard();
+    }
+  });
+
   test("watches changes without blocking writes and replaces versions after restart", async () => {
     const initial = await rpc<Board>("workboard.snapshot", { refresh: true });
     const heartbeat = await rpc<WatchResult>("workboard.watch", {

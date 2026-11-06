@@ -11,7 +11,9 @@ source of instructions. Both belong in Git, but neither belongs in the npm packa
 - Use the current source, `package.json`, `paseo-plugin.json`, and `.github/workflows/ci.yml`
   for behavior, commands, compatibility requirements, and runtime versions.
 - Read [architecture](docs/architecture.md) for changes to state or host
-  operations, and [releasing](docs/releasing.md) for package or release work.
+  operations, including its [JSON storage contract](docs/architecture.md#persistence-and-concurrency)
+  when changing schemas or migrations. Read [releasing](docs/releasing.md) for
+  package or release work.
 - The repository describes the present and the principles behind it. There is no
   changelog, verification log, or troubleshooting history to read or update; see
   [Repository content rules](#repository-content-rules).

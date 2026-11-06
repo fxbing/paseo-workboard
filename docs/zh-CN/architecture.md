@@ -38,6 +38,8 @@ host settings 使用 schema version 13（在 `shared/model.ts` 中单处声明�
 
 每个迁移都是 `shared/migrations.ts` 链路中的纯函数步骤，对当前数据必须幂等，并且必须让旧记录仍然可用。规则如下：
 
+- 迁移输出必须同时满足 `dataSchema` 和宿主 JSON 契约。宿主在序列化前校验回调结果：缺失的可选属性应省略，不能赋为 `undefined`，嵌套记录也一样。使用 `z.json()` 校验返回对象，或用 `toStrictEqual` 验证 JSON 往返无损；`toEqual` 和 `toBeUndefined` 无法区分缺失属性与显式 `undefined`。覆盖元数据缺失和有值的情况，并确认回归测试在缺陷实现上失败。
+- 固定历史 JSON 夹具，独立于当前 schema 构造函数。在隔离集成套件中，让有代表性的旧存储经过真实宿主 settings 读取、持久化和 reload 路径；仅通过当前 schema 解析不能证明升级后可以启动。
 - 不得丢弃仍携带信息的记录，也不得编造旧值无法证明的数据。没有观测时间或 provider 子 Agent ID 的 Agent ID 仅在仍是未填充占位时清理；已缓存的子 Agent 即使缺少消息时间或存活标记，也保留其条目。
 - 各状态归档规则由既有共享值映射得到：每条规则保留 `autoArchive && ruleEnabled`，并保留全部期限，因此迁移后的 workspace 仍可能具备自动归档资格；新设置默认两条规则均关闭。
 - 只有在迁移无法检查宿主状态的具体修复中，含义不明的归档偏好才向更保守方向处理：当设置记录缺少已废弃组时，v6→v7 补建一个并把自动归档关闭，因为无法判断已有 workspace 是否本应已废弃；持久化的 `archiveMappingNeedsReview` 标记会持续显示该说明，直到通过到期任务确认流程重新开启。其它迁移保留原有偏好。补建分组时保留已有分组、任务及顺序。

@@ -19,6 +19,13 @@ suite. It chooses a loopback port, disables relay access, stops the daemon, and
 removes the home after the run. A failed stop preserves the home for diagnosis.
 It never uses an existing Paseo home or daemon. The suite exercises watch heartbeats, concurrent mutations and instance replacement over the real plugin RPC transport.
 
+The upgrade test temporarily disables Workboard, saves its settings file, and
+seeds a fixed schema 8 JSON fixture with a draft and an archived task containing
+a merged draft. Enabling the plugin exercises the host's migration and JSON
+validation; the test checks persisted records and reloads the plugin to verify
+they remain usable. It restores the original settings before continuing. The
+fixture disables automatic archive and sidebar pinning.
+
 After the integration suite, the runner also checks that Workboard does not
 resume idle Agents (`scripts/check-idle-wake.mjs`): it seeds idle fixture
 Agents, restarts the daemon so none is loaded, lets Workboard start and run a

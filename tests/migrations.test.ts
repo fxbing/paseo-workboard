@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
+import { z } from "zod";
 import {
   migrateData,
   InvalidStorageDataError,
@@ -17,6 +19,10 @@ import {
   orderedGroups,
 } from "../shared/model";
 import { mutationSchema } from "../shared/rpc";
+
+const legacyStorage = JSON.parse(
+  readFileSync(new URL("./fixtures/storage-v8.json", import.meta.url), "utf8"),
+);
 
 it("preserves schema 12 archives and does not infer a recovery intent or pause", () => {
   const task = newTask("task", "Task", "2026-09-01T00:00:00Z");
@@ -540,27 +546,29 @@ it("upgrades priority metadata without changing tasks, order, archive rules or p
 });
 
 it("keeps absent priority metadata out of the migrated JSON", () => {
-  const migrated = migrateData(
-    {
-      schemaVersion: 8,
-      tasks: [newTask("draft", "Legacy draft", "2026-09-23T00:00:00Z")],
-    },
-    8,
-  );
-  expect(migrated.tasks[0].priority).toBeUndefined();
-  expect(migrated.settings.priorityStyles).toBeUndefined();
-  // The host persists migration output as JSON: a present key holding undefined
-  // is invalid input, so absent priority metadata stays an absent key.
+  const migrated = migrateData(legacyStorage.values, legacyStorage.version);
+  expect(migrated.tasks).toMatchObject(legacyStorage.values.tasks);
+  expect(migrated.tasks[0]).not.toHaveProperty("priority");
+  expect(migrated.tasks[1].mergedDrafts[0]).not.toHaveProperty("priority");
+  expect(migrated.settings).not.toHaveProperty("priorityStyles");
   expect(JSON.parse(JSON.stringify(migrated))).toStrictEqual(migrated);
 });
 
-it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])(
-  "migrates every supported storage version %s to the priority-aware schema",
+it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, DATA_SCHEMA_VERSION])(
+  "keeps empty and populated schema %s storage valid JSON and idempotent",
   (version) => {
-    const migrated = migrateData({ schemaVersion: version }, version);
-    expect(migrated.schemaVersion).toBe(DATA_SCHEMA_VERSION);
-    expect(migrateData(migrated, DATA_SCHEMA_VERSION)).toEqual(migrated);
-    expect(migrated.settings.priorityStyles).toBeUndefined();
+    for (const tasks of [[], legacyStorage.values.tasks]) {
+      const migrated = migrateData({ schemaVersion: version, tasks }, version);
+      expect(migrated.schemaVersion).toBe(DATA_SCHEMA_VERSION);
+      expect(migrated.tasks.map((task) => task.id)).toEqual(
+        tasks.map((task: { id: string }) => task.id),
+      );
+      // The host validates the callback result before serializing it.
+      z.json().parse(migrated);
+      expect(migrateData(migrated, DATA_SCHEMA_VERSION)).toStrictEqual(
+        migrated,
+      );
+    }
   },
 );
 
@@ -601,8 +609,10 @@ it.each([9, 10, 11])(
               mergedAt: "2026-09-01T00:00:00Z",
               appendedText: "Merged",
             },
+            legacyStorage.values.tasks[1].mergedDrafts[0],
           ],
         },
+        legacyStorage.values.tasks[0],
       ],
       settings: {
         ...previous.settings,
@@ -617,11 +627,15 @@ it.each([9, 10, 11])(
     expect(migrated.schemaVersion).toBe(13);
     expect(migrated.tasks[0].priority).toBe("p1");
     expect(migrated.tasks[0].mergedDrafts[0].priority).toBe("p3");
+    expect(migrated.tasks[0].mergedDrafts[1]).not.toHaveProperty("priority");
+    expect(migrated.tasks[1]).not.toHaveProperty("priority");
     expect(migrated.settings.priorityStyles).toMatchObject({
       p0: { name: null, color: "red" },
       p1: { name: "Urgent", color: "violet" },
       p2: { name: "Planned", color: "blue" },
       p3: { name: null, color: "gray" },
     });
+    z.json().parse(migrated);
+    expect(migrateData(migrated, DATA_SCHEMA_VERSION)).toStrictEqual(migrated);
   },
 );

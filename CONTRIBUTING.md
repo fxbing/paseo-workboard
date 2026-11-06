@@ -69,12 +69,13 @@ npm run format:check
 `npm run check` runs TypeScript and the unit suite. Run the smallest relevant
 test while iterating, then choose the checks required by the change:
 
-| Change                                                      | Required checks                                                                                    |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Code                                                        | Relevant tests, `npm run check`, and `npm run format:check`                                        |
-| Documentation only                                          | Formatting, links, and consistency with the source; no unit suite required                         |
-| Package, dependencies, manifest, or README package contract | Also run `npm run check:package`                                                                   |
-| Host compatibility bridge                                   | Also run the supported-host tests in the [isolated integration guide](tests/integration/README.md) |
+| Change                                                      | Required checks                                                                                                                |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Code                                                        | Relevant tests, `npm run check`, and `npm run format:check`                                                                    |
+| Stored schema or migrations                                 | Also verify the [JSON storage contract](docs/architecture.md#persistence-and-concurrency) and run supported-host upgrade tests |
+| Documentation only                                          | Formatting, links, and consistency with the source; no unit suite required                                                     |
+| Package, dependencies, manifest, or README package contract | Also run `npm run check:package`                                                                                               |
+| Host compatibility bridge                                   | Also run the supported-host tests in the [isolated integration guide](tests/integration/README.md)                             |
 
 The package check validates the publishable file list and required README
 headings without publishing anything. Keep the English `## Installation` and

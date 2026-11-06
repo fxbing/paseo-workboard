@@ -1,0 +1,72 @@
+{
+  "version": 8,
+  "values": {
+    "schemaVersion": 8,
+    "revision": 4,
+    "serverId": null,
+    "settings": {
+      "autoArchive": false,
+      "pinInProgressWorkspaces": false,
+      "exclusiveStatusLabels": false
+    },
+    "tasks": [
+      {
+        "id": "legacy-draft",
+        "workspaceId": null,
+        "title": "Plan a sample project",
+        "description": "Keep these draft notes",
+        "projectId": null,
+        "projectName": "",
+        "createdAt": "2026-09-01T00:00:00Z",
+        "updatedAt": "2026-09-02T00:00:00Z",
+        "draftStage": "todo",
+        "lastStage": "todo",
+        "lastConversationAt": null,
+        "conversationStatus": "none",
+        "conversationAgents": [],
+        "mergedDrafts": [],
+        "issue": null,
+        "archived": null,
+        "binding": null
+      },
+      {
+        "id": "legacy-task",
+        "workspaceId": "legacy-workspace",
+        "title": "Completed sample project",
+        "description": "Original notes\nMerged notes",
+        "projectId": null,
+        "projectName": "Example project",
+        "createdAt": "2026-09-01T00:00:00Z",
+        "updatedAt": "2026-09-03T00:00:00Z",
+        "draftStage": "todo",
+        "lastStage": "done",
+        "lastConversationAt": null,
+        "conversationStatus": "none",
+        "conversationAgents": [],
+        "mergedDrafts": [
+          {
+            "draftId": "legacy-merged-draft",
+            "title": "Merged idea",
+            "description": "Merged notes",
+            "mergedAt": "2026-09-02T00:00:00Z",
+            "appendedText": "Merged notes"
+          }
+        ],
+        "issue": null,
+        "archived": {
+          "operationId": "legacy-external-archive",
+          "status": "external",
+          "kind": "external",
+          "stage": "done",
+          "group": null,
+          "startedAt": "2026-09-03T00:00:00Z",
+          "archivedAt": "2026-09-03T00:00:00Z",
+          "lastConversationAt": null,
+          "detail": "Archived outside Workboard"
+        },
+        "binding": null
+      }
+    ],
+    "cardOrderByStage": { "todo": ["legacy-draft"] }
+  }
+}
