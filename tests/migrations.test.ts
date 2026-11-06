@@ -539,6 +539,21 @@ it("upgrades priority metadata without changing tasks, order, archive rules or p
   expect(migrateData(migrated, DATA_SCHEMA_VERSION)).toEqual(migrated);
 });
 
+it("keeps absent priority metadata out of the migrated JSON", () => {
+  const migrated = migrateData(
+    {
+      schemaVersion: 8,
+      tasks: [newTask("draft", "Legacy draft", "2026-09-23T00:00:00Z")],
+    },
+    8,
+  );
+  expect(migrated.tasks[0].priority).toBeUndefined();
+  expect(migrated.settings.priorityStyles).toBeUndefined();
+  // The host persists migration output as JSON: a present key holding undefined
+  // is invalid input, so absent priority metadata stays an absent key.
+  expect(JSON.parse(JSON.stringify(migrated))).toStrictEqual(migrated);
+});
+
 it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])(
   "migrates every supported storage version %s to the priority-aware schema",
   (version) => {

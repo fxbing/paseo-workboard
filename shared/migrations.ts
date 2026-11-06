@@ -283,27 +283,34 @@ function migrateV11(values: unknown) {
     .parse(values);
   const levels = { high: "p1", normal: "p2", low: "p3" } as const;
   const styles = previous.settings.priorityStyles;
+  // Migration output crosses the host's JSON persistence: a present key holding
+  // undefined is invalid input, so absent priority metadata stays an absent key.
   return dataSchema.parse({
     ...previous,
     schemaVersion: DATA_SCHEMA_VERSION,
     settings: {
       ...previous.settings,
-      priorityStyles: styles
+      ...(styles
         ? {
-            p0: DEFAULT_PRIORITY_STYLES.p0,
-            p1: styles.high,
-            p2: styles.normal,
-            p3: styles.low,
+            priorityStyles: {
+              p0: DEFAULT_PRIORITY_STYLES.p0,
+              p1: styles.high,
+              p2: styles.normal,
+              p3: styles.low,
+            },
           }
-        : undefined,
+        : {}),
     },
     tasks: previous.tasks.map((task) => ({
       ...task,
-      priority: task.priority === undefined ? undefined : levels[task.priority],
+      ...(task.priority === undefined
+        ? {}
+        : { priority: levels[task.priority] }),
       mergedDrafts: task.mergedDrafts.map((draft) => ({
         ...draft,
-        priority:
-          draft.priority === undefined ? undefined : levels[draft.priority],
+        ...(draft.priority === undefined
+          ? {}
+          : { priority: levels[draft.priority] }),
       })),
     })),
   });
