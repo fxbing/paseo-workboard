@@ -59,6 +59,7 @@ export function fixture(initial: Partial<Data> = {}) {
   const host: Host = {
     identity: { serverId: "fixture-host", version: "0.15.2" },
     inventory: async () => structuredClone(inventory),
+    currentInventory: () => host.inventory(),
     workspace: async (id) =>
       structuredClone(inventory.workspaces.find((w) => w.id === id) ?? null),
     conversation: agentEvidence(),

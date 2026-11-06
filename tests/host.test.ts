@@ -120,88 +120,59 @@ it("stops inventory before pagination when disposed during event subscription re
   expect(api.agents.list).toHaveBeenCalledOnce();
   expect(api.projects.list).not.toHaveBeenCalled();
 });
-it("keeps directory and subagent subscriptions across inventories, overlays off-page changes and refreshes restored snapshots", async () => {
+it("keeps full directory subscriptions, overlays changes and reads its cache without listing", async () => {
   const observers: SubscriptionObserver<unknown>[] = [];
   const release = vi.fn(async () => {});
-  const subscribe = () =>
-    ({
-      ready: Promise.resolve({ subscriptionId: "s" }),
-      subscriptionId: "s",
-      release,
-      subscribe: (observer: SubscriptionObserver<unknown>) => {
-        observers.push(observer);
-        observer.snapshot({ subscriptionId: "s" });
-        return () => {};
-      },
-    }) as OwnedSubscription<unknown>;
-  const rows = Array.from({ length: 201 }, (_, i) => ({
-    ...workspace(String(i)),
-  }));
-  let subscriptionRequests = 0;
-  const api = {
-    observeEvents: subscribe,
-    workspaces: {
-      list: async (options: {
-        subscribe?: object;
-        page?: { cursor?: string };
-      }) => {
-        if (options.subscribe) {
-          subscriptionRequests++;
-          return {
-            entries: rows.slice(0, 200),
-            subscription: subscribe(),
-            pageInfo: { nextCursor: "tail", hasMore: true },
-          };
-        }
-        if (options.page?.cursor) {
-          observers[0].update({
-            type: "workspace_update",
-            payload: {
-              kind: "upsert",
-              workspace: {
-                ...rows[200],
-                name: "Fresh beyond page one",
-                forge: "gitlab",
-                githubRuntime: {
-                  pullRequest: {
-                    number: 42,
-                    url: "https://code.example/team/repo/-/merge_requests/42",
-                    title: "Updated MR",
-                    state: "OPEN",
-                    baseRefName: "main",
-                    headRefName: "fix",
-                    isMerged: false,
-                  },
-                },
-              },
-            },
-          } as Parameters<(typeof observers)[0]["update"]>[0]);
-          return {
-            entries: rows.slice(200),
-            pageInfo: { nextCursor: null, hasMore: false },
-          };
-        }
-        return {
-          entries: rows.slice(0, 200),
-          pageInfo: { nextCursor: "tail", hasMore: true },
-        };
-      },
+  const subscribe = (snapshot: unknown = { subscriptionId: "s" }) => ({
+    ready: Promise.resolve({ subscriptionId: "s" }),
+    subscriptionId: "s",
+    release,
+    subscribe: (observer: SubscriptionObserver<unknown>) => {
+      observers.push(observer);
+      observer.snapshot(snapshot);
+      return () => {};
     },
-    agents: {
-      list: async (options: { subscribe?: object }) => {
-        if (options.subscribe) subscriptionRequests++;
-        return {
-          entries: [],
-          subscription: options.subscribe ? subscribe() : undefined,
-          pageInfo: { nextCursor: null, hasMore: false },
-        };
-      },
+  });
+  const rows = Array.from({ length: 201 }, (_, i) => workspace(String(i)));
+  const workspaces = vi.fn(
+    async (options: { subscribe?: object; sync?: object }) => {
+      expect(options.sync).toEqual({});
+      return {
+        entries: structuredClone(rows),
+        subscription: options.subscribe
+          ? subscribe({ entries: structuredClone(rows) })
+          : undefined,
+        pageInfo: { nextCursor: null, hasMore: false },
+      };
     },
-    projects: { list: async () => ({ projects: [] }) },
-  };
+  );
+  const agents = vi.fn(async (options: { subscribe?: object }) => {
+    if (!options.subscribe) {
+      rows[200] = {
+        ...rows[200],
+        name: "Fresh beyond page one",
+        forge: "gitlab",
+      };
+      observers[0].update({
+        type: "workspace_update",
+        payload: { kind: "upsert", workspace: rows[200] },
+      } as Parameters<SubscriptionObserver<unknown>["update"]>[0]);
+    }
+    return {
+      entries: [],
+      subscription: options.subscribe ? subscribe() : undefined,
+      pageInfo: { nextCursor: null, hasMore: false },
+    };
+  });
+  const projects = vi.fn(async () => ({ projects: [] }));
   const changed = vi.fn();
   const host = new PaseoHost(
-    api as unknown as PaseoApi,
+    {
+      observeEvents: () => subscribe(),
+      workspaces: { list: workspaces },
+      agents: { list: agents },
+      projects: { list: projects },
+    } as unknown as PaseoApi,
     {} as PaseoCompat,
     { serverId: "h", version: "0.15.2" },
     changed,
@@ -209,17 +180,26 @@ it("keeps directory and subagent subscriptions across inventories, overlays off-
   try {
     const first = await host.inventory();
     expect(first.workspaces).toHaveLength(201);
-    expect(first.workspaces[200].name).toBe("Fresh beyond page one");
     expect(first.workspaces[200]).toMatchObject({
+      name: "Fresh beyond page one",
       forge: "gitlab",
-      githubRuntime: { pullRequest: { number: 42, title: "Updated MR" } },
     });
+    expect(await host.currentInventory()).toEqual(first);
+    expect(workspaces).toHaveBeenCalledTimes(1);
+    expect(agents).toHaveBeenCalledTimes(2);
+    expect(projects).toHaveBeenCalledTimes(1);
+    first.workspaces[0].name = "Only this returned copy";
+    expect((await host.currentInventory()).workspaces[0].name).not.toBe(
+      first.workspaces[0].name,
+    );
     await host.inventory();
-    expect(subscriptionRequests).toBe(2);
+    expect(workspaces).toHaveBeenCalledTimes(2);
     expect(release).not.toHaveBeenCalled();
     changed.mockClear();
     observers[0].snapshot({});
-    expect(changed).toHaveBeenCalledTimes(1);
+    expect(changed).toHaveBeenCalledWith(undefined, true, true);
+    await host.currentInventory();
+    expect(workspaces).toHaveBeenCalledTimes(3);
   } finally {
     host.dispose();
   }
@@ -247,23 +227,25 @@ function providerHost(
   workspaces: () => Workspace[] = () => [workspace("w1")],
 ) {
   const release = vi.fn(async () => {});
-  const subscribe = () =>
+  const subscribe = (snapshot: unknown = { subscriptionId: "s" }) =>
     ({
       ready: Promise.resolve({ subscriptionId: "s" }),
       subscriptionId: "s",
       release,
       subscribe: (observer: SubscriptionObserver<unknown>) => {
         observers.push(observer);
-        observer.snapshot({ subscriptionId: "s" });
+        observer.snapshot(snapshot);
         return () => {};
       },
     }) as OwnedSubscription<unknown>;
   const api = {
-    observeEvents: subscribe,
+    observeEvents: () => subscribe(),
     workspaces: {
       list: async (options: { subscribe?: object }) => ({
         entries: workspaces(),
-        subscription: options.subscribe ? subscribe() : undefined,
+        subscription: options.subscribe
+          ? subscribe({ entries: workspaces() })
+          : undefined,
         pageInfo: { nextCursor: null, hasMore: false },
       }),
     },
@@ -280,7 +262,13 @@ function providerHost(
         subscription: options.subscribe ? subscribe() : undefined,
         pageInfo: { nextCursor: null, hasMore: false },
       }),
-      ref: () => ({ timeline: { refetch: timeline } }),
+      ref: () => ({
+        timeline: {
+          refetch: timeline,
+          subscribe: () =>
+            Object.assign(() => {}, { ready: Promise.resolve() }),
+        },
+      }),
     },
     projects: { list: async () => ({ projects: [] }) },
   };
@@ -333,6 +321,7 @@ it.each([
       {
         ...test.host,
         inventory: native.inventory.bind(native),
+        currentInventory: native.currentInventory.bind(native),
         dispose: () => native.dispose(),
       },
       test.store,
@@ -424,6 +413,8 @@ it.each([
       {
         ...test.host,
         inventory: async () => (projected = await native.inventory()),
+        currentInventory: async () =>
+          (projected = await native.currentInventory()),
         dispose: () => native.dispose(),
       },
       test.store,
@@ -554,6 +545,7 @@ it.each(["snapshot", "error"] as const)(
     const host = {
       ...test.host,
       inventory: native.inventory.bind(native),
+      currentInventory: native.currentInventory.bind(native),
       conversation: native.conversation.bind(native),
       recheckAgents: native.recheckAgents.bind(native),
       dispose: () => native.dispose(),
@@ -617,6 +609,7 @@ it.each(["snapshot", "error", "upsert", "remove"] as const)(
     const host = {
       ...test.host,
       inventory: native.inventory.bind(native),
+      currentInventory: native.currentInventory.bind(native),
       conversation: native.conversation.bind(native),
       recheckAgents: native.recheckAgents.bind(native),
       dispose: () => native.dispose(),
@@ -685,7 +678,10 @@ it.each(["snapshot", "error", "upsert", "remove"] as const)(
       await started.promise;
       invalidateChildListing(observers, event);
       listing.resolve([]);
-      expect((await pending).agents[0].childEnumeration).toBe("unavailable");
+      if (event === "snapshot" || event === "error")
+        await expect(pending).rejects.toThrow("directory changed");
+      else
+        expect((await pending).agents[0].childEnumeration).toBe("unavailable");
       const current = await host.inventory();
       expect(current.agents[0].childEnumeration).toBe("complete");
       expect(current.agents.map((agent) => agent.id)).toContain(
@@ -775,9 +771,7 @@ it("invalidates earlier parents when a subscription restores during a later pare
     await started.promise;
     invalidateChildListing(observers, "snapshot");
     listing.resolve([]);
-    expect(
-      (await pending).agents.map((agent) => agent.childEnumeration),
-    ).toEqual(["unavailable", "unavailable"]);
+    await expect(pending).rejects.toThrow("directory changed");
     subagents.mockImplementation(async (id) =>
       id === "parent"
         ? [
@@ -834,9 +828,9 @@ it("keeps an agent removal scoped to its last known workspace", async () => {
         payload: { kind: "remove", agentId },
       } as Parameters<SubscriptionObserver<unknown>["update"]>[0]);
     remove("parent");
-    expect(changed).toHaveBeenLastCalledWith("w1", true);
+    expect(changed).toHaveBeenLastCalledWith("w1", true, true);
     remove("unknown");
-    expect(changed).toHaveBeenLastCalledWith(undefined, true);
+    expect(changed).toHaveBeenLastCalledWith(undefined, true, true);
   } finally {
     host.dispose();
   }
@@ -1030,6 +1024,7 @@ it("retries failed live child enumeration before allowing automatic archive", as
   const host = {
     ...test.host,
     inventory: native.inventory.bind(native),
+    currentInventory: native.currentInventory.bind(native),
     conversation: native.conversation.bind(native),
     recheckAgents: native.recheckAgents.bind(native),
     dispose: () => native.dispose(),
@@ -1119,6 +1114,7 @@ it.each(["empty", "exact"] as const)(
       const host = {
         ...test.host,
         inventory: native.inventory.bind(native),
+        currentInventory: native.currentInventory.bind(native),
         conversation: native.conversation.bind(native),
         dispose: () => native.dispose(),
       };
@@ -1358,28 +1354,28 @@ it("reports Agent create-delete between inventories, provider events and subscri
         workspace: workspace("w1", "Edited", ["task:done"]),
       },
     });
-    expect(changed).toHaveBeenLastCalledWith("w1");
+    expect(changed).toHaveBeenLastCalledWith("w1", false, false);
     update(1, {
       type: "agent_update",
       payload: { kind: "upsert", agent: parentAgent },
     });
-    expect(changed).toHaveBeenLastCalledWith("w1", true);
+    expect(changed).toHaveBeenLastCalledWith("w1", true, true);
     update(2, {
       type: "agent.provider_subagents.update",
       payload: { kind: "remove", parentAgentId: "parent", subagentId: "child" },
     });
-    expect(changed).toHaveBeenLastCalledWith("w1", true);
+    expect(changed).toHaveBeenLastCalledWith("w1", true, true);
     update(1, {
       type: "agent_update",
       payload: { kind: "remove", agentId: "parent" },
     });
-    expect(changed).toHaveBeenLastCalledWith("w1", true);
+    expect(changed).toHaveBeenLastCalledWith("w1", true, true);
     expect((await host.inventory()).agents).toEqual([]);
     for (const observer of observers) {
       observer.snapshot({});
-      expect(changed).toHaveBeenLastCalledWith(undefined, true);
+      expect(changed).toHaveBeenLastCalledWith(undefined, true, true);
       observer.error!(new Error("Lost subscription"));
-      expect(changed).toHaveBeenLastCalledWith(undefined, true);
+      expect(changed).toHaveBeenLastCalledWith(undefined, true, true);
     }
   } finally {
     host.dispose();
@@ -1410,7 +1406,11 @@ it.each(["create-delete", "provider", "snapshot", "subscription failure"])(
       undefined,
       () => test.inventory.workspaces,
     );
-    const host = { ...test.host, inventory: () => native.inventory() };
+    const host = {
+      ...test.host,
+      inventory: () => native.inventory(),
+      currentInventory: () => native.currentInventory(),
+    };
     board = new Workboard(host, test.store, () => clock);
     try {
       await board.start();
@@ -1473,7 +1473,11 @@ it("invalidates both workspaces when an Agent moves and scopes its removal to th
     () => test.inventory.workspaces,
   );
   board = new Workboard(
-    { ...test.host, inventory: () => native.inventory() },
+    {
+      ...test.host,
+      inventory: () => native.inventory(),
+      currentInventory: () => native.currentInventory(),
+    },
     test.store,
     () => clock,
   );

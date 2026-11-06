@@ -131,6 +131,7 @@ function board(
   cards: Board["cards"] = [],
 ) {
   return boardSchema.parse({
+    viewVersion: { instanceId: "fixture", revision: 7 },
     revision: 7,
     serverId: "host",
     version: "0.15.2",

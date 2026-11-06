@@ -2,7 +2,7 @@
 //
 //   node scripts/check-idle-wake.mjs seed     create idle fixture Agents in the marked home
 //   (the runner restarts the daemon, so no Agent is loaded)
-//   node scripts/check-idle-wake.mjs verify   wait through a periodic refresh and read the log
+//   node scripts/check-idle-wake.mjs verify   wait through a periodic deadline check and read the log
 //
 // It needs the isolated daemon that scripts/run-host-checks.mjs prepares and refuses any home
 // that is not a marked temporary directory.
@@ -120,7 +120,7 @@ try {
         TITLES.every(([title]) => board.cards.some((c) => c.title === title)),
       "Workboard did not import the seeded workspaces after the restart",
     );
-    // One more periodic refresh (60 seconds) must also leave the Agents alone.
+    // One more periodic deadline check (60 seconds) must also leave the Agents alone.
     await sleep(75_000);
     const lines = (await readFile(path.join(home, "daemon.log"), "utf8"))
       .split("\n")
@@ -179,7 +179,7 @@ try {
       "The control request did not log a resume; this host's log wording is not recognized",
     );
     console.log(
-      `Workboard resumed 0 of ${loaded} idle Agents across its start and a periodic refresh.`,
+      `Workboard resumed 0 of ${loaded} idle Agents across its start and a periodic deadline check.`,
     );
   }
 } finally {

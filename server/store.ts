@@ -25,9 +25,19 @@ export class Store {
   private value: Data = dataSchema.parse({});
   private revision: string | null = null;
   private queue: Promise<unknown> = Promise.resolve();
+  private listeners = new Set<() => void>();
   constructor(private backing: SettingsBacking) {}
   get current(): Data {
     return structuredClone(this.value);
+  }
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+  hasRevision(revision: string): boolean {
+    return this.revision === revision;
   }
   load(): Promise<void> {
     const work = this.queue.then(async () => {
@@ -35,6 +45,7 @@ export class Store {
       if (loaded.status !== "ready") throw new Error(loaded.error);
       this.value = loaded.values;
       this.revision = loaded.revision;
+      for (const listener of this.listeners) listener();
     });
     this.queue = work.catch(() => undefined);
     return work;
@@ -54,6 +65,7 @@ export class Store {
         if (saved.status !== "saved") throw new Error(saved.error);
         this.value = saved.values;
         this.revision = saved.revision;
+        for (const listener of this.listeners) listener();
       } catch (error) {
         // The host may have saved even if the reply was lost. Require a read before more writes.
         this.revision = null;

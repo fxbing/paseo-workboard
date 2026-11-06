@@ -6,6 +6,7 @@ import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WorkboardScreen } from "./client/WorkboardScreen";
 import { messages } from "./client/paseo-language";
+import { disposeWorkboardSync } from "./client/board-sync";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 2_000 } },
@@ -57,6 +58,8 @@ export default function contribute(client: PluginClientContext) {
     onSelect: (context) => context.openScreen({ screenId: "workboard" }),
   });
   return () => {
+    disposeWorkboardSync(queryClient);
+    queryClient.clear();
     removeCommand();
     removeSettings();
     removeSidebar();

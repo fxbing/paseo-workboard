@@ -608,7 +608,13 @@ export const cardSchema = taskSchema.extend({
   ),
 });
 export type Card = z.infer<typeof cardSchema>;
+export const viewVersionSchema = z.object({
+  instanceId: z.string(),
+  revision: z.number().int().nonnegative(),
+});
+export type ViewVersion = z.infer<typeof viewVersionSchema>;
 export const boardSchema = z.object({
+  viewVersion: viewVersionSchema,
   revision: z.number(),
   serverId: z.string(),
   version: z.string(),

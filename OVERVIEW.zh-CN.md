@@ -2,6 +2,8 @@
 
 Workboard 将活跃的 Paseo workspace 和尚未关联 workspace 的想法放在任务看板与分组列表中。一个活跃 workspace 对应一个任务；只有标题的草稿在创建或关联 workspace 前不占用 workspace。任务状态由你决定，Agent 完成一轮回复不会自动将任务标为已完成。
 
+看板和设置自动跟随宿主变化；没有变化时只接收小型心跳，不重复获取完整快照。浏览器页面隐藏后暂停订阅，返回页面或重新连接时先校验视图，再允许编辑。点击刷新会完整核对宿主状态。关闭看板后，服务端检查仍继续运行。
+
 看板可按项目分组，每个项目保留自己的状态列，可一键展开或折叠当前显示的项目。任务优先级为 P0–P3，P0 最高，无标签时按 P2 显示。看板、项目泳道和列表默认按优先级排序，同级保留已保存的顺序；可在工具栏选择“默认排序”，或在设置中关闭“优先级排序”来恢复手动排序。设置中还可自定义名称和颜色，Pn 编号始终可见。原生 P0/P1/P2/P3 标签双向同步且始终互斥；相对上次干净观察的唯一新增标签胜出，无法判断的冲突等待显式选择。草稿合并恢复时保留原等级。分组、排序与项目折叠状态按客户端和主机记忆。
 
 “列宽”菜单提供紧凑（220px）、标准（280px）和宽（360px）三档，一次应用到所有列（含隐藏项目泳道），也可继续拖动单列。“恢复默认”清空所有筛选并将所有列恢复为 280px。
@@ -10,4 +12,4 @@ Workboard 将活跃的 Paseo workspace 和尚未关联 workspace 的想法放在
 
 设置中可以调整分组及默认值、将进行中的 workspace 置顶到侧边栏，或启用自动归档。自动归档默认关闭，已完成和已废弃各自有独立开关与等待期限；两个都关闭即停止自动归档。期限控件始终显示，关闭规则时也可保存期限，不会因此开启规则。变更使任务到期时，会先列出全部候选，确认后才保存；取消保留原设置。启用后，每条规则等待最后一次可证明的对话超过对应期限，并在调用 Paseo 原生归档前检查 Agent、terminal、对话和 Git 状态。provider 子 Agent 清单不完整、子 Agent 历史无法证明上界，或已观察的子 Agent 从清单消失时，都会暂停自动归档；卡片仍保留已知的对话显示时间。订阅恢复后，须重新枚举子 Agent 才能归档。未归档父 Agent 的子 Agent 枚举失败后，一分钟后重试。原生归档可能停止 Agent 和 terminal、移除托管 worktree。归档页仅显示 Workboard 自动归档，默认显示已归档记录，未完成或待核实的操作放在“待处理”中。“撤销归档”调用 Paseo 恢复，能否成功取决于保留的目录和分支；恢复后暂停自动归档，直到任务更换分组。手动归档草稿可在设置的“已归档草稿”中恢复。
 
-Workboard 的 daemon 和客户端 App 均需要 Paseo 0.13.0 或更高版本。受管理的更新要求更高 daemon 版本时会被拒绝，已安装的插件仍可使用。daemon 端复用所选宿主的 Paseo 登录会话，读取 workspace、标签、对话证据及 Git 安全状态，保存任务设置，并执行请求的宿主操作。视图偏好与筛选条件按宿主保存在客户端本地。开始任务时，Git 项目默认由 Paseo 自动创建并命名 Git worktree，非 Git 项目默认使用项目目录；仍支持指定其他目录或关联已有 workspace，不会创建 Agent 或发送 prompt。插件在 daemon 宿主上以受信任代码运行。各版本的升级说明见 [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases)；设置与完整用法见 [README](README.zh-CN.md) 和[使用指南](https://github.com/fxbing/paseo-workboard/blob/main/docs/zh-CN/user-guide.md)。
+Workboard 的 daemon 和客户端 App 均需要 Paseo 0.15.0 或更高版本。受管理的更新要求更高 daemon 版本时会被拒绝，已安装的插件仍可使用。daemon 端复用所选宿主的 Paseo 登录会话，读取 workspace、标签、对话证据及 Git 安全状态，保存任务设置，并执行请求的宿主操作。视图偏好与筛选条件按宿主保存在客户端本地。开始任务时，Git 项目默认由 Paseo 自动创建并命名 Git worktree，非 Git 项目默认使用项目目录；仍支持指定其他目录或关联已有 workspace，不会创建 Agent 或发送 prompt。插件在 daemon 宿主上以受信任代码运行。各版本的升级说明见 [GitHub Releases](https://github.com/fxbing/paseo-workboard/releases)；设置与完整用法见 [README](README.zh-CN.md) 和[使用指南](https://github.com/fxbing/paseo-workboard/blob/main/docs/zh-CN/user-guide.md)。

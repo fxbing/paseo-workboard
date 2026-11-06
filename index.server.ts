@@ -7,7 +7,7 @@ import {
   UNSUPPORTED_STORAGE_VERSION_ERROR_CODE,
   UnsupportedStorageVersionError,
 } from "./shared/migrations";
-import { mutateRpc, snapshotRpc } from "./shared/rpc";
+import { mutateRpc, snapshotRpc, watchRpc } from "./shared/rpc";
 import { PaseoCompat } from "./server/paseo-compat";
 import { PaseoHost } from "./server/host";
 import { Store } from "./server/store";
@@ -66,16 +66,18 @@ export default function contribute(server: PluginServerContext) {
   let disposed = false;
   let error = "Workboard is starting";
   let retry: ReturnType<typeof setTimeout> | undefined;
-  const stopChange = compat.onChange((type, payload) => {
-    if (type === "disconnected") board?.disconnected();
-    else if (typeof payload?.agentId === "string")
-      board?.agentChanged(payload.agentId);
+  const stopSettings = settings.subscribe((state) => {
+    if (state.status === "invalid") board?.disconnected(state.error);
     else
-      board?.changed(
-        typeof payload?.workspaceId === "string"
-          ? payload.workspaceId
-          : undefined,
-      );
+      void board?.settingsChanged(state.revision).catch((failure) => {
+        board?.disconnected(
+          failure instanceof Error ? failure.message : String(failure),
+        );
+      });
+  });
+  const stopChange = compat.onChange((type) => {
+    if (type === "disconnected") board?.disconnected();
+    else board?.changed();
   });
   const boot = async () => {
     try {
@@ -83,8 +85,14 @@ export default function contribute(server: PluginServerContext) {
       if (disposed) return;
       const identity = await compat.identity();
       board?.dispose();
-      const host = new PaseoHost(api, compat, identity, (id, agentsChanged) =>
-        agentsChanged ? board?.agentsChanged(id) : board?.changed(id),
+      const host = new PaseoHost(
+        api,
+        compat,
+        identity,
+        (id, agentsChanged, conversationChanged) =>
+          agentsChanged
+            ? board?.agentsChanged(id)
+            : board?.changed(id, conversationChanged),
       );
       const clock = workboardClock();
       board = new Workboard(
@@ -113,9 +121,16 @@ export default function contribute(server: PluginServerContext) {
         }, 10000);
     }
   };
-  server.handle(snapshotRpc, () => {
+  server.handle(snapshotRpc, (input = {}) => {
     if (!board) throw new Error(error);
-    return board.snapshot();
+    const current = board;
+    return input.refresh
+      ? current.refresh().then(() => current.snapshot())
+      : current.snapshot();
+  });
+  server.handle(watchRpc, (input) => {
+    if (!board) throw new Error(error);
+    return board.watch(input);
   });
   server.handle(mutateRpc, (input) => {
     if (!board) throw new Error(error);
@@ -130,6 +145,7 @@ export default function contribute(server: PluginServerContext) {
     clearImmediate(immediate);
     clearTimeout(retry);
     stopChange();
+    stopSettings();
     board?.dispose();
     compat.dispose();
   };

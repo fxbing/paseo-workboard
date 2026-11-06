@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { isolatedGitEnvironment } from "../git-environment";
 import { isTemporaryIntegrationHome } from "./temporary-home";
+import type { WatchResult } from "../../shared/rpc";
 import {
   defaultGroup,
   cardsForStage,
@@ -196,6 +197,51 @@ afterAll(async () => {
 });
 
 describe.skipIf(offsetRun)("isolated Paseo workboard", () => {
+  test("watches changes without blocking writes and replaces versions after restart", async () => {
+    const initial = await rpc<Board>("workboard.snapshot", { refresh: true });
+    const heartbeat = await rpc<WatchResult>("workboard.watch", {
+      after: initial.viewVersion,
+      watcherId: "integration-watch",
+    });
+    expect(heartbeat).toEqual({
+      status: "unchanged",
+      viewVersion: initial.viewVersion,
+    });
+
+    const watching = rpc<WatchResult>("workboard.watch", {
+      after: initial.viewVersion,
+      watcherId: "integration-watch",
+    });
+    const title = "Subscription fixture draft";
+    const created = await rpc<Board>("workboard.mutate", {
+      action: "create",
+      title,
+      description: "",
+      projectId: null,
+    });
+    const change = await watching;
+    expect(change.status).toBe("changed");
+    if (change.status !== "changed") throw new Error("Expected a changed view");
+    expect(change.board.viewVersion).toEqual(created.viewVersion);
+    expect(change.board.cards.some((card) => card.title === title)).toBe(true);
+
+    await client.reloadPlugin(pluginId);
+    const restarted = await readyBoard();
+    expect(restarted.viewVersion.instanceId).not.toBe(
+      initial.viewVersion.instanceId,
+    );
+    const replacement = await rpc<WatchResult>("workboard.watch", {
+      after: created.viewVersion,
+      watcherId: "integration-watch",
+    });
+    expect(replacement.status).toBe("changed");
+    if (replacement.status !== "changed")
+      throw new Error("Expected a replacement view");
+    expect(replacement.board.viewVersion.instanceId).toBe(
+      restarted.viewVersion.instanceId,
+    );
+  }, 40_000);
+
   test("keeps a running managed plugin when an update requires a newer Paseo", async () => {
     const id = "workboard-update-fixture";
     const repository = path.join(home, id);

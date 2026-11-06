@@ -37,7 +37,13 @@ import {
   type Stage,
   type Task,
 } from "../shared/model";
-import { CANCEL_BINDING_BUSY_ERROR_CODE, type Mutation } from "../shared/rpc";
+import {
+  CANCEL_BINDING_BUSY_ERROR_CODE,
+  type Mutation,
+  type WatchInput,
+  type WatchResult,
+} from "../shared/rpc";
+import { BoardView } from "./board-view";
 import type {
   Agent,
   ConversationEvidence,
@@ -185,6 +191,9 @@ function projectChangeRequest(workspace?: Workspace): Card["changeRequest"] {
 
 /** One writer per plugin process. UI windows never own timers or archive operations. */
 export class Workboard {
+  private view = new BoardView();
+  private running = false;
+  private stopStoreChange: () => void;
   private inventory: Inventory = { workspaces: [], agents: [], projects: [] };
   private queue: Promise<unknown> = Promise.resolve();
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -192,6 +201,11 @@ export class Workboard {
   private refreshing: Promise<void> | undefined;
   // null means a full refresh; undefined means no work is waiting.
   private pendingRefresh: Set<string> | null | undefined;
+  private pendingConversations: Set<string> | null | undefined;
+  private freshInventoryRequested = false;
+  private lastCalibrationAt = 0;
+  private pendingSettingsRevision: string | undefined;
+  private settingsRefresh: Promise<void> | undefined;
   private stopped = false;
   private pendingMutations = 0;
   private undoInFlight = false;
@@ -237,11 +251,22 @@ export class Workboard {
     private interval = 60000,
     /** Reported to clients so their due-date arithmetic uses this clock; 0 outside tests. */
     private clockOffsetMs: number | (() => number) = 0,
-  ) {}
+  ) {
+    this.publishView();
+    this.stopStoreChange = store.subscribe(() => {
+      if (!this.running && !this.stopped) this.publishView();
+    });
+  }
   private serial<T>(run: () => Promise<T>): Promise<T> {
-    const work = this.queue.then(() => {
+    const work = this.queue.then(async () => {
       if (this.stopped) throw new Error("Workboard stopped");
-      return run();
+      this.running = true;
+      try {
+        return await run();
+      } finally {
+        this.running = false;
+        if (!this.stopped) this.publishView();
+      }
     });
     this.queue = work.catch(() => undefined);
     return work;
@@ -290,7 +315,7 @@ export class Workboard {
     });
     if (!this.stopped)
       this.timer = setInterval(() => {
-        void this.refresh().catch(() => undefined);
+        void this.tick().catch(() => undefined);
       }, this.interval);
   }
   private async load() {
@@ -351,18 +376,74 @@ export class Workboard {
       throw storageError;
     }
   }
-  refresh(): Promise<void> {
+  async refresh(): Promise<void> {
     this.pendingRefresh = null;
+    this.pendingConversations = null;
+    this.freshInventoryRequested = true;
+    await this.flushRefresh();
+    // A cache reconciliation already in progress must not satisfy a forced host read.
+    if (this.freshInventoryRequested) await this.flushRefresh();
+  }
+  private tick(): Promise<void> {
+    if (!this.connected || Date.now() - this.lastCalibrationAt >= 300_000)
+      return this.refresh();
+    this.pendingRefresh = null;
+    if (this.pendingConversations !== null) {
+      this.pendingConversations ??= new Set();
+      const tasks = this.store.current.tasks;
+      for (const agent of this.inventory.agents) {
+        if (!agent.workspaceId || !isActiveActivity(agent.activity)) continue;
+        const task = tasks.find(
+          (task) => task.workspaceId === agent.workspaceId,
+        );
+        if (
+          agent.childEnumeration === "unavailable" ||
+          task?.conversationReason === "timeline-unreadable" ||
+          task?.conversationReason === "child-timeline-unreadable"
+        )
+          this.pendingConversations.add(agent.workspaceId);
+      }
+    }
     return this.flushRefresh();
+  }
+  settingsChanged(revision: string): Promise<void> {
+    this.pendingSettingsRevision = revision;
+    if (this.settingsRefresh) return this.settingsRefresh;
+    this.settingsRefresh = this.serial(async () => {
+      // One operation can save several revisions; only the newest notification matters.
+      const latest = this.pendingSettingsRevision!;
+      this.pendingSettingsRevision = undefined;
+      if (this.store.hasRevision(latest)) return;
+      try {
+        await this.load();
+        await this.reconcile(undefined, false);
+        await this.scan();
+      } catch (error) {
+        this.disconnected(message(error));
+        throw error;
+      }
+    }).finally(() => {
+      this.settingsRefresh = undefined;
+      if (!this.stopped && this.pendingSettingsRevision !== undefined)
+        return this.settingsChanged(this.pendingSettingsRevision);
+    });
+    return this.settingsRefresh;
   }
   private flushRefresh(): Promise<void> {
     if (this.refreshing) return this.refreshing;
     this.refreshing = this.serial(async () => {
       const scope = this.pendingRefresh ?? undefined;
+      const conversations =
+        this.pendingConversations === null
+          ? undefined
+          : (this.pendingConversations ?? new Set<string>());
+      const fresh = this.freshInventoryRequested || !this.connected;
       this.pendingRefresh = undefined;
+      this.pendingConversations = undefined;
+      this.freshInventoryRequested = false;
       try {
         if (!this.connected) await this.load();
-        await this.reconcile(scope);
+        await this.reconcile(conversations, fresh);
         await this.scan(scope);
       } catch (error) {
         this.connected = false;
@@ -378,21 +459,18 @@ export class Workboard {
   private observation(id: string): string {
     return `${this.epoch}:${this.workspaceEpochs.get(id) ?? 0}`;
   }
-  agentChanged(id: string): void {
-    this.agentsChanged(
-      this.inventory.agents.find((a) => a.id === id)?.workspaceId,
-    );
-  }
   agentsChanged(workspaceId?: string): void {
     this.emptyRevision++;
     if (workspaceId) this.emptySince.delete(workspaceId);
     else this.emptySince.clear();
     this.changed(workspaceId);
   }
-  private async readInventory(): Promise<Inventory> {
+  private async readInventory(fresh = true): Promise<Inventory> {
     const revision = this.emptyRevision;
     try {
-      const inventory = await this.host.inventory();
+      const inventory = await (fresh
+        ? this.host.inventory()
+        : this.host.currentInventory());
       const occupied = new Set(
         inventory.agents.map((agent) => agent.workspaceId),
       );
@@ -416,7 +494,7 @@ export class Workboard {
       throw error;
     }
   }
-  changed(workspaceId?: string): void {
+  changed(workspaceId?: string, conversationChanged = true): void {
     if (workspaceId)
       this.workspaceEpochs.set(
         workspaceId,
@@ -427,6 +505,13 @@ export class Workboard {
     else if (this.pendingRefresh !== null) {
       this.pendingRefresh ??= new Set();
       this.pendingRefresh.add(workspaceId);
+    }
+    if (conversationChanged) {
+      if (!workspaceId) this.pendingConversations = null;
+      else if (this.pendingConversations !== null) {
+        this.pendingConversations ??= new Set();
+        this.pendingConversations.add(workspaceId);
+      }
     }
     this.scheduleRefresh();
   }
@@ -445,8 +530,52 @@ export class Workboard {
     this.emptySince.clear();
     this.connected = false;
     this.error = reason;
+    this.publishView();
   }
-  snapshot(data: Data = this.store.current): Board {
+  snapshot(data?: Data): Board {
+    if (data)
+      return {
+        ...this.project(data),
+        viewVersion: this.view.snapshot().viewVersion,
+      };
+    const snapshot = this.view.snapshot();
+    const offset =
+      typeof this.clockOffsetMs === "function"
+        ? this.clockOffsetMs()
+        : this.clockOffsetMs;
+    if (!this.running && snapshot.clockOffsetMs !== offset)
+      return this.publishView();
+    return snapshot;
+  }
+  watch(input: WatchInput): Promise<WatchResult> {
+    return this.view.watch(input);
+  }
+  private publishView(): Board {
+    try {
+      return this.view.publish(this.project(this.store.current));
+    } catch (error) {
+      // Keep the last valid view read-only if the host returned an invalid projection.
+      this.connected = false;
+      this.error = message(error);
+      const { viewVersion: _version, ...previous } = this.view.snapshot();
+      return this.view.publish({
+        ...previous,
+        connected: false,
+        error: this.error,
+      });
+    }
+  }
+  private project(data: Data): Omit<Board, "viewVersion"> {
+    const workspaces = new Map(
+      this.inventory.workspaces.map((workspace) => [workspace.id, workspace]),
+    );
+    const agentsByWorkspace = new Map<string, Agent[]>();
+    for (const agent of this.inventory.agents) {
+      if (!agent.workspaceId) continue;
+      const agents = agentsByWorkspace.get(agent.workspaceId) ?? [];
+      agents.push(agent);
+      agentsByWorkspace.set(agent.workspaceId, agents);
+    }
     return {
       revision: data.revision,
       ...this.host.identity,
@@ -461,12 +590,12 @@ export class Workboard {
       cardOrderByStage: data.cardOrderByStage,
       projects: this.inventory.projects,
       cards: data.tasks.map((task) => {
-        const workspace = this.inventory.workspaces.find(
-          (w) => w.id === task.workspaceId,
-        );
-        const agents = this.inventory.agents.filter(
-          (a) => a.workspaceId === task.workspaceId,
-        );
+        const workspace = task.workspaceId
+          ? workspaces.get(task.workspaceId)
+          : undefined;
+        const agents = task.workspaceId
+          ? (agentsByWorkspace.get(task.workspaceId) ?? [])
+          : [];
         const activity = workspaceActivity(agents);
         const stage = task.workspaceId
           ? workspace
@@ -516,9 +645,12 @@ export class Workboard {
       }),
     };
   }
-  private async reconcile(scope?: ReadonlySet<string>): Promise<void> {
+  private async reconcile(
+    scope?: ReadonlySet<string>,
+    fresh = true,
+  ): Promise<void> {
     const connection = this.connectionGeneration;
-    const inventory = await this.readInventory();
+    const inventory = await this.readInventory(fresh);
     await this.syncPins(inventory, connection);
     if (this.archiveDeferrals.size) {
       let cleared: string[] = [];
@@ -797,6 +929,7 @@ export class Workboard {
     this.connected = true;
     this.error = null;
     this.refreshedAt = this.stamp();
+    if (fresh) this.lastCalibrationAt = Date.now();
     if (resolutions.length) await this.resolveExclusivityConflicts(resolutions);
     for (const resolution of priorityResolutions) {
       if (this.stopped) return;
@@ -1749,7 +1882,9 @@ export class Workboard {
               current.updatedAt = this.stamp(current.updatedAt);
             });
           } else if (input.action === "undo-archive") {
-            await this.undoArchive(input, () => pendingReply(this.snapshot()));
+            await this.undoArchive(input, () =>
+              pendingReply(this.publishView()),
+            );
           } else if (input.action === "resolve-archive") {
             if (task.archived?.undo) throw new Error("archive-undo-unknown");
             if (
@@ -1823,7 +1958,7 @@ export class Workboard {
             this.archiveDeferrals.delete(task.id);
           }
         }
-        return this.snapshot();
+        return this.publishView();
       } catch (error) {
         try {
           await this.load();
@@ -1855,6 +1990,7 @@ export class Workboard {
       check();
       if (binding.target.kind === "new")
         this.checkPriorityTarget(draft.priority ?? "p2");
+      this.publishView();
       const workspaceId =
         binding.workspaceId ??
         (binding.target.kind === "existing"
@@ -2456,6 +2592,7 @@ export class Workboard {
         await this.recoverArchive(candidate, operationId, error);
         throw error;
       }
+      this.publishView();
       // Storage and safety checks can take time. Re-read membership, labels and Agent state before sending.
       let finalIssue: string | null = null;
       try {
@@ -2528,6 +2665,8 @@ export class Workboard {
   }
   dispose(): void {
     this.stopped = true;
+    this.stopStoreChange();
+    this.view.dispose();
     this.epoch++;
     clearInterval(this.timer);
     clearTimeout(this.debounce);

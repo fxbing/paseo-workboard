@@ -14,6 +14,7 @@ Workboard brings active workspaces into one board, with one task per workspace. 
 - **Board and list views.** Both layouts share tasks, filters, and the saved default order, with separate collapsed groups. Priority sorting is enabled by default in both views; the toolbar sorting control or Settings can restore the saved default order. All status groups, including Done, Canceled and custom groups, use vertical columns. Cards expose status and Open or Start work actions directly.
 - **Status linked to workspace labels.** Move a task between groups or change its managed label in Paseo. Both update the same status while preserving unrelated labels. Exclusive status labels, enabled by default for new installations, replace a previous managed label when a new one can be identified.
 - **Activity at a glance.** See Agent activity, conversation dates, and PR/MR information supplied by Paseo, with CI status icons with counts and review text in both layouts, including compact lists. Filter by project, activity, PR/MR condition, attention, or last conversation date.
+- **Automatic updates.** Host changes update the board and settings without repeatedly fetching full snapshots. Reconnecting revalidates the view; Refresh requests a full host check. A periodic server check covers missed events and keeps archive deadlines running even with the board closed.
 - **View defaults and column widths.** Restore defaults clears all filters and resets every board/project-lane column to 280px. Choose Compact (220px), Standard (280px), or Wide (360px) to resize all columns together; individual columns can still be dragged.
 - **A configurable workflow.** Customize groups and their defaults, reorder tasks and groups by dragging or keyboard controls, and optionally pin in-progress workspaces in the sidebar.
 - **Optional automatic archiving.** Configure Done and Canceled rules independently to archive eligible workspaces after their respective delays from their last verified conversation, with activity and Git safety checks. Disabled by default.
@@ -51,7 +52,7 @@ See the [archive guide](https://github.com/fxbing/paseo-workboard/blob/main/docs
 
 ## Installation
 
-Use Paseo 0.13.0 or later for both the daemon and the client app, as required by [paseo-plugin.json](paseo-plugin.json). Plugins run as trusted, unsandboxed code in the daemon; review the source before installing.
+Use Paseo 0.15.0 or later for both the daemon and the client app, as required by [paseo-plugin.json](paseo-plugin.json). Plugins run as trusted, unsandboxed code in the daemon; review the source before installing.
 
 Install from the repository's default branch into the selected Paseo daemon:
 

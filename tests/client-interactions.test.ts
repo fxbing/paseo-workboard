@@ -17,7 +17,6 @@ const runtime = vi.hoisted(() => ({
   query: {} as any,
   mutation: vi.fn(),
   toast: { error: vi.fn(), show: vi.fn() },
-  cache: { cancelQueries: vi.fn(), setQueryData: vi.fn() },
   saveFilters: vi.fn(() => true),
   filters: {} as any,
   language: "zh",
@@ -77,11 +76,16 @@ vi.mock("react", async (original) => {
     },
   };
 });
-vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => runtime.query,
-  useQueryClient: () => runtime.cache,
+vi.mock("../client/use-workboard", () => ({
+  useWorkboard: () => ({
+    ...runtime.query,
+    mutate: async (input: unknown) => {
+      const next = await runtime.mutation(input);
+      runtime.query.data = next;
+      return next;
+    },
+  }),
 }));
-vi.mock("@getpaseo/plugin/client", () => ({ useRpc: () => runtime.mutation }));
 vi.mock("../client/paseo-language", () => ({
   usePaseoLanguage: () => runtime.language,
 }));
@@ -227,6 +231,7 @@ function card(
 }
 function board(cards: Card[] = []): Board {
   return boardSchema.parse({
+    viewVersion: { instanceId: "fixture", revision: 1 },
     revision: 1,
     serverId: "host",
     version: "test",
@@ -283,10 +288,6 @@ beforeEach(() => {
     isError: false,
     refetch: vi.fn(),
   };
-  runtime.cache.setQueryData.mockImplementation((_key, update) => {
-    runtime.query.data =
-      typeof update === "function" ? update(runtime.query.data) : update;
-  });
 });
 afterEach(() => {
   for (const frame of frames.splice(0))
@@ -342,7 +343,7 @@ it("X-01 keeps unrelated cards, columns and quick-create active while one contro
   await write;
 });
 
-it("X-01 allows distinct concurrent controls and never replaces newer cache data with an older response", async () => {
+it("X-01 allows distinct controls to submit concurrently", async () => {
   const first = deferred<Board>();
   const second = deferred<Board>();
   runtime.mutation
@@ -353,10 +354,10 @@ it("X-01 allows distinct concurrent controls and never replaces newer cache data
   const a = view.props.onStage(view.props.cards[0], "canceled");
   const b = view.props.onStage(view.props.cards[1], "canceled");
   expect(runtime.mutation).toHaveBeenCalledTimes(2);
-  second.resolve({ ...runtime.query.data, revision: 3 });
-  await b;
   first.resolve({ ...runtime.query.data, revision: 2 });
   await a;
+  second.resolve({ ...runtime.query.data, revision: 3 });
+  await b;
   expect(runtime.query.data.revision).toBe(3);
 });
 

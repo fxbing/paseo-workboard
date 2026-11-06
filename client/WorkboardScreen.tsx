@@ -1,9 +1,7 @@
 import { design, typography } from "./design";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { useRpc } from "@getpaseo/plugin/client";
 import {
   SettingsCard,
   SettingsRow,
@@ -29,12 +27,7 @@ import {
   type Settings,
   type Stage,
 } from "../shared/model";
-import {
-  CANCEL_BINDING_BUSY_ERROR_CODE,
-  mutateRpc,
-  snapshotRpc,
-  type Mutation,
-} from "../shared/rpc";
+import { CANCEL_BINDING_BUSY_ERROR_CODE, type Mutation } from "../shared/rpc";
 import {
   boardNow,
   DEFAULT_COLUMN_WIDTH,
@@ -70,6 +63,7 @@ import { QuickCreate } from "./QuickCreate";
 import { HintButton, HintProvider } from "./Hint";
 import { usePaseoLanguage } from "./paseo-language";
 import { ConfirmationModal } from "./ConfirmationModal";
+import { useWorkboard } from "./use-workboard";
 
 type Page = "board" | "archive" | "draft-archive" | "settings";
 type DraftForm = {
@@ -109,9 +103,8 @@ export function WorkboardScreen(
 
 function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
   const [surfaceWidth, setSurfaceWidth] = useState<number | null>(null);
-  const callSnapshot = useRpc(snapshotRpc);
-  const callMutation = useRpc(mutateRpc);
-  const cache = useQueryClient();
+  const boardQuery = useWorkboard(props.host.id);
+  const callMutation = boardQuery.mutate;
   const toast = useToast();
   const [page, setPage] = useState<Page>(props.initialPage ?? "board");
   const [filters, setFilters] = useState(() => loadBoardFilters(props.host.id));
@@ -170,11 +163,6 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
   const [optimisticStages, setOptimisticStages] = useState<Map<string, Stage>>(
     () => new Map(),
   );
-  const boardQuery = useQuery({
-    queryKey: ["workboard", props.host.id],
-    queryFn: () => callSnapshot({}),
-    refetchInterval: 1_500,
-  });
   const serverBoard = boardQuery.data;
   const language = usePaseoLanguage();
   const t = strings(language);
@@ -292,10 +280,6 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
       setPendingMutationIds(new Set(mutationPending.current));
       try {
         const next = await callMutation(mutation);
-        await cache.cancelQueries({ queryKey: ["workboard", props.host.id] });
-        cache.setQueryData<Board>(["workboard", props.host.id], (previous) =>
-          previous && previous.revision > next.revision ? previous : next,
-        );
         return next;
       } catch (error) {
         const message = mutationErrorText(error, t);
@@ -307,7 +291,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
         setPendingMutationIds(new Set(mutationPending.current));
       }
     },
-    [cache, callMutation, props.host.id, t, toast],
+    [callMutation, t, toast],
   );
   if (boardQuery.isPending)
     return <Centered theme={props.theme} text={t.loading} />;

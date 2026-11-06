@@ -405,6 +405,14 @@ const zh = {
     "Paseo did not provide its plugin API":
       "Paseo 未提供插件 API，请重新打开 Workboard。",
     "Workboard stopped": "Workboard 已停止，请重新打开。",
+    "Workboard connection changed":
+      "Workboard 已重新连接，请检查最新状态后重试。",
+    "Paseo directory changed during refresh":
+      "刷新时宿主清单发生变化，请重试。",
+    "Paseo directory changed during conversation read":
+      "读取对话时宿主清单发生变化，请重试。",
+    "Timeline agent mismatch":
+      "对话记录与所请求的 Agent 不匹配，请刷新后重试。",
     "Task no longer exists": "任务已不存在，请刷新。",
     "Workboard storage belongs to another Paseo host":
       "存储数据属于另一个 Paseo host，无法修改。",
@@ -944,6 +952,14 @@ const en: typeof zh = {
     "Paseo did not provide its plugin API":
       "Paseo did not provide its plugin API. Reopen Workboard.",
     "Workboard stopped": "Workboard has stopped. Reopen it.",
+    "Workboard connection changed":
+      "Workboard reconnected. Check the latest state before retrying.",
+    "Paseo directory changed during refresh":
+      "The host directory changed while refreshing. Retry the operation.",
+    "Paseo directory changed during conversation read":
+      "The host directory changed while reading conversations. Retry the operation.",
+    "Timeline agent mismatch":
+      "The conversation belongs to a different Agent. Refresh and retry.",
     "Task no longer exists": "The task no longer exists. Refresh first.",
     "Workboard storage belongs to another Paseo host":
       "Stored data belongs to another Paseo host and cannot be changed here.",

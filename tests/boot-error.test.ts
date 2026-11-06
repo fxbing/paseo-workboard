@@ -70,6 +70,7 @@ function startup(read: () => Promise<unknown>) {
   const registered = vi.fn(read);
   const registerSettings = vi.fn((_definition: unknown) => ({
     read: registered,
+    subscribe: () => () => {},
   }));
   const server = {
     registerSettings,

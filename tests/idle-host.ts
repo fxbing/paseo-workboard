@@ -92,13 +92,13 @@ export function idleBoard(options: {
   const children = options.children ?? {};
   const history = options.history ?? {};
   const observers: SubscriptionObserver<unknown>[] = [];
-  const subscribe = () => ({
+  const subscribe = (entries?: unknown[]) => ({
     ready: Promise.resolve({ subscriptionId: "s" }),
     subscriptionId: "s",
     release: async () => {},
     subscribe: (observer: SubscriptionObserver<unknown>) => {
       observers.push(observer);
-      observer.snapshot({ subscriptionId: "s" });
+      observer.snapshot({ subscriptionId: "s", entries });
       return () => {};
     },
   });
@@ -120,7 +120,7 @@ export function idleBoard(options: {
     workspaces: {
       list: async (o: { subscribe?: object }) => ({
         ...page(live),
-        subscription: o.subscribe ? subscribe() : undefined,
+        subscription: o.subscribe ? subscribe(live) : undefined,
       }),
       ref: (id: string) => ({
         refresh: async () => live.find((w) => w.id === id) ?? null,
@@ -133,7 +133,14 @@ export function idleBoard(options: {
         subscription: o.subscribe ? subscribe() : undefined,
       }),
       ref: (id: string) => ({
-        timeline: { refetch: () => refetch(id) },
+        timeline: {
+          refetch: () => refetch(id),
+          subscribe: () =>
+            Object.assign(() => {}, {
+              ready: Promise.resolve(),
+              release: async () => {},
+            }),
+        },
       }),
     },
     terminals: { list: async () => page([]) },
@@ -156,8 +163,10 @@ export function idleBoard(options: {
       api as unknown as PaseoApi,
       compat,
       { serverId: "fixture-host", version: "0.15.2" },
-      (id, agentsChanged) =>
-        agentsChanged ? board.agentsChanged(id) : board.changed(id),
+      (id, agentsChanged, conversationChanged) =>
+        agentsChanged
+          ? board.agentsChanged(id)
+          : board.changed(id, conversationChanged),
     );
     // Git and terminal safety are not under test; the fake workspace has no directory.
     host.safety = async () => null;

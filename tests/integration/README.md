@@ -17,12 +17,12 @@ The runner packs the current checkout, installs the unpacked tarball without
 development dependencies into a fresh marked home, and runs the integration
 suite. It chooses a loopback port, disables relay access, stops the daemon, and
 removes the home after the run. A failed stop preserves the home for diagnosis.
-It never uses an existing Paseo home or daemon.
+It never uses an existing Paseo home or daemon. The suite exercises watch heartbeats, concurrent mutations and instance replacement over the real plugin RPC transport.
 
 After the integration suite, the runner also checks that Workboard does not
 resume idle Agents (`scripts/check-idle-wake.mjs`): it seeds idle fixture
 Agents, restarts the daemon so none is loaded, lets Workboard start and run a
-periodic refresh, and fails if the daemon log shows an `Agent resumed from
+periodic deadline check, and fails if the daemon log shows an `Agent resumed from
 persistence` for `clientId: plugin:paseo-workboard`. A control request from the
 script itself must log such a resume, so a host that words the line differently
 fails instead of passing silently. The fixture provider has no provider
@@ -61,7 +61,7 @@ On Linux, `npx playwright install --with-deps --only-shell chromium` also instal
 system libraries. CI runs this command against every Paseo version in the `host`
 matrix of `.github/workflows/ci.yml`. The smoke
 suite uses fictional tasks and the deterministic fixture provider; it covers
-view switching, concurrent group deletion confirmations in Board and List, archive-setting interactions, project lanes, priority settings at 1440px and 390px, and card reordering during project scrolling with pointer resizing and reload persistence. It fails on uncaught page errors. It does not cover all layouts, themes, accessibility, mobile clients,
+subscription-driven remote updates and browser visibility recovery, view switching, concurrent group deletion confirmations in Board and List, archive-setting interactions, project lanes, priority settings at 1440px and 390px, and card reordering during project scrolling with pointer resizing and reload persistence. It fails on uncaught page errors. It does not cover all layouts, themes, accessibility, mobile clients,
 or providers.
 
 Logs and failure screenshots/traces go to a temporary artifact directory printed

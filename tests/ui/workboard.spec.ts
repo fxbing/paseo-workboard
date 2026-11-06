@@ -14,6 +14,7 @@ import { isTemporaryIntegrationHome } from "../integration/temporary-home";
 const run = promisify(execFile);
 const pluginId = "paseo-workboard";
 const fixtureId = "workboard-fixture";
+declare const document: { dispatchEvent(event: Event): void };
 let client: DaemonClient;
 let home: string;
 
@@ -164,6 +165,75 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await client?.close();
+});
+
+test("follows remote changes and revalidates after browser visibility resumes", async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("websocket", (socket) =>
+    socket.on("framesent", ({ payload }) => {
+      const frame = JSON.parse(String(payload));
+      const message = frame.message;
+      if (
+        message?.type === "plugin.rpc.invoke.request" &&
+        message.pluginId === pluginId
+      )
+        requests.push(message.method);
+    }),
+  );
+  await openWorkboard(page);
+  await expect
+    .poll(
+      () => requests.filter((method) => method === "workboard.watch").length,
+    )
+    .toBeGreaterThan(0);
+  const title = "Shared subscription fixture";
+  await client.invokePluginRpc(pluginId, "workboard.mutate", {
+    action: "create",
+    title,
+    description: "",
+    projectId: null,
+  });
+  await expect(page.getByText(title, { exact: true })).toBeVisible();
+  const snapshots = requests.filter(
+    (method) => method === "workboard.snapshot",
+  ).length;
+
+  // Exercise the actual hook with browser visibility signals; no provider or personal host is used.
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.getByTestId("workboard-reconnect")).toBeVisible();
+  await client.invokePluginRpc(pluginId, "workboard.mutate", {
+    action: "create",
+    title: "Created while hidden",
+    description: "",
+    projectId: null,
+  });
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(
+    page.getByText("Created while hidden", { exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(
+      () => requests.filter((method) => method === "workboard.snapshot").length,
+    )
+    .toBeGreaterThan(snapshots);
+  await expect(page.getByTestId("workboard-reconnect")).not.toBeVisible();
+  expect(errors).toEqual([]);
 });
 
 for (const language of ["en", "zh-CN"]) {

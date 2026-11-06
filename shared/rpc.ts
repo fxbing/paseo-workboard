@@ -9,12 +9,28 @@ import {
   stageSchema,
   startSchema,
   prioritySchema,
+  viewVersionSchema,
 } from "./model";
 
 export const snapshotRpc = defineRpc({
   name: "workboard.snapshot",
-  input: z.object({}),
+  input: z.object({ refresh: z.boolean().optional() }),
   output: boardSchema,
+});
+export const watchInputSchema = z.object({
+  after: viewVersionSchema,
+  watcherId: z.string().min(1).max(128),
+});
+export const watchResultSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("changed"), board: boardSchema }),
+  z.object({ status: z.literal("unchanged"), viewVersion: viewVersionSchema }),
+]);
+export type WatchInput = z.infer<typeof watchInputSchema>;
+export type WatchResult = z.infer<typeof watchResultSchema>;
+export const watchRpc = defineRpc({
+  name: "workboard.watch",
+  input: watchInputSchema,
+  output: watchResultSchema,
 });
 export const CANCEL_BINDING_BUSY_ERROR_CODE = "cancel-binding-busy";
 export const mutationSchema = z.discriminatedUnion("action", [

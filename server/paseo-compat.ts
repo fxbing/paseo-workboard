@@ -95,15 +95,6 @@ export class PaseoCompat {
         pending.reject(new Error("Unexpected Paseo response type"));
       else pending.resolve(payload!);
     }
-    if (
-      [
-        "agent_stream",
-        "script_status_update",
-        "workspace_setup_progress",
-        "agent.timeline.replacement",
-      ].includes(message.type)
-    )
-      this.notify(message.type, payload);
     if (message.type === "status" && payload?.status === "server_info")
       this.notify("connected");
   };

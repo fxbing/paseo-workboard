@@ -626,9 +626,11 @@ it("rejects a change request without a forge instead of assuming GitHub", async 
   });
   await board.start();
   try {
-    expect(() => board.snapshot()).toThrow(
-      "Paseo omitted the change request forge",
-    );
+    expect(board.snapshot()).toMatchObject({
+      connected: false,
+      error: "Paseo omitted the change request forge",
+      cards: [],
+    });
   } finally {
     board.dispose();
   }
