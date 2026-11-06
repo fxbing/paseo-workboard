@@ -85,4 +85,4 @@ AI 编程助手修改仓库前必须阅读 [AGENTS.md](AGENTS.md)。`CLAUDE.md` 
 
 ## 发布
 
-每个面向用户的版本都以 annotated Git tag 加 GitHub Release（正文即升级记录）发布；仓库不保存更新日志。用户从默认分支安装，包不通过 npm 分发。打包和发布请遵循[发布说明](docs/zh-CN/releasing.md)。
+每个面向用户的版本都以 annotated Git tag 加 GitHub Release（正文即升级记录）发布；仓库不保存更新日志。用户从默认分支安装。打包和发布请遵循[发布说明](docs/zh-CN/releasing.md)。

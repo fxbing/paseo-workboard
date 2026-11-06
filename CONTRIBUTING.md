@@ -162,6 +162,5 @@ responsible for understanding the change, reviewing it, and verifying its behavi
 
 Every user-facing version is released as an annotated Git tag plus a GitHub
 Release whose notes are the upgrade record. The repository keeps no changelog.
-Users install from the default branch, and the package is not distributed
-through npm. For packaging and release work, follow [the release
-guide](docs/releasing.md).
+Users install from the default branch. For packaging and release work, follow
+[the release guide](docs/releasing.md).
