@@ -101,8 +101,8 @@ version history is not kept in the repository, so never add a changelog back.
 
 ## Documentation for user-visible changes
 
-Every change a user can notice needs its documentation updated in the same
-change. Documentation is part of the feature, not a follow-up.
+Every change a user can notice needs its written documentation updated in the
+same change. Screenshot and GIF updates follow the separate timing below.
 
 A change is user-visible when it affects anything a user sees, reads, does, or
 installs: a screen, control, label, key binding, filter, or default; saved data
@@ -111,19 +111,22 @@ compatibility, install steps, permissions, or limitations of the plugin.
 
 - Update the affected English and Chinese files together: `README.md` and
   `README.zh-CN.md`, `OVERVIEW.md` and `OVERVIEW.zh-CN.md`, `docs/*` and
-  `docs/zh-CN/*`, and the matching strings. Keep headings, table rows, and
-  screenshots in step across languages.
-- Refresh screenshots and GIFs when the depicted UI or workflow changes, and
-  remove obsolete examples or media. Capture the actual plugin with fictional
-  data in the isolated demo environment, following the applicable browser
-  authorization rules. Unaffected media can stay unchanged.
-- Before delivery, check that descriptions, screenshots, and GIFs match the
-  current behavior in both languages. Keep manifest media references, package
-  files, and package checks aligned when assets change.
+  `docs/zh-CN/*`, and the matching strings. Keep headings and table rows in step
+  across languages.
+- Screenshot and GIF updates are optional during ordinary development,
+  including substantial UI or workflow changes. Before a release, review the
+  media and refresh affected screenshots and GIFs; unaffected media can stay
+  unchanged.
+- When updating media, capture the actual plugin with fictional data in the
+  isolated demo environment, following the applicable browser authorization
+  rules. Update both languages together and keep manifest media references,
+  package files, and package checks aligned.
+- Before delivery, check that written descriptions and any media updated in
+  this change match the current behavior in both languages.
 - If a change is genuinely not user-visible, say so explicitly in the delivery
   summary instead of silently skipping documentation.
-- If capture or a documentation update is blocked, report the stale assets and
-  missing documentation as unresolved. Never claim they are current.
+- If a required written documentation or release media update is blocked,
+  report it as unresolved. Never claim stale media are current.
 
 ## Validation
 

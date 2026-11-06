@@ -42,8 +42,8 @@ Use a title that describes the resulting behavior. The description should includ
 - **Validation:** commands actually run and their results. State what was not
   tested and why; include the host version and platform for integration or UI checks.
 - **Compatibility and risks, when relevant:** changes to stored data, host
-  compatibility, labels, pinning, or archiving. For UI changes, include screenshots
-  or a short recording using fictional data, or explain why visual checks are pending.
+  compatibility, labels, pinning, or archiving. Screenshots or a short recording
+  using fictional data are optional and can help review substantial UI changes.
 
 Update affected English and Chinese documentation together. Do not describe
 local tests as proof of CI, installation, or publication. Review all generated
@@ -118,8 +118,9 @@ pending approval, skipped jobs, or no run are not passing results.
   them. Do not add changelogs, dated verification records, troubleshooting
   logs, or issue/PR summaries; those belong in GitHub Releases, issues, and pull
   requests.
-- A user-visible change needs its documentation updated in the same pull
-  request, in English and Chinese.
+- A user-visible change needs its written documentation updated in the same
+  pull request, in English and Chinese. Screenshot and GIF updates follow the
+  [documentation policy](AGENTS.md#documentation-for-user-visible-changes).
 
 ## Architecture and compatibility
 

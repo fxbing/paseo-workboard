@@ -31,7 +31,7 @@ The packed package includes the manifest, entries, `client/`, `server/`, `shared
 
 ## Prepare and validate a candidate
 
-1. Update `package.json` and `package-lock.json` together. Use a new stable semantic version for every released change. Keep English and Chinese documentation aligned.
+1. Update `package.json` and `package-lock.json` together. Use a new stable semantic version for every released change. Keep English and Chinese documentation aligned. Before packing a release, review screenshots and GIFs and refresh affected media in both languages under the [documentation policy](../AGENTS.md#documentation-for-user-visible-changes).
 2. Check the latest stable Paseo release and align all three SDK dependencies to that fixed version. Keep `requirements.paseo` unchanged unless adopting an API or protocol capability that requires a newer host; use the first stable version providing all required capabilities. When raising it, identify the required capability in the Release notes and update both language trees. Run host checks at the manifest minimum and fixed SDK baseline; a typecheck or passing endpoints cannot guarantee every intermediate or future host.
 3. From a clean checkout, run:
 
