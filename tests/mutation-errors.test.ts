@@ -4,15 +4,14 @@ import { expect, it, vi } from "vitest";
 import { CANCEL_BINDING_BUSY_ERROR_CODE } from "../shared/rpc";
 import { strings } from "../client/strings";
 vi.mock("@getpaseo/plugin/client", () => ({ useRpc: vi.fn() }));
-vi.mock("@getpaseo/plugin/client/react-native", () => ({
+vi.mock("../client/paseo-language", () => ({ usePaseoLanguage: () => "en" }));
+vi.mock("@getpaseo/plugin/client/ui", () => ({
   Icon: () => null,
   Modal: () => null,
   ScrollView: () => null,
   TextInput: () => null,
   useToast: vi.fn(),
-}));
-vi.mock("@getpaseo/plugin/client/ui", () =>
-  Object.fromEntries(
+  ...Object.fromEntries(
     [
       "ExternalLink",
       "SettingsCard",
@@ -24,7 +23,7 @@ vi.mock("@getpaseo/plugin/client/ui", () =>
       "SettingsRow",
     ].map((key) => [key, () => null]),
   ),
-);
+}));
 import { mutationErrorText } from "../client/WorkboardScreen";
 
 // Enumerate messages in the real throw expressions, including ternary fallbacks.

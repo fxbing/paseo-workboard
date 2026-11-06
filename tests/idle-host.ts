@@ -7,6 +7,7 @@ import { Workboard } from "../server/workboard";
 import { fixture, workspace } from "./fixtures";
 
 export type FakeAgent = {
+  labels: Record<string, string>;
   id: string;
   workspaceId: string;
   title: string;
@@ -31,6 +32,7 @@ export const agent = (
   updatedAt: string,
   extra: Partial<FakeAgent> = {},
 ): FakeAgent => ({
+  labels: {},
   id,
   workspaceId: "old",
   title: id,
@@ -153,7 +155,7 @@ export function idleBoard(options: {
     const host = new PaseoHost(
       api as unknown as PaseoApi,
       compat,
-      { serverId: "fixture-host", version: "0.12.0" },
+      { serverId: "fixture-host", version: "0.15.2" },
       (id, agentsChanged) =>
         agentsChanged ? board.agentsChanged(id) : board.changed(id),
     );

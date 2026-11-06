@@ -591,6 +591,7 @@ it.each([
     const { board, inventory } = fixture();
     inventory.workspaces.push({
       ...workspace("w"),
+      forge: "github",
       githubRuntime: {
         pullRequest: {
           ...pullRequest,
@@ -616,6 +617,22 @@ it.each([
     }
   },
 );
+
+it("rejects a change request without a forge instead of assuming GitHub", async () => {
+  const { board, inventory } = fixture();
+  inventory.workspaces.push({
+    ...workspace("missing-forge"),
+    githubRuntime: { pullRequest: { ...pullRequest } },
+  });
+  await board.start();
+  try {
+    expect(() => board.snapshot()).toThrow(
+      "Paseo omitted the change request forge",
+    );
+  } finally {
+    board.dispose();
+  }
+});
 
 it("creates only a persistent draft, then binds without losing notes or duplicating an imported workspace", async () => {
   const { board, host, backing, inventory, now } = fixture();

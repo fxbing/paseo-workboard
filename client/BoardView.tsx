@@ -9,12 +9,7 @@ import {
   type ScrollView as NativeScrollView,
 } from "react-native";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import {
-  Icon,
-  Modal,
-  ScrollView,
-  useToast,
-} from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal, ScrollView, useToast } from "@getpaseo/plugin/client/ui";
 import {
   isDraftGroup,
   type Card,

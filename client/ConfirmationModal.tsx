@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { Modal } from "@getpaseo/plugin/client/react-native";
+import { Modal } from "@getpaseo/plugin/client/ui";
 import type { strings } from "./strings";
 
 export function ConfirmationModal({

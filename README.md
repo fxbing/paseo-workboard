@@ -51,7 +51,7 @@ See the [archive guide](https://github.com/fxbing/paseo-workboard/blob/main/docs
 
 ## Installation
 
-Use Paseo 0.11.0 or later, as required by [paseo-plugin.json](paseo-plugin.json). Plugins run as trusted, unsandboxed code in the daemon; review the source before installing.
+Use Paseo 0.13.0 or later for both the daemon and the client app, as required by [paseo-plugin.json](paseo-plugin.json). Plugins run as trusted, unsandboxed code in the daemon; review the source before installing.
 
 Install from the repository's default branch into the selected Paseo daemon:
 
@@ -60,6 +60,8 @@ paseo plugin install github:fxbing/paseo-workboard
 ```
 
 This tracks the default branch, which may include changes newer than the latest [GitHub Release](https://github.com/fxbing/paseo-workboard/releases). Each Release marks a tagged snapshot with its upgrade notes; read them before upgrading. Enable plugins in Paseo, then open **Workboard** from the sidebar.
+
+Paseo checks each candidate plugin's minimum version during managed installation and updates. If the daemon is too old, the update is rejected before replacing the running plugin; keep using the installed version until Paseo is upgraded. An update may still be listed before this check. Paseo does not automatically select an older compatible release. The client app checks its own version separately, so update it as well when using a remote daemon. Direct directory edits and Reload do not provide this update protection.
 
 ## Quick start
 

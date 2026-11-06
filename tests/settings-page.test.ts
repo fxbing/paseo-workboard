@@ -41,7 +41,8 @@ vi.mock("react", async (importOriginal) => {
 });
 
 vi.mock("@getpaseo/plugin/client", () => ({ useRpc: vi.fn() }));
-vi.mock("@getpaseo/plugin/client/react-native", () => {
+vi.mock("../client/paseo-language", () => ({ usePaseoLanguage: () => "en" }));
+vi.mock("@getpaseo/plugin/client/ui", () => {
   const component = () => null;
   return {
     Icon: component,
@@ -49,11 +50,6 @@ vi.mock("@getpaseo/plugin/client/react-native", () => {
     ScrollView: component,
     TextInput: component,
     useToast: vi.fn(),
-  };
-});
-vi.mock("@getpaseo/plugin/client/ui", () => {
-  const component = () => null;
-  return {
     ExternalLink: component,
     SettingsCard: component,
     SettingsAction: component,
@@ -137,7 +133,7 @@ function board(
   return boardSchema.parse({
     revision: 7,
     serverId: "host",
-    version: "0.10.0-beta.1",
+    version: "0.15.2",
     connected: true,
     error: null,
     refreshedAt: null,

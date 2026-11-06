@@ -40,7 +40,14 @@ async function snapshotIfReady(): Promise<Board | null> {
 
 async function openWorkboard(page: Page): Promise<void> {
   await page.goto("/");
-  await page.getByText("Workboard", { exact: true }).first().click();
+  const sidebarItem = page.getByRole("button", {
+    name: "Workboard",
+    exact: true,
+  });
+  const menu = page.getByRole("button", { name: /^(Open menu|打开菜单)$/ });
+  await expect(sidebarItem.or(menu).first()).toBeVisible();
+  if (await menu.isVisible()) await menu.click();
+  await sidebarItem.click();
   await expect(page.getByTestId("workboard-view-board")).toBeVisible();
 }
 
@@ -188,6 +195,14 @@ for (const language of ["en", "zh-CN"]) {
       )
       .toBe("archived");
     await openWorkboard(page);
+    await expect(
+      page
+        .getByRole("button", {
+          name: language === "zh-CN" ? "新建任务" : "New task",
+          exact: true,
+        })
+        .first(),
+    ).toBeVisible();
     await page
       .getByRole("button", { name: /^(Archive|归档) \(\d+\)$/ })
       .click();
@@ -481,12 +496,8 @@ for (const width of [1440, 390]) {
       cardOrder: expectedOrder,
     });
     before = await snapshot();
-    await openWorkboard(page);
-    const workboardRoute = page.url();
     await page.setViewportSize({ width, height: 1000 });
-    // Older hosts remount compact navigation on resize and return to the landing page.
-    // Enter the observed Workboard route after selecting the test viewport.
-    await page.goto(workboardRoute);
+    await openWorkboard(page);
     await page.getByTestId("workboard-view-board").click();
     await page.getByTestId("workboard-group-menu").click();
     await page

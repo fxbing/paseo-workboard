@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from "react-native";
-import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
 import { BoardView, type BoardViewProps } from "./BoardView";
 import type { Board } from "../shared/model";
 import { taskSections } from "./project-groups";

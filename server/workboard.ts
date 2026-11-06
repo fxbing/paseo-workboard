@@ -153,6 +153,8 @@ function projectChangeRequest(workspace?: Workspace): Card["changeRequest"] {
   const runtime = workspace?.githubRuntime;
   const request = runtime?.pullRequest;
   if (!request) return null;
+  if (!workspace?.forge)
+    throw new Error("Paseo omitted the change request forge");
   const checks = request.checks ?? [];
   const checkCounts = checks.length
     ? { success: 0, failure: 0, pending: 0, skipped: 0, cancelled: 0 }
@@ -170,7 +172,7 @@ function projectChangeRequest(workspace?: Workspace): Card["changeRequest"] {
             : "open"
           : "unknown";
   return {
-    forge: workspace?.forge ?? "github",
+    forge: workspace.forge,
     number: request.number ?? null,
     url: request.url,
     title: request.title,

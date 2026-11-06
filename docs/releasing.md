@@ -27,12 +27,12 @@ Paseo loads the TypeScript client/server entries and their relative modules. All
 
 The packed package includes the manifest, entries, `client/`, `server/`, `shared/`, both READMEs, both `OVERVIEW` files, `images/` (icon, screenshots and GIFs) and the MIT license. Tests, development scripts, daemon data, logs, credentials and `node_modules` are excluded.
 
-`npm run check:package` checks the package identity/version, manifest minimum, README sections used by Cafe, the complete file list, relative README link targets, referenced media signatures and icon dimensions. The CI workflow runs these checks and creates a downloadable tarball for inspection. Nothing in CI publishes.
+`npm run check:package` checks the package identity/version, manifest minimum, aligned stable SDK dependencies and lockfile, README sections used by Cafe, the complete file list, relative README link targets, referenced media signatures and icon dimensions. The CI workflow runs these checks and creates a downloadable tarball for inspection. Nothing in CI publishes.
 
 ## Prepare and validate a candidate
 
 1. Update `package.json` and `package-lock.json` together. Use a new stable semantic version for every released change. Keep English and Chinese documentation aligned.
-2. Keep `requirements.paseo` at the intended minimum version. Run host integration tests on the current target before widening the range; the internal bridge checks response shapes but cannot guarantee later Paseo versions.
+2. Check the latest stable Paseo release and align all three SDK dependencies to that fixed version. Keep `requirements.paseo` unchanged unless adopting an API or protocol capability that requires a newer host; use the first stable version providing all required capabilities. When raising it, identify the required capability in the Release notes and update both language trees. Run host checks at the manifest minimum and fixed SDK baseline; a typecheck or passing endpoints cannot guarantee every intermediate or future host.
 3. From a clean checkout, run:
 
    ```sh

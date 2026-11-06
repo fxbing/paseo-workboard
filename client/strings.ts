@@ -45,8 +45,6 @@ const zh = {
   clearSearch: "清除搜索",
   conflictCount: "{count} 个冲突",
   mutationPending: "此操作正在提交，请稍后再试。",
-  navigationUnavailable:
-    "当前界面无法打开 workspace，请从 Paseo 的 workspace 列表打开。",
   groupKeyboardHint: "点击打开分组选项；Alt/Meta+左/右方向键调整顺序。",
   startNeedsWorkspace: "请选择要关联的 workspace。",
   startNeedsDirectory: "请输入 workspace 目录。",
@@ -494,6 +492,8 @@ const zh = {
       "原分组已删除，无法放回该分组。请先恢复分组配置。",
   },
   bootErrors: {
+    "Paseo omitted the change request forge":
+      "Paseo 未提供 PR/MR 所属代码托管服务，请刷新后重试。",
     "invalid-storage-data":
       "已保存的 Workboard 数据无法解析，自动重试已停止。请联系维护者修复存储数据。",
     "unsupported-storage-version":
@@ -556,8 +556,6 @@ const en: typeof zh = {
   clearSearch: "Clear search",
   conflictCount: "{count} conflicts",
   mutationPending: "This control is already submitting. Try again shortly.",
-  navigationUnavailable:
-    "Workspace navigation is unavailable here. Open it from the Paseo workspace list.",
   groupKeyboardHint:
     "Press to open group options; Alt/Meta+Left/Right Arrow reorders.",
   startNeedsWorkspace: "Select a workspace to attach.",
@@ -1048,6 +1046,8 @@ const en: typeof zh = {
       "The original group was deleted. Restore its configuration before returning the task to it.",
   },
   bootErrors: {
+    "Paseo omitted the change request forge":
+      "Paseo did not identify the service for a pull or merge request. Refresh and try again.",
     "invalid-storage-data":
       "Saved Workboard data cannot be parsed. Contact a maintainer to repair it; automatic retries have stopped.",
     "unsupported-storage-version":

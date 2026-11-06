@@ -54,7 +54,6 @@ export type Workspace = Pick<
   | "gitRuntime"
   | "githubRuntime"
   | "forge"
-  | "syncSeq"
 > & { labels: string[] };
 export type Agent = Pick<
   PaseoAgent,
@@ -248,7 +247,7 @@ export class PaseoHost implements Host {
         this.agentUpdates.set(change.agent.id, {
           ...change.agent,
           activity: activity(change.agent),
-          delegatedBy: change.agent.labels?.["paseo.parent-agent-id"],
+          delegatedBy: change.agent.labels["paseo.parent-agent-id"],
         });
         this.changed(change.agent.workspaceId, true);
       } else {
@@ -337,16 +336,13 @@ export class PaseoHost implements Host {
         {
           ...agent,
           activity: activity(agent),
-          delegatedBy: agent.labels?.["paseo.parent-agent-id"],
+          delegatedBy: agent.labels["paseo.parent-agent-id"],
         },
       ]),
     );
     for (const [id, value] of this.workspaceUpdates) {
       if (!value) workspaceMap.delete(id);
-      else if (
-        (value.syncSeq ?? Infinity) >= (workspaceMap.get(id)?.syncSeq ?? 0)
-      )
-        workspaceMap.set(id, value);
+      else workspaceMap.set(id, value);
     }
     for (const [id, value] of this.agentUpdates) {
       if (!value) agentMap.delete(id);

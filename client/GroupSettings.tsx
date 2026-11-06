@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import {
+  Icon,
+  Modal,
   SettingsCard,
   SettingsInput,
   SettingsRow,

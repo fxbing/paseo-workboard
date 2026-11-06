@@ -97,7 +97,11 @@ Native archive may stop agents/terminals and remove a managed worktree. Workboar
 
 The public SDK does not expose every required operation. The compatibility module uses the plugin's existing authenticated IPC session for labels, pins, settings writes, bootstrap and selected history/record queries. It does not create a second login, replace credentials or modify Paseo.
 
-The manifest owns the minimum Paseo version. The bridge validates response shapes but does not pin a host version. Later versions may require a compatibility change. The CI host matrix in `.github/workflows/ci.yml` declares which Paseo versions the pipeline is configured to test; a matrix entry shows intent, not a passing result, and only an actual green run supports a compatibility claim. State any supported range change and its remaining limits in the README, the Cafe listing, and the notes of the Release that makes the change.
+The manifest owns the minimum Paseo version. Raise it only when the implementation requires an API or protocol capability introduced in a newer stable release; SDK updates and plugin releases do not raise it automatically. The client uses the public UI, screen/sidebar and reactive locale interfaces available from Paseo 0.13.0. Code uses one current implementation without older-host alternatives. Plugin data migrations and current-protocol validation remain necessary.
+
+Paseo checks the candidate manifest before replacing a managed installation. An incompatible daemon rejects the update while keeping the installed revision running; the app checks its own version before loading client contributions. This does not select a historical compatible release, protect directory edits followed by Reload, or roll back migrated plugin data.
+
+The CI host matrix derives the minimum from the manifest and the fixed stable baseline from the aligned SDK dependencies. It checks the same package on both endpoints, deduplicating equal versions. Passing endpoints does not prove every intermediate or future version, or mixed app/daemon combinations. The internal bridge still requires runtime verification. State supported-range changes in the README, Cafe information and GitHub Release notes.
 
 The runtime uses the fixed plugin ID `paseo-workboard`; install it without an `--id` override.
 
@@ -105,7 +109,7 @@ Client imports use Paseo-provided React, React Native, TanStack Query, Zod and p
 
 ## Client preferences
 
-Paseo has no public plugin locale API. `client/paseo-language.ts` reads the Web/Electron app's `@paseo:app-settings` language, with its legacy key as a fallback, without writing host settings. It uses Paseo's system-locale selection rules and translates Chinese or English. While a surface is mounted, storage/focus events and a one-second check observe changes in the same window. Revalidate this private storage contract when upgrading Paseo. Clients without that storage, including native mobile, fall back to English.
+`client/paseo-language.ts` subscribes to the public `useTranslation` locale. Paseo resolves explicit and system language choices and notifies mounted plugin screens when the locale changes. Workboard uses Chinese for `zh-CN` and English for other locales, keeping labels and dates aligned without reading host storage or polling.
 
 The client shares typography, spacing, radii and minimum control sizes through `client/design.ts`. Host fonts and theme surfaces, foregrounds and borders remain authoritative; group and priority colors carry status meaning. Compact controls retain 36px minimum targets. Layout responds to the measured plugin surface, with a single-column board below 560px and compact list rows below 1100px.
 

@@ -8,7 +8,7 @@ import {
   type TextInput as NativeTextInput,
 } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
+import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
 import type { strings } from "./strings";
 
 export function QuickCreate({

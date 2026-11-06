@@ -10,14 +10,12 @@ import {
   SettingsSelect,
   SettingsSection,
   SettingsSwitch,
-} from "@getpaseo/plugin/client/ui";
-import {
   Icon,
   Modal,
   ScrollView,
   TextInput,
   useToast,
-} from "@getpaseo/plugin/client/react-native";
+} from "@getpaseo/plugin/client/ui";
 import {
   defaultWorkspaceGroup,
   defaultStartWorkGroup,
@@ -1374,12 +1372,9 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
               moveUndos.has(card.id) ? () => undoMove(card.id) : undefined
             }
             onOpen={() => {
-              if (!props.navigation) {
-                toast.error(t.navigationUnavailable);
-                return;
-              }
+              // Workspace navigation is only reachable on the screen, not host settings.
               if (card.workspaceId)
-                props.navigation.openWorkspace({
+                props.navigation!.openWorkspace({
                   workspaceId: card.workspaceId,
                   serverId: board.serverId,
                 });
@@ -1500,7 +1495,7 @@ function HostWorkboard(props: PluginSurfaceProps & { initialPage?: Page }) {
                 : next.cards.find((card) => card.id === starting!.card.id)
                     ?.workspaceId;
             if (workspaceId)
-              props.navigation?.openWorkspace({
+              props.navigation!.openWorkspace({
                 workspaceId,
                 serverId: next.serverId,
               });

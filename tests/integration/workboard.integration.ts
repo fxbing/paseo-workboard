@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { isolatedGitEnvironment } from "../git-environment";
@@ -195,6 +196,115 @@ afterAll(async () => {
 });
 
 describe.skipIf(offsetRun)("isolated Paseo workboard", () => {
+  test("keeps a running managed plugin when an update requires a newer Paseo", async () => {
+    const id = "workboard-update-fixture";
+    const repository = path.join(home, id);
+    const marker = path.join(home, "incompatible-plugin-build");
+    const source = pathToFileURL(repository).href;
+    const { daemonVersion } = await status();
+    const minimum = `>=${daemonVersion}`;
+    const manifest = { id, requirements: { paseo: minimum } };
+    await mkdir(repository);
+    await git(["init", "-b", "main"], repository);
+    await git(["config", "user.name", "Workboard Tests"], repository);
+    await git(["config", "user.email", "tests@example.test"], repository);
+    const commit = async () => {
+      await git(["add", "."], repository);
+      await git(
+        ["-c", "commit.gpgsign=false", "commit", "-m", "Update fixture"],
+        repository,
+      );
+    };
+    const entry = (revision: number) => `
+      import { randomUUID } from "node:crypto";
+      import { defineRpc } from "@getpaseo/plugin";
+      import { z } from "zod";
+      export default function(server) {
+        const instance = randomUUID();
+        server.handle(defineRpc({name: "probe", input: z.object({}),
+          output: z.object({instance: z.string(), revision: z.number()})}),
+          () => ({instance, revision: ${revision}}));
+        return () => {};
+      }
+    `;
+    await writeFile(
+      path.join(repository, "paseo-plugin.json"),
+      JSON.stringify(manifest),
+    );
+    await writeFile(path.join(repository, "index.server.ts"), entry(1));
+    await commit();
+    try {
+      expect((await client.installPluginSource({ source })).status).toBe(
+        "running",
+      );
+      const first = await client.invokePluginRpc(id, "probe", {});
+      expect(first).toMatchObject({ revision: 1 });
+
+      // An ordinary release with the same minimum must remain installable.
+      await writeFile(path.join(repository, "index.server.ts"), entry(2));
+      await commit();
+      const [compatible] = await client.previewPluginUpdates({ pluginId: id });
+      expect(compatible.outcome).toBe("update");
+      expect(
+        await client.applyPluginUpdates([compatible.proposal!]),
+      ).toMatchObject([
+        { id, outcome: "updated", plugin: { status: "running" } },
+      ]);
+      const running = await client.invokePluginRpc(id, "probe", {});
+      expect(running).toMatchObject({ revision: 2 });
+      const installed = (await client.listPlugins()).find(
+        (plugin) => plugin.id === id,
+      );
+
+      const higherMinimum = `>=${Number(daemonVersion.split(".")[0]) + 1}.0.0`;
+      await writeFile(
+        path.join(repository, "paseo-plugin.json"),
+        JSON.stringify({
+          ...manifest,
+          requirements: { paseo: higherMinimum },
+          build: [
+            [
+              process.execPath,
+              "-e",
+              'require("node:fs").writeFileSync(process.argv[1], "built")',
+              marker,
+            ],
+          ],
+        }),
+      );
+      await writeFile(path.join(repository, "index.server.ts"), entry(3));
+      await commit();
+      const [incompatible] = await client.previewPluginUpdates({
+        pluginId: id,
+      });
+      expect(incompatible.outcome).toBe("update");
+      expect(
+        await client.applyPluginUpdates([incompatible.proposal!]),
+      ).toMatchObject([
+        {
+          id,
+          outcome: "error",
+          error: expect.stringContaining(`requires Paseo ${higherMinimum}`),
+        },
+      ]);
+      expect(
+        (await client.listPlugins()).find((plugin) => plugin.id === id),
+      ).toEqual(installed);
+      expect(await client.invokePluginRpc(id, "probe", {})).toEqual(running);
+      expect(await exists(marker)).toBe(false);
+      await expect(
+        client.installPluginSource({
+          source,
+          id: "workboard-rejected-fixture",
+        }),
+      ).rejects.toThrow(`requires Paseo ${higherMinimum}`);
+      expect(await exists(marker)).toBe(false);
+    } finally {
+      if ((await client.listPlugins()).some((plugin) => plugin.id === id))
+        await client.removePlugin(id);
+    }
+  }, 60_000);
+
   test("synchronizes priority labels without replacing status or unrelated labels", async () => {
     const directory = path.join(
       home,

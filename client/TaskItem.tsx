@@ -1,8 +1,12 @@
 import { useState, type ComponentProps } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { ExternalLink } from "@getpaseo/plugin/client/ui";
-import { Icon, Modal, useToast } from "@getpaseo/plugin/client/react-native";
+import {
+  ExternalLink,
+  Icon,
+  Modal,
+  useToast,
+} from "@getpaseo/plugin/client/ui";
 import {
   groupKind,
   isTerminalGroup,

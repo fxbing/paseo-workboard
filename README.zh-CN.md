@@ -51,7 +51,7 @@ Workboard 将活跃 workspace 汇集到同一个看板，每个 workspace 对应
 
 ## 安装
 
-需要 Paseo 0.11.0 或更高版本，详见 [paseo-plugin.json](paseo-plugin.json)。插件作为受信任、未沙箱隔离的代码运行在 daemon 中，请先审阅源码再安装。
+daemon 和客户端 App 均需要 Paseo 0.13.0 或更高版本，详见 [paseo-plugin.json](paseo-plugin.json)。插件作为受信任、未沙箱隔离的代码运行在 daemon 中，请先审阅源码再安装。
 
 从仓库默认分支安装到当前选中的 Paseo daemon：
 
@@ -60,6 +60,8 @@ paseo plugin install github:fxbing/paseo-workboard
 ```
 
 该命令跟随默认分支，可能包含比最新 [GitHub Release](https://github.com/fxbing/paseo-workboard/releases) 更新的改动。每个 Release 标记一个带升级说明的版本快照；升级前请阅读对应说明。在 Paseo 中启用 Plugins 后，从侧边栏打开 **Workboard**。
+
+Paseo 在受管理的安装和更新流程中检查候选插件的最低版本要求。daemon 版本过低时，会在替换正在运行的插件前拒绝更新；升级 Paseo 前可以继续使用已安装版本。检查前仍可能显示有更新，Paseo 不会自动选择历史兼容版本。客户端 App 单独检查自身版本，连接远程 daemon 时也需要同步升级客户端。直接修改本地插件目录后 Reload 不具备这项更新保护。
 
 ## 快速开始
 

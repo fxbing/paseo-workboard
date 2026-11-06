@@ -68,6 +68,8 @@ Logs and failure screenshots/traces go to a temporary artifact directory printed
 by the runner. Set `WORKBOARD_HOST_ARTIFACTS` to choose that directory; CI uploads
 it on failure. Standalone browser runs use ignored `test-results/` by default.
 
+The host matrix is derived from the manifest minimum and the fixed Paseo SDK version, with equal versions deduplicated. It does not cover every intermediate release or mixed app/daemon versions. The suite also uses a local managed Git fixture to verify that updates with an unchanged minimum succeed, while an incompatible candidate is rejected before its build or activation and the previous instance remains running. This fixture tests the native update gate, not plugin data rollback.
+
 ## Use an already-running test host
 
 For targeted debugging, `npm run test:integration` runs `*.integration.ts` files

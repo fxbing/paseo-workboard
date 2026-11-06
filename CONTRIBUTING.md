@@ -88,7 +88,8 @@ for first-time contributors with new GitHub accounts.
 
 CI runs TypeScript and unit tests on Ubuntu, Windows, and macOS with Node 22.22.2,
 plus formatting and package checks on Ubuntu. Separate Ubuntu 24.04 jobs install the
-actual npm tarball into disposable Paseo **0.11.0**, **0.12.0**, **0.13.0**, and **0.14.0** hosts and run
+actual npm tarball into disposable hosts at the manifest minimum and the fixed
+stable SDK version (deduplicated when equal), and run
 integration tests and Chromium UI smoke tests. Browser failures retain traces
 and screenshots alongside isolated daemon logs. The stable `check` job requires
 every matrix job to succeed, including when a dependency fails or is skipped.
@@ -126,16 +127,27 @@ Start with [the architecture guide](docs/architecture.md). The
 server owns the durable board projection and native mutations; the client is a
 theme-aware React Native surface. Version-sensitive integration lives in
 `server/paseo-compat.ts` for host operations and `client/paseo-language.ts` for
-the Web/Electron language setting.
+the public client locale API.
 
 Changes to that compatibility boundary must include tests for the supported
 Paseo versions, and must update the manifest minimum, README, and release notes
 when the supported range changes. Do not infer compatibility from TypeScript
 types alone.
 
-`paseo-plugin.json` owns the minimum Paseo version. Keep all three Paseo SDK
-development dependencies on the same version and verify them against the
-supported host; a host integration result alone is not a complete SDK migration.
+`paseo-plugin.json` owns the minimum Paseo version. Develop against the latest
+stable Paseo SDK, keeping all three SDK dependencies on the same fixed version.
+Raise the minimum only when adopting an API or protocol capability unavailable
+below it, using the first stable release that supplies every required capability.
+SDK updates and ordinary plugin releases do not automatically raise the minimum.
+Use the current host interfaces without branches for older hosts; remove obsolete
+paths when adopting their replacements. Preserve plugin data migrations and
+checks required by the current protocol.
+
+CI derives its two host versions from the manifest and SDK dependencies. The
+minimum catches accidental newer-API use; the stable baseline checks current
+host behavior. Passing both does not prove all intermediate versions or mixed
+app/daemon versions. Add targeted coverage for a demonstrated version-specific
+regression. TypeScript success alone does not prove runtime compatibility.
 
 ## AI-assisted contributions
 

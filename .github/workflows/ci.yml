@@ -14,6 +14,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  versions:
+    runs-on: ubuntu-latest
+    outputs:
+      paseo: ${{ steps.hosts.outputs.paseo }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.22.2"
+      - id: hosts
+        name: Select minimum and stable Paseo hosts
+        run: |
+          node --input-type=module <<'JS' >> "$GITHUB_OUTPUT"
+          import { readFileSync } from "node:fs";
+          const read = (file) => JSON.parse(readFileSync(file, "utf8"));
+          const minimum = read("paseo-plugin.json").requirements.paseo.slice(2);
+          const stable = read("package.json").devDependencies["@getpaseo/plugin"];
+          console.log(`paseo=${JSON.stringify([...new Set([minimum, stable])])}`);
+          JS
+
   unit:
     strategy:
       fail-fast: false
@@ -45,10 +67,11 @@ jobs:
           if-no-files-found: error
 
   host:
+    needs: versions
     strategy:
       fail-fast: false
       matrix:
-        paseo: ["0.11.0", "0.12.0", "0.13.0", "0.14.0"]
+        paseo: ${{ fromJSON(needs.versions.outputs.paseo) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -79,13 +102,14 @@ jobs:
           retention-days: 7
 
   check:
-    needs: [unit, host]
+    needs: [versions, unit, host]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
       - name: Require every CI job to pass
         env:
+          VERSIONS_RESULT: ${{ needs.versions.result }}
           UNIT_RESULT: ${{ needs.unit.result }}
           HOST_RESULT: ${{ needs.host.result }}
-        run: test "$UNIT_RESULT" = success && test "$HOST_RESULT" = success
+        run: test "$VERSIONS_RESULT" = success && test "$UNIT_RESULT" = success && test "$HOST_RESULT" = success

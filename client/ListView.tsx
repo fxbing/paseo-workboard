@@ -8,12 +8,7 @@ import {
   View,
   type ScrollView as NativeScrollView,
 } from "react-native";
-import {
-  Icon,
-  Modal,
-  ScrollView,
-  useToast,
-} from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal, ScrollView, useToast } from "@getpaseo/plugin/client/ui";
 import {
   isDraftGroup,
   type Card,

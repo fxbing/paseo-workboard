@@ -54,7 +54,7 @@ npm run format:check
 
 PR 会自动触发 CI。对于使用新 GitHub 账号的首次贡献者，GitHub 仍可能要求维护者批准。
 
-CI 在 Ubuntu、Windows 和 macOS 上使用 Node 22.22.2 运行 TypeScript 与单元测试，并在 Ubuntu 上执行格式和包检查。独立的 Ubuntu 24.04 任务会将实际 npm tarball 安装到一次性的 Paseo **0.11.0**、**0.12.0**、**0.13.0** 和 **0.14.0** 宿主，运行集成测试和 Chromium UI 冒烟测试。浏览器失败时保留 trace、截图和隔离 daemon 日志。固定的 `check` 任务要求所有矩阵任务成功；依赖失败或跳过也不会通过。仓库维护者应将 `check` 设为 `main` 的必选检查，workflow 本身不能启用分支保护。相同的本地入口和 UI 覆盖边界见[集成指南](tests/integration/README.zh-CN.md)。
+CI 在 Ubuntu、Windows 和 macOS 上使用 Node 22.22.2 运行 TypeScript 与单元测试，并在 Ubuntu 上执行格式和包检查。独立的 Ubuntu 24.04 任务会将实际 npm tarball 安装到一次性的 manifest 最低版本和固定稳定版 SDK 对应宿主（相同时只运行一次），运行集成测试和 Chromium UI 冒烟测试。浏览器失败时保留 trace、截图和隔离 daemon 日志。固定的 `check` 任务要求所有矩阵任务成功；依赖失败或跳过也不会通过。仓库维护者应将 `check` 设为 `main` 的必选检查，workflow 本身不能启用分支保护。相同的本地入口和 UI 覆盖边界见[集成指南](tests/integration/README.zh-CN.md)。
 
 Bug 修复应包含在问题版本失败、修复后通过的回归测试；归档和活动状态改动按相关性覆盖历史缺失或回放、Agent 移除、重启等场景。单测绿灯只证明已覆盖的场景。检查 PR 当前 head 的实际运行结果；等待批准、跳过或没有运行都不算通过。
 
@@ -70,11 +70,13 @@ Bug 修复应包含在问题版本失败、修复后通过的回归测试；归�
 
 ## 架构与兼容性
 
-先阅读[架构说明](docs/zh-CN/architecture.md)。server 负责持久化看板投影和原生写入；client 是跟随主题的 React Native 界面。版本敏感集成集中在 `server/paseo-compat.ts`（宿主操作）和 `client/paseo-language.ts`（Web/Electron 语言设置）。
+先阅读[架构说明](docs/zh-CN/architecture.md)。server 负责持久化看板投影和原生写入；client 是跟随主题的 React Native 界面。版本敏感集成集中在 `server/paseo-compat.ts`（宿主操作）和 `client/paseo-language.ts`（公开客户端语言 API）。
 
 修改该兼容性边界时，必须补充已支持 Paseo 版本的测试；支持范围变化时同步更新 manifest 最低版本、README 和发布说明。不能仅凭 TypeScript 类型推断兼容性。
 
-Paseo 最低版本由 `paseo-plugin.json` 定义。三个 Paseo SDK 开发依赖保持相同版本，并与受支持宿主一起验证；一次宿主集成通过不代表完成 SDK 迁移。
+`paseo-plugin.json` 定义 Paseo 最低版本。开发跟随最新稳定版 Paseo SDK，三个 SDK 依赖固定为同一版本。只有采用旧宿主没有的接口或协议能力时才提高下限，以提供全部所需能力的首个稳定版本为准。SDK 更新和普通插件发版不自动提高下限。代码统一使用当前宿主接口，采用替代接口时删除旧宿主路径；插件数据迁移与当前协议所需的校验继续保留。
+
+CI 从 manifest 和 SDK 依赖取得两个宿主版本：最低版本检查误用新接口，稳定版基线检查当前宿主行为。两端通过不证明所有中间版本或 App/daemon 混合组合都兼容；遇到已证实的特定版本回归时补充针对性覆盖。TypeScript 编译成功不等于运行兼容。
 
 ## 使用 AI 辅助贡献
 

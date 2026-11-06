@@ -53,11 +53,11 @@ it("accepts a newer daemon identity and propagates RPC permission errors", async
   const version = bridge.identity();
   p.respond(0, "daemon.get_status.response", {
     serverId: "test",
-    version: "0.10.0-beta.1",
+    version: "0.15.2",
   });
   await expect(version).resolves.toEqual({
     serverId: "test",
-    version: "0.10.0-beta.1",
+    version: "0.15.2",
   });
   const write = bridge.setLabel("w", "task:done", "emerald", true);
   p.respond(1, "rpc_error", { error: "Permission denied" });

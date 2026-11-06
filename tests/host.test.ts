@@ -67,7 +67,7 @@ it("releases a late subscription after dispose without requesting more subscript
   const host = new PaseoHost(
     api as unknown as PaseoApi,
     {} as PaseoCompat,
-    { serverId: "h", version: "0.11.0" },
+    { serverId: "h", version: "0.15.2" },
     vi.fn(),
   );
   const inventory = host.inventory();
@@ -106,7 +106,7 @@ it("stops inventory before pagination when disposed during event subscription re
   const host = new PaseoHost(
     api as unknown as PaseoApi,
     {} as PaseoCompat,
-    { serverId: "h", version: "0.11.0" },
+    { serverId: "h", version: "0.15.2" },
     vi.fn(),
   );
   const inventory = host.inventory();
@@ -136,7 +136,6 @@ it("keeps directory and subagent subscriptions across inventories, overlays off-
     }) as OwnedSubscription<unknown>;
   const rows = Array.from({ length: 201 }, (_, i) => ({
     ...workspace(String(i)),
-    syncSeq: 1,
   }));
   let subscriptionRequests = 0;
   const api = {
@@ -174,7 +173,6 @@ it("keeps directory and subagent subscriptions across inventories, overlays off-
                     isMerged: false,
                   },
                 },
-                syncSeq: 2,
               },
             },
           } as Parameters<(typeof observers)[0]["update"]>[0]);
@@ -205,7 +203,7 @@ it("keeps directory and subagent subscriptions across inventories, overlays off-
   const host = new PaseoHost(
     api as unknown as PaseoApi,
     {} as PaseoCompat,
-    { serverId: "h", version: "0.9.1" },
+    { serverId: "h", version: "0.15.2" },
     changed,
   );
   try {
@@ -289,12 +287,13 @@ function providerHost(
   return new PaseoHost(
     api as unknown as PaseoApi,
     compat,
-    { serverId: "h", version: "0.9.1" },
+    { serverId: "h", version: "0.15.2" },
     changed,
   );
 }
 
 const parentAgent = {
+  labels: {},
   id: "parent",
   workspaceId: "w1",
   title: "Parent",

@@ -8,7 +8,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon } from "@getpaseo/plugin/client/ui";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 
 type Option = { value: string; label: string };

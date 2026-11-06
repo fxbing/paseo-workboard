@@ -15,7 +15,23 @@ assert.equal(lock.version, pkg.version);
 assert.equal(lock.packages[""].version, pkg.version);
 assert.equal(pkg.publishConfig.access, "public");
 assert.equal(pkg.publishConfig.registry, "https://registry.npmjs.org/");
-assert.match(manifest.requirements.paseo, /^>=\d+\.\d+\.\d+(?:-[\w.-]+)?$/);
+assert.match(manifest.requirements.paseo, /^>=\d+\.\d+\.\d+$/);
+const sdkVersion = pkg.devDependencies["@getpaseo/plugin"];
+assert.match(sdkVersion, /^\d+\.\d+\.\d+$/, "Use a fixed stable Paseo SDK");
+for (const name of [
+  "@getpaseo/client",
+  "@getpaseo/plugin",
+  "@getpaseo/protocol",
+]) {
+  assert.equal(pkg.devDependencies[name], sdkVersion, "Align the Paseo SDKs");
+  assert.equal(lock.packages[""].devDependencies[name], sdkVersion);
+  assert.equal(lock.packages[`node_modules/${name}`].version, sdkVersion);
+}
+const minimum = manifest.requirements.paseo.slice(2);
+assert.ok(
+  minimum.localeCompare(sdkVersion, "en", { numeric: true }) <= 0,
+  "The SDK verification baseline must meet the manifest minimum",
+);
 assert.match(readFileSync("README.md", "utf8"), /^## Installation$/m);
 assert.match(readFileSync("README.md", "utf8"), /^## Limitations$/m);
 

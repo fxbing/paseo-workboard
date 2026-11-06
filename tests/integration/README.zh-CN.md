@@ -31,6 +31,8 @@ Linux 可用 `npx playwright install --with-deps --only-shell chromium` 一并�
 
 日志和失败截图、trace 写入 runner 打印的临时产物目录；可通过 `WORKBOARD_HOST_ARTIFACTS` 指定位置。CI 在失败时上传该目录，单独运行浏览器套件默认使用已忽略的 `test-results/`。
 
+宿主矩阵从 manifest 最低版本和固定 Paseo SDK 版本生成，相同时去重；不覆盖全部中间版本或 App/daemon 混合组合。套件还使用本地受管理 Git 夹具，验证最低要求不变时可以更新，不兼容候选在构建或激活前被拒绝，旧实例继续运行。此夹具验证原生更新门禁，不验证插件数据回滚。
+
 ## 使用已运行的测试宿主
 
 针对性调试时，`npm run test:integration` 会在按以下步骤准备、已运行的隔离 daemon 上执行 `*.integration.ts` 文件。

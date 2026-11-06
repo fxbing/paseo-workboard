@@ -2,7 +2,7 @@
   "id": "paseo-workboard",
   "description": "Workspace tasks and draft ideas in a label-linked board or list for Paseo",
   "requirements": {
-    "paseo": ">=0.11.0"
+    "paseo": ">=0.13.0"
   },
   "name": "Workboard",
   "icon": "images/icon.png",

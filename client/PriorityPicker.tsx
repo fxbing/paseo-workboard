@@ -1,7 +1,7 @@
 import { design, typography } from "./design";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal } from "@getpaseo/plugin/client/ui";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import {
   DEFAULT_PRIORITY_STYLES,

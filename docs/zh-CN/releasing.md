@@ -19,12 +19,12 @@ Paseo 加载 TypeScript 客户端/服务端入口及相对模块，所有外部�
 
 打包内容包含 manifest、入口、`client/`、`server/`、`shared/`、中英文 README、两份 `OVERVIEW`、`images/`（图标、截图和 GIF）以及 MIT 许可证。测试、开发脚本、daemon 数据、日志、凭证与 `node_modules` 不进入发布包。
 
-`npm run check:package` 检查包身份/版本、manifest 最低版本、Cafe 提取所需 README 标题、完整文件清单、README 相对链接目标、引用素材的文件签名和图标尺寸。CI 执行这些检查并生成可下载的 tarball 供审查，CI 中不存在任何发布动作。
+`npm run check:package` 检查包身份/版本、manifest 最低版本、固定稳定版 SDK 及 lockfile 的版本一致性、Cafe 提取所需 README 标题、完整文件清单、README 相对链接目标、引用素材的文件签名和图标尺寸。CI 执行这些检查并生成可下载的 tarball 供审查，CI 中不存在任何发布动作。
 
 ## 准备并验证候选版本
 
 1. 同步更新 `package.json` 与 `package-lock.json`。每次发布变更都使用新的正式语义版本；保持中英文文档一致。
-2. `requirements.paseo` 应设置预期的最低版本；扩大范围前在当前目标宿主运行集成测试。内部桥接校验响应结构，但无法保证后续 Paseo 版本始终兼容。
+2. 核对 Paseo 最新稳定版，将三个 SDK 依赖固定为同一版本。除非采用了要求更高宿主的接口或协议能力，否则保持 `requirements.paseo` 不变；下限取提供全部所需能力的首个稳定版本。提高下限时，在 Release 说明中写明依赖能力，并同步更新中英文文档。在 manifest 最低版本与固定 SDK 基线上运行宿主检查；类型检查或两端通过不保证全部中间及未来版本都兼容。
 3. 在干净 checkout 中运行：
 
    ```sh

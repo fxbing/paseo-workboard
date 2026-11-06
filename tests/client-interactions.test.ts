@@ -85,31 +85,28 @@ vi.mock("@getpaseo/plugin/client", () => ({ useRpc: () => runtime.mutation }));
 vi.mock("../client/paseo-language", () => ({
   usePaseoLanguage: () => runtime.language,
 }));
-vi.mock("@getpaseo/plugin/client/react-native", () => {
+vi.mock("@getpaseo/plugin/client/ui", () => {
   const component = () => null;
   component.Content = () => null;
   return {
-    Icon: component,
-    Modal: component,
-    ScrollView: component,
-    TextInput: component,
     useToast: () => runtime.toast,
+    ...Object.fromEntries(
+      [
+        "Icon",
+        "Modal",
+        "ScrollView",
+        "TextInput",
+        "ExternalLink",
+        "SettingsCard",
+        "SettingsInput",
+        "SettingsAction",
+        "SettingsSelect",
+        "SettingsSection",
+        "SettingsSwitch",
+        "SettingsRow",
+      ].map((name) => [name, component]),
+    ),
   };
-});
-vi.mock("@getpaseo/plugin/client/ui", () => {
-  const component = () => null;
-  return Object.fromEntries(
-    [
-      "ExternalLink",
-      "SettingsCard",
-      "SettingsInput",
-      "SettingsAction",
-      "SettingsSelect",
-      "SettingsSection",
-      "SettingsSwitch",
-      "SettingsRow",
-    ].map((name) => [name, component]),
-  );
 });
 vi.mock("react-native", async (original) => ({
   ...(await original<object>()),
@@ -143,7 +140,7 @@ import { ListView } from "../client/ListView";
 import { QuickCreate } from "../client/QuickCreate";
 import { useDragHandle } from "../client/drag-handle";
 import { ConfirmationModal } from "../client/ConfirmationModal";
-import { Modal } from "@getpaseo/plugin/client/react-native";
+import { Modal } from "@getpaseo/plugin/client/ui";
 import { Text } from "react-native";
 import { HintProvider, HintButton } from "../client/Hint";
 
@@ -247,7 +244,9 @@ function host(initialPage = "board", navigation?: any) {
     theme,
     layout: { compact: false },
     initialPage,
-    navigation,
+    navigation:
+      navigation ??
+      (initialPage === "settings" ? undefined : { openWorkspace: vi.fn() }),
   } as any;
   const element = WorkboardScreen(props).props.children;
   return mount(element.type, element.props);
@@ -257,6 +256,7 @@ function hostFor(id: string) {
     host: { id },
     theme,
     layout: { compact: false },
+    navigation: { openWorkspace: vi.fn() },
   } as any).props.children;
   return mount(element.type, element.props);
 }
@@ -460,14 +460,16 @@ it("X-11 retries snapshot on a runtime disconnect", () => {
   expect(runtime.query.refetch).toHaveBeenCalledOnce();
 });
 
-it("X-12 reports unavailable navigation instead of silently ignoring a workspace title", () => {
+it("X-12 opens a workspace through the host screen navigation", () => {
   runtime.query.data = board([card("one", "review", "w")]);
-  const screen = host();
+  const navigation = { openWorkspace: vi.fn() };
+  const screen = host("board", navigation);
   const view = named(screen.render(), "BoardView");
   view.props.renderCard(view.props.cards[0]).props.onOpen();
-  expect(runtime.toast.error).toHaveBeenCalledWith(
-    (strings("zh") as any).navigationUnavailable,
-  );
+  expect(navigation.openWorkspace).toHaveBeenCalledExactlyOnceWith({
+    workspaceId: "w",
+    serverId: "host",
+  });
 });
 
 it.each([false, true])(
