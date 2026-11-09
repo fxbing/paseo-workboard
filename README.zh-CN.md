@@ -6,6 +6,12 @@
 
 Workboard 将活跃 workspace 汇集到同一个看板，每个 workspace 对应一个任务。可以先把想法记为草稿，开始时再创建或关联 workspace，随后在看板或分组列表中跟踪进展。任务状态由你决定；Agent 结束**不会**自动完成任务。
 
+daemon 和客户端均使用 Paseo 0.15.0 或更高版本时，可以从[官方插件目录](https://paseo.sh/zh-CN/plugins/fxbing/workboard)安装已审核的版本。
+
+```sh
+paseo plugin add fxbing/workboard
+```
+
 ![Workboard 中文界面与虚构示例任务](images/workboard-zh-CN.png)
 
 ## 功能
@@ -54,7 +60,7 @@ Workboard 将活跃 workspace 汇集到同一个看板，每个 workspace 对应
 
 daemon 和客户端 App 均需要 Paseo 0.15.0 或更高版本，详见 [paseo-plugin.json](paseo-plugin.json)。插件作为受信任、未沙箱隔离的代码运行在 daemon 中，请先审阅源码再安装。
 
-从仓库默认分支安装到当前选中的 Paseo daemon：
+也可以从 GitHub 直接安装到当前选中的 Paseo daemon。
 
 ```sh
 paseo plugin install github:fxbing/paseo-workboard

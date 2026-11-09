@@ -1,7 +1,7 @@
 {
   "name": "paseo-workboard",
   "version": "0.5.0",
-  "description": "Workspace tasks and draft ideas in a label-linked board or list for Paseo",
+  "description": "A kanban board for Paseo workspaces that shows which agents are waiting and which PRs have failing CI.",
   "license": "MIT",
   "author": "fxbing",
   "homepage": "https://github.com/fxbing/paseo-workboard#readme",

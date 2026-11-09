@@ -1,6 +1,6 @@
 {
   "id": "paseo-workboard",
-  "description": "Workspace tasks and draft ideas in a label-linked board or list for Paseo",
+  "description": "A kanban board for Paseo workspaces that shows which agents are waiting and which PRs have failing CI.",
   "requirements": {
     "paseo": ">=0.15.0"
   },

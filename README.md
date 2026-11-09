@@ -2,9 +2,15 @@
 
 [简体中文](README.zh-CN.md)
 
-A task board for [Paseo](https://paseo.sh) workspaces, from quick ideas to completed work.
+A kanban board for [Paseo](https://paseo.sh) workspaces, from quick ideas to completed work.
 
 Workboard brings active workspaces into one board, with one task per workspace. Capture an idea as a draft, create or attach a workspace when you start, and track progress in a board or grouped list. Task status stays under your control; an Agent finishing does **not** mark the task done.
+
+With Paseo 0.15.0 or later on both the daemon and client, install the reviewed version from the [official plugin directory](https://paseo.sh/plugins/fxbing/workboard).
+
+```sh
+paseo plugin add fxbing/workboard
+```
 
 ![Workboard with sample tasks in English](images/workboard-en.png)
 
@@ -54,7 +60,7 @@ See the [archive guide](https://github.com/fxbing/paseo-workboard/blob/main/docs
 
 Use Paseo 0.15.0 or later for both the daemon and the client app, as required by [paseo-plugin.json](paseo-plugin.json). Plugins run as trusted, unsandboxed code in the daemon; review the source before installing.
 
-Install from the repository's default branch into the selected Paseo daemon:
+You can also install directly from GitHub into the selected Paseo daemon.
 
 ```sh
 paseo plugin install github:fxbing/paseo-workboard
